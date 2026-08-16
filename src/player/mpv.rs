@@ -2,6 +2,7 @@ use std::{path::Path, path::PathBuf, time::Duration};
 
 use crate::ipc::{Command, Event};
 use crate::player::{media_info::MediaInfo, playlist::DirectoryPlaylist};
+use anyhow::Context;
 use crossbeam_channel::{Receiver, Sender};
 use libmpv::{
     events::{Event as MpvEvent, PropertyData},
@@ -42,7 +43,29 @@ fn load_path(
     path: PathBuf,
 ) -> anyhow::Result<()> {
     let next_playlist = DirectoryPlaylist::load_from_path(&path)?;
-    load_file_in_mpv(mpv, &path)?;
+    activate_playlist(mpv, tx, playlist, next_playlist)
+}
+
+fn load_directory(
+    mpv: &Mpv,
+    tx: &Sender<Event>,
+    playlist: &mut Option<DirectoryPlaylist>,
+    directory: &Path,
+) -> anyhow::Result<()> {
+    let next_playlist = DirectoryPlaylist::load_from_directory(directory)?;
+    activate_playlist(mpv, tx, playlist, next_playlist)
+}
+
+fn activate_playlist(
+    mpv: &Mpv,
+    tx: &Sender<Event>,
+    playlist: &mut Option<DirectoryPlaylist>,
+    next_playlist: DirectoryPlaylist,
+) -> anyhow::Result<()> {
+    let path = next_playlist
+        .current_path()
+        .context("В плейлисте нет видео для воспроизведения")?;
+    load_file_in_mpv(mpv, path)?;
 
     if let Some(file_name) = path.file_name() {
         let _ = tx.send(Event::FileLoaded(file_name.to_string_lossy().into_owned()));
@@ -83,6 +106,9 @@ fn handle_command(
     match command {
         Command::OpenFile(path) => {
             load_path(mpv, tx, playlist, PathBuf::from(path))?;
+        }
+        Command::OpenFolder(path) => {
+            load_directory(mpv, tx, playlist, Path::new(&path))?;
         }
         Command::TogglePlay => {
             let paused = mpv.get_property::<bool>("pause").unwrap_or(false);

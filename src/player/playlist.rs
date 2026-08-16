@@ -34,17 +34,7 @@ impl DirectoryPlaylist {
         }
 
         let directory = path.parent().context("Не удалось определить папку видео")?;
-        let mut files = fs::read_dir(directory)
-            .with_context(|| format!("Не удалось прочитать папку: {}", directory.display()))?
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|candidate| candidate.is_file() && is_video_file(candidate))
-            .collect::<Vec<_>>();
-
-        files.sort_by(|left, right| {
-            let left = left.file_name().unwrap_or_default().to_string_lossy();
-            let right = right.file_name().unwrap_or_default().to_string_lossy();
-            natural_cmp(&left, &right)
-        });
+        let files = read_video_files(directory)?;
 
         let current_index = files
             .iter()
@@ -55,6 +45,26 @@ impl DirectoryPlaylist {
             files,
             current_index,
         })
+    }
+
+    pub fn load_from_directory(directory: &Path) -> Result<Self> {
+        if !directory.is_dir() {
+            bail!("Папка не найдена: {}", directory.display());
+        }
+
+        let files = read_video_files(directory)?;
+        if files.is_empty() {
+            bail!("В папке нет поддерживаемых видео: {}", directory.display());
+        }
+
+        Ok(Self {
+            files,
+            current_index: 0,
+        })
+    }
+
+    pub fn current_path(&self) -> Option<&PathBuf> {
+        self.files.get(self.current_index)
     }
 
     pub fn next_path(&self) -> Option<&PathBuf> {
@@ -80,6 +90,22 @@ impl DirectoryPlaylist {
     pub fn current_index(&self) -> usize {
         self.current_index
     }
+}
+
+fn read_video_files(directory: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = fs::read_dir(directory)
+        .with_context(|| format!("Не удалось прочитать папку: {}", directory.display()))?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|candidate| candidate.is_file() && is_video_file(candidate))
+        .collect::<Vec<_>>();
+
+    files.sort_by(|left, right| {
+        let left = left.file_name().unwrap_or_default().to_string_lossy();
+        let right = right.file_name().unwrap_or_default().to_string_lossy();
+        natural_cmp(&left, &right)
+    });
+
+    Ok(files)
 }
 
 fn natural_cmp(left: &str, right: &str) -> Ordering {
@@ -147,6 +173,7 @@ fn compare_digit_runs(left: &str, right: &str) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn detects_supported_video_extensions_case_insensitively() {
@@ -167,5 +194,37 @@ mod tests {
     #[test]
     fn natural_sort_is_case_insensitive() {
         assert_eq!(natural_cmp("Episode2.MKV", "episode10.mkv"), Ordering::Less);
+    }
+
+    #[test]
+    fn opens_directory_at_first_naturally_sorted_video() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time must be after Unix epoch")
+            .as_nanos();
+        let directory =
+            std::env::temp_dir().join(format!("oxide-playlist-{}-{unique}", std::process::id()));
+
+        fs::create_dir(&directory).expect("temporary playlist directory must be created");
+        for name in ["video10.mp4", "video2.mkv", "notes.txt", "video1.webm"] {
+            fs::write(directory.join(name), []).expect("temporary file must be created");
+        }
+
+        let playlist = DirectoryPlaylist::load_from_directory(&directory)
+            .expect("directory with videos must produce a playlist");
+
+        assert_eq!(
+            playlist.items(),
+            ["video1.webm", "video2.mkv", "video10.mp4"]
+        );
+        assert_eq!(
+            playlist
+                .current_path()
+                .and_then(|path| path.file_name())
+                .and_then(|name| name.to_str()),
+            Some("video1.webm")
+        );
+
+        fs::remove_dir_all(directory).expect("temporary playlist directory must be removed");
     }
 }

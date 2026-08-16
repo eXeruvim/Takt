@@ -19,6 +19,7 @@ export component PlayerControls inherits Rectangle {
     callback toggle_mute();
     callback toggle_loop();
     callback open_file();
+    callback open_folder();
 
     height: Theme.panel-height;
     border-radius: Theme.radius-large;
@@ -211,6 +212,25 @@ export component PlayerControls inherits Rectangle {
 
                 TouchArea {
                     clicked => root.open_file();
+                }
+
+                Text {
+                    text: "📄";
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    color: white;
+                    font-size: 18px;
+                }
+            }
+
+            Rectangle {
+                width: 42px;
+                height: 42px;
+                border-radius: 21px;
+                background: #ffffff10;
+
+                TouchArea {
+                    clicked => root.open_folder();
                 }
 
                 Text {

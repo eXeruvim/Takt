@@ -63,6 +63,7 @@ export component AppWindow inherits Window {
     in-out property <string> error_message: "";
 
     callback open_file();
+    callback open_folder();
     callback play_pause();
     callback stop();
     callback previous_video();
@@ -228,6 +229,7 @@ export component AppWindow inherits Window {
                 toggle_mute => root.toggle_mute();
                 toggle_loop => root.toggle_loop();
                 open_file => root.open_file();
+                open_folder => root.open_folder();
             }
 
             NextVideoCard {

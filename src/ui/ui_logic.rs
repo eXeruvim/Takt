@@ -67,6 +67,16 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     {
         let tx = tx.clone();
 
+        app.on_open_folder(move || {
+            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                let _ = tx.send(Command::OpenFolder(path.to_string_lossy().to_string()));
+            }
+        });
+    }
+
+    {
+        let tx = tx.clone();
+
         app.on_play_pause(move || {
             let _ = tx.send(Command::TogglePlay);
         });

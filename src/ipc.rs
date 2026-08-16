@@ -1,6 +1,7 @@
 #[derive(Debug)]
 pub enum Command {
     OpenFile(String),
+    OpenFolder(String),
 
     TogglePlay,
 
