@@ -1,4 +1,5 @@
 import { Theme } from "../theme.slint";
+import { Button } from "../design_system/primitives.slint";
 
 export component NextVideoCard inherits Rectangle {
 
@@ -59,30 +60,10 @@ export component NextVideoCard inherits Rectangle {
         }
 
 
-        Rectangle {
-
-            height: 38px;
-
-            border-radius: Theme.radius-small;
-
-            background: Theme.accent;
-
-
-            TouchArea {
-                clicked => {
-                    root.play_next();
-                }
-            }
-
-
-            Text {
-                text: "Смотреть";
-
-                color: Theme.on-accent;
-
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
+        Button {
+            text: "Смотреть";
+            primary: true;
+            clicked => root.play_next();
         }
     }
 }

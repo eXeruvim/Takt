@@ -1,46 +1,11 @@
-import { Theme } from "../theme.slint";
+import { Slider } from "../design_system/primitives.slint";
 
-export component Timeline inherits Rectangle {
+export component Timeline inherits Slider {
     in-out property <float> progress: 0.0;
-
     callback seek(float);
 
-    background: transparent;
-    height: 20px;
-
-    touch := TouchArea {
-        width: parent.width;
-        height: parent.height;
-
-        clicked => {
-            root.seek(self.mouse-x / self.width);
-        }
-    }
-
-    Rectangle {
-        x: 0;
-        y: parent.height / 2 - 3px;
-        width: parent.width;
-        height: 6px;
-        border-radius: Theme.radius-full;
-        background: Theme.border-default;
-
-        Rectangle {
-            width: parent.width * root.progress;
-            height: parent.height;
-            border-radius: Theme.radius-full;
-            background: Theme.accent;
-        }
-
-        Rectangle {
-            x: parent.width * root.progress - 8px;
-            y: parent.height / 2 - 8px;
-            width: 16px;
-            height: 16px;
-            border-radius: Theme.radius-small;
-            background: Theme.text-primary;
-            border-width: 2px;
-            border-color: Theme.bg-primary;
-        }
-    }
+    value <=> root.progress;
+    minimum: 0;
+    maximum: 1;
+    changed(value) => root.seek(value);
 }
