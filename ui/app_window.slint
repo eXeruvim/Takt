@@ -31,8 +31,10 @@ component FeatureButton inherits Rectangle {
 
 export component AppWindow inherits Window {
     forward-focus: keyboard;
-    width: 1280px;
-    height: 760px;
+    preferred-width: 1280px;
+    preferred-height: 760px;
+    min-width: 960px;
+    min-height: 600px;
     background: Theme.bg-primary;
 
     in-out property <string> file_name: "Не выбран файл";
