@@ -1,4 +1,7 @@
 /target
 /mpv.lib
 /mpv.dll
+/mpv-2.dll
+/libmpv-2.dll
+/libmpv.dll.a
 .vscode/

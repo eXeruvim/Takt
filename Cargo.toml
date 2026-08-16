@@ -5,11 +5,18 @@ edition = "2021"
 build = "build.rs"
 
 [dependencies]
-slint = { version = "1.5.0", default-features = false, features = ["backend-wgpu", "renderer-winit", "std"] }
-libmpv = { version = "2.0.1", default-features = false }
-crossbeam-channel = { version = "0.5.11", default-features = false, features = ["std"] }
-anyhow = { version = "1.0.81", default-features = false, features = ["std"] }
-raw-window-handle = { version = "0.6.0", default-features = false, features = ["std"] }
+slint = { version = "1.17.1", features = ["raw-window-handle-06"] }
+libmpv = {
+    git = "https://github.com/ParadoxSpiral/libmpv-rs.git",
+    default-features = false
+}
+crossbeam-channel = "0.5.16"
+anyhow = "1.0.104"
+raw-window-handle = "0.6.0"
+rfd = "0.17.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader"] }
 
 [build-dependencies]
-slint-build = { version = "1.5.0", default-features = false }
+slint-build = { version = "1.17.1" }
