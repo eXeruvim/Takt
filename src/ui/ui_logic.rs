@@ -1,14 +1,18 @@
-use std::sync::{Arc, Mutex};
 #[cfg(target_os = "windows")]
 use std::time::Duration;
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
 
 use crate::ipc::{Command, Event};
-use crate::player::playlist::VIDEO_EXTENSIONS;
+use crate::player::playlist::{is_video_file, VIDEO_EXTENSIONS};
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
+use slint::winit_030::{winit::event::WindowEvent, EventResult, WinitWindowAccessor};
 
 slint::include_modules!();
 
@@ -24,10 +28,26 @@ fn format_time(seconds: f64) -> String {
     }
 }
 
+fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
+    if path.is_dir() {
+        return Ok(Command::OpenFolder(path.to_string_lossy().into_owned()));
+    }
+    if path.is_file() && is_video_file(path) {
+        return Ok(Command::OpenFile(path.to_string_lossy().into_owned()));
+    }
+
+    Err(format!(
+        "Перетащенный объект не является поддерживаемым видео или папкой: {}",
+        path.display()
+    ))
+}
+
 #[cfg(target_os = "windows")]
 fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
-    let video_visible =
-        app.get_media_loaded() && !app.get_shortcut_overlay_visible() && !app.get_error_visible();
+    let video_visible = app.get_media_loaded()
+        && !app.get_shortcut_overlay_visible()
+        && !app.get_error_visible()
+        && !app.get_drop_target_visible();
     host.set_visible(video_visible);
 
     let left_inset = if app.get_info_drawer_visible() {
@@ -50,6 +70,41 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     let video_host = Arc::new(Mutex::new(None::<VideoHost>));
     #[cfg(target_os = "windows")]
     let video_resize_timer = slint::Timer::default();
+
+    {
+        let tx = tx.clone();
+        let app_weak = app.as_weak();
+
+        app.window().on_winit_window_event(move |_, event| {
+            let Some(app) = app_weak.upgrade() else {
+                return EventResult::Propagate;
+            };
+
+            match event {
+                WindowEvent::HoveredFile(path) => {
+                    app.set_drop_target_visible(path.is_dir() || is_video_file(path));
+                }
+                WindowEvent::HoveredFileCancelled => {
+                    app.set_drop_target_visible(false);
+                }
+                WindowEvent::DroppedFile(path) => {
+                    app.set_drop_target_visible(false);
+                    match command_for_dropped_path(path) {
+                        Ok(command) => {
+                            let _ = tx.send(command);
+                        }
+                        Err(message) => {
+                            app.set_error_message(message.into());
+                            app.set_error_visible(true);
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            EventResult::Propagate
+        });
+    }
 
     {
         let tx = tx.clone();
@@ -429,7 +484,10 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::format_time;
+    use std::path::Path;
+
+    use super::{command_for_dropped_path, format_time};
+    use crate::ipc::Command;
 
     #[test]
     fn formats_short_and_long_durations() {
@@ -441,5 +499,28 @@ mod tests {
     #[test]
     fn clamps_negative_time_to_zero() {
         assert_eq!(format_time(-10.0), "00:00");
+    }
+
+    #[test]
+    fn rejects_unsupported_dropped_paths() {
+        assert!(command_for_dropped_path(Path::new("notes.txt")).is_err());
+        assert!(command_for_dropped_path(Path::new("missing.mp4")).is_err());
+    }
+
+    #[test]
+    fn creates_open_file_command_for_supported_drop() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time must be after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("oxide-drop-{unique}.mkv"));
+        std::fs::write(&path, []).expect("temporary video must be created");
+
+        assert!(matches!(
+            command_for_dropped_path(&path),
+            Ok(Command::OpenFile(_))
+        ));
+
+        std::fs::remove_file(path).expect("temporary video must be removed");
     }
 }

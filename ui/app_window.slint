@@ -63,6 +63,7 @@ export component AppWindow inherits Window {
     in-out property <bool> shortcut_overlay_visible: false;
     in-out property <bool> error_visible: false;
     in-out property <string> error_message: "";
+    in-out property <bool> drop_target_visible: false;
 
     callback open_file();
     callback open_folder();
@@ -272,6 +273,35 @@ export component AppWindow inherits Window {
 
             ShortcutOverlay {
                 overlay_visible: root.shortcut_overlay_visible;
+            }
+
+            Rectangle {
+                visible: root.drop_target_visible;
+                width: parent.width;
+                height: parent.height;
+                background: #0b1017ee;
+                border-width: 2px;
+                border-color: Theme.accent;
+
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 12px;
+
+                    Text {
+                        text: "Перетащите сюда видео или папку";
+                        color: Theme.text-primary;
+                        font-size: 24px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: "Отпустите, чтобы начать воспроизведение";
+                        color: Theme.text-secondary;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                    }
+                }
             }
 
             Rectangle {
