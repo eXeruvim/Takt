@@ -26,7 +26,8 @@ fn format_time(seconds: f64) -> String {
 
 #[cfg(target_os = "windows")]
 fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
-    let video_visible = !app.get_shortcut_overlay_visible() && !app.get_error_visible();
+    let video_visible =
+        app.get_media_loaded() && !app.get_shortcut_overlay_visible() && !app.get_error_visible();
     host.set_visible(video_visible);
 
     let left_inset = if app.get_info_drawer_visible() {
@@ -308,6 +309,10 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         if let Ok(mut duration) = current_duration.lock() {
                             *duration = 0.0;
                         }
+                    }
+
+                    Event::MediaAvailable(available) => {
+                        app.set_media_loaded(available);
                     }
 
                     Event::PlaybackState(state) => {

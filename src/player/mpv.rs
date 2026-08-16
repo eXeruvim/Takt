@@ -48,6 +48,7 @@ fn load_path(
         let _ = tx.send(Event::FileLoaded(file_name.to_string_lossy().into_owned()));
     }
     send_playlist(tx, &next_playlist);
+    let _ = tx.send(Event::MediaAvailable(true));
     *playlist = Some(next_playlist);
     Ok(())
 }
@@ -57,7 +58,7 @@ fn load_adjacent(
     tx: &Sender<Event>,
     playlist: &mut Option<DirectoryPlaylist>,
     next: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     let path = playlist.as_ref().and_then(|playlist| {
         if next {
             playlist.next_path()
@@ -68,8 +69,9 @@ fn load_adjacent(
 
     if let Some(path) = path.cloned() {
         load_path(mpv, tx, playlist, path)?;
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
 }
 
 fn handle_command(
@@ -88,6 +90,9 @@ fn handle_command(
         }
         Command::Stop => {
             mpv_error(mpv.command("stop", &[]))?;
+            let _ = tx.send(Event::MediaAvailable(false));
+            let _ = tx.send(Event::PlaybackState(false));
+            let _ = tx.send(Event::TimePos(0.0));
         }
         Command::Seek(position) => {
             mpv_error(mpv.set_property("time-pos", position.max(0.0)))?;
@@ -98,8 +103,12 @@ fn handle_command(
         Command::SetSpeed(value) => {
             mpv_error(mpv.set_property("speed", value.clamp(0.25, 4.0)))?;
         }
-        Command::NextVideo => load_adjacent(mpv, tx, playlist, true)?,
-        Command::PreviousVideo => load_adjacent(mpv, tx, playlist, false)?,
+        Command::NextVideo => {
+            load_adjacent(mpv, tx, playlist, true)?;
+        }
+        Command::PreviousVideo => {
+            load_adjacent(mpv, tx, playlist, false)?;
+        }
         Command::ToggleLoop => {
             let loop_file = mpv
                 .get_property::<String>("loop-file")
@@ -183,9 +192,19 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
             match event {
                 Ok(MpvEvent::FileLoaded) => send_media_info(&mpv, &tx),
                 Ok(MpvEvent::EndFile(reason)) if reason == mpv_end_file_reason::Eof => {
-                    if let Err(error) = load_adjacent(&mpv, &tx, &mut playlist, true) {
-                        let _ = tx.send(Event::Error(error.to_string()));
+                    match load_adjacent(&mpv, &tx, &mut playlist, true) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            let _ = tx.send(Event::MediaAvailable(false));
+                            let _ = tx.send(Event::PlaybackState(false));
+                        }
+                        Err(error) => {
+                            let _ = tx.send(Event::Error(error.to_string()));
+                        }
                     }
+                }
+                Ok(MpvEvent::VideoReconfig | MpvEvent::AudioReconfig) => {
+                    send_media_info(&mpv, &tx);
                 }
                 Ok(MpvEvent::PropertyChange { name, change, .. }) => {
                     send_property_change(&tx, name, change);

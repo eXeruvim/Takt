@@ -39,6 +39,7 @@ pub enum Event {
     Speed(f64),
 
     FileLoaded(String),
+    MediaAvailable(bool),
 
     Playlist {
         items: Vec<String>,
