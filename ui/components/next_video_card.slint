@@ -15,7 +15,7 @@ export component NextVideoCard inherits Rectangle {
     height: 140px;
 
 
-    border-radius: 18px;
+    border-radius: Theme.radius-large;
 
 
     x: card_visible
@@ -26,23 +26,23 @@ export component NextVideoCard inherits Rectangle {
     y: parent_height - self.height - 140px;
 
 
-    background: #111827ee;
+    background: Theme.surface-elevated;
 
 
     border-width: 1px;
-    border-color: Theme.border;
+    border-color: Theme.border-default;
 
 
     animate x {
-        duration: 240ms;
+        duration: Theme.motion-slow;
         easing: ease-in-out;
     }
 
 
     VerticalLayout {
 
-        padding: 16px;
-        spacing: 10px;
+        padding: Theme.space-4;
+        spacing: Theme.space-2;
 
 
         Text {
@@ -63,7 +63,7 @@ export component NextVideoCard inherits Rectangle {
 
             height: 38px;
 
-            border-radius: 10px;
+            border-radius: Theme.radius-small;
 
             background: Theme.accent;
 
@@ -78,7 +78,7 @@ export component NextVideoCard inherits Rectangle {
             Text {
                 text: "Смотреть";
 
-                color: white;
+                color: Theme.on-accent;
 
                 horizontal-alignment: center;
                 vertical-alignment: center;

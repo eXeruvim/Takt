@@ -1,21 +1,97 @@
+import { Palette } from "std-widgets.slint";
+
 export global Theme {
-    out property <color> bg-primary: #0b0f14;
-    out property <color> bg-secondary: #121821;
-    out property <color> bg-elevated: #171f2b;
+    // Color mode. `unknown` follows the system setting through Slint's palette.
+    in-out property <ColorScheme> color-scheme <=> Palette.color-scheme;
+    out property <bool> is-dark: color-scheme == ColorScheme.dark;
 
-    out property <color> accent: #4f7dff;
-    out property <color> accent-hover: #6a91ff;
-    out property <color> accent-pressed: #3d68e6;
+    // Semantic surfaces.
+    out property <color> surface-canvas: is-dark ? #0d0d0f : #f7f7f8;
+    out property <color> surface-panel: is-dark ? #151518 : #ffffff;
+    out property <color> surface-elevated: is-dark ? #1c1c20 : #ffffff;
+    out property <color> surface-hover: is-dark ? #25252a : #f1f1f3;
+    out property <color> surface-pressed: is-dark ? #2d2d33 : #e8e8eb;
+    out property <color> surface-selected: is-dark ? #ff5f5726 : #e5484d18;
+    out property <color> surface-media: #08080a;
+    out property <color> backdrop: is-dark ? #000000a6 : #16161a66;
 
-    out property <color> text-primary: #ffffff;
-    out property <color> text-secondary: #a7b0c0;
-    out property <color> text-muted: #707b8c;
+    // Raycast-inspired accent and interactive states.
+    out property <color> accent: is-dark ? #ff6363 : #e5484d;
+    out property <color> accent-hover: is-dark ? #ff7a76 : #d63c42;
+    out property <color> accent-pressed: is-dark ? #e85252 : #c62f36;
+    out property <color> accent-subtle: is-dark ? #ff636329 : #e5484d1f;
+    out property <color> on-accent: #ffffff;
 
-    out property <color> border: #ffffff15;
+    // Content colors.
+    out property <color> text-primary: is-dark ? #f7f7f8 : #17171a;
+    out property <color> text-secondary: is-dark ? #b5b5bd : #5f5f68;
+    out property <color> text-muted: is-dark ? #7c7c86 : #8a8a94;
+    out property <color> text-disabled: is-dark ? #55555e : #b1b1b8;
+    out property <color> border-subtle: is-dark ? #ffffff14 : #00000012;
+    out property <color> border-default: is-dark ? #ffffff24 : #0000001f;
+    out property <color> border-strong: is-dark ? #ffffff3d : #00000033;
 
+    // Feedback colors.
+    out property <color> success: is-dark ? #32d583 : #168a55;
+    out property <color> success-subtle: is-dark ? #32d58324 : #168a551a;
+    out property <color> warning: is-dark ? #f6c344 : #a15c00;
+    out property <color> warning-subtle: is-dark ? #f6c34424 : #a15c001a;
+    out property <color> danger: is-dark ? #ff5f57 : #d92d3a;
+    out property <color> danger-subtle: is-dark ? #ff5f5724 : #d92d3a1a;
+
+    // Focus and elevation.
+    out property <color> focus-ring: is-dark ? #ff8a86 : #d92d3a;
+    out property <length> focus-ring-width: 2px;
+    out property <color> shadow-low: #0000002e;
+    out property <color> shadow-high: #00000070;
+    out property <length> elevation-low-blur: 12px;
+    out property <length> elevation-high-blur: 32px;
+    out property <length> elevation-low-y: 4px;
+    out property <length> elevation-high-y: 12px;
+
+    // Four-point spacing scale.
+    out property <length> space-0: 0px;
+    out property <length> space-1: 4px;
+    out property <length> space-2: 8px;
+    out property <length> space-3: 12px;
+    out property <length> space-4: 16px;
+    out property <length> space-5: 20px;
+    out property <length> space-6: 24px;
+    out property <length> space-7: 28px;
+    out property <length> space-8: 32px;
+    out property <length> space-10: 40px;
+    out property <length> space-12: 48px;
+
+    // Shape and icon scales.
     out property <length> radius-small: 8px;
     out property <length> radius-medium: 12px;
-    out property <length> radius-large: 18px;
+    out property <length> radius-large: 16px;
+    out property <length> radius-xlarge: 20px;
+    out property <length> radius-full: 999px;
+    out property <length> icon-small: 16px;
+    out property <length> icon-medium: 20px;
+    out property <length> icon-large: 24px;
 
+    // Type scale.
+    out property <length> text-xs: 11px;
+    out property <length> text-small: 12px;
+    out property <length> text-body: 14px;
+    out property <length> text-large: 16px;
+    out property <length> text-heading: 20px;
+    out property <length> text-title: 24px;
+    out property <length> text-display: 28px;
+
+    // Motion.
+    out property <duration> motion-fast: 100ms;
+    out property <duration> motion-normal: 180ms;
+    out property <duration> motion-slow: 240ms;
+
+    // Product layout tokens retained here until the player layout is rebuilt.
     out property <length> panel-height: 92px;
+
+    // Compatibility aliases for components migrated in later slices.
+    out property <color> bg-primary: surface-canvas;
+    out property <color> bg-secondary: surface-panel;
+    out property <color> bg-elevated: surface-elevated;
+    out property <color> border: border-subtle;
 }

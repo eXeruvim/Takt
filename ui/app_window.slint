@@ -11,21 +11,21 @@ component FeatureButton inherits Rectangle {
 
     width: 42px;
     height: 42px;
-    border-radius: 14px;
-    background: #ffffff10;
+    border-radius: Theme.radius-medium;
+    background: hitbox.pressed ? Theme.surface-pressed : hitbox.has-hover ? Theme.surface-hover : Theme.surface-panel;
     border-width: 1px;
-    border-color: Theme.border;
+    border-color: Theme.border-default;
 
-    TouchArea {
+    hitbox := TouchArea {
         clicked => action();
     }
 
     Text {
         text: root.label;
-        color: white;
+        color: Theme.text-primary;
         horizontal-alignment: center;
         vertical-alignment: center;
-        font-size: 18px;
+        font-size: Theme.text-large;
     }
 }
 
@@ -118,23 +118,23 @@ export component AppWindow inherits Window {
                 y: 0px;
                 width: parent.width;
                 height: 96px;
-                background: Theme.bg-secondary;
+                background: Theme.surface-panel;
 
                 HorizontalLayout {
                     x: 28px;
                     y: 24px;
-                    spacing: 18px;
+                    spacing: Theme.space-5;
 
                     Text {
                         text: "Oxide";
-                        font-size: 28px;
+                        font-size: Theme.text-display;
                         font-weight: 700;
-                        color: white;
+                        color: Theme.text-primary;
                     }
 
                     Text {
                         text: "Современный видеоплеер";
-                        font-size: 14px;
+                        font-size: Theme.text-body;
                         color: Theme.text-secondary;
                     }
                 }
@@ -142,7 +142,7 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     x: parent.width - 212px;
                     y: 24px;
-                    spacing: 10px;
+                    spacing: Theme.space-2;
 
                     FeatureButton {
                         label: "i";
@@ -172,9 +172,9 @@ export component AppWindow inherits Window {
                 width: parent.width - 56px;
                 height: parent.height - 206px;
                 border-radius: Theme.radius-large;
-                background: #10171f;
+                background: Theme.surface-panel;
                 border-width: 1px;
-                border-color: Theme.border;
+                border-color: Theme.border-subtle;
 
                 Rectangle {
                     x: 24px;
@@ -182,9 +182,9 @@ export component AppWindow inherits Window {
                     width: parent.width - 104px;
                     height: parent.height - 254px;
                     border-radius: Theme.radius-large;
-                    background: #0b1017;
+                    background: Theme.surface-media;
                     border-width: 1px;
-                    border-color: #4f5a6d;
+                    border-color: Theme.border-strong;
                 }
 
                 Text {
@@ -192,7 +192,7 @@ export component AppWindow inherits Window {
                     y: 40px;
                     text: root.file_name != "Не выбран файл" ? root.file_name : "Откройте любой видеофайл";
                     color: Theme.text-primary;
-                    font-size: 22px;
+                    font-size: Theme.text-heading;
                     font-weight: 700;
                 }
 
@@ -201,7 +201,7 @@ export component AppWindow inherits Window {
                     y: 78px;
                     text: root.file_name != "Не выбран файл" ? root.resolution + " · " + root.codec + " · " + root.fps + " FPS" : "Файл не выбран";
                     color: Theme.text-secondary;
-                    font-size: 14px;
+                    font-size: Theme.text-body;
                 }
 
                 Text {
@@ -209,7 +209,7 @@ export component AppWindow inherits Window {
                     y: 106px;
                     text: root.file_name != "Не выбран файл" ? "Используйте клавишу H для подсказки" : "Нажмите O или кнопку ниже, чтобы начать";
                     color: Theme.text-secondary;
-                    font-size: 14px;
+                    font-size: Theme.text-body;
                 }
             }
 
@@ -279,18 +279,18 @@ export component AppWindow inherits Window {
                 visible: root.drop_target_visible;
                 width: parent.width;
                 height: parent.height;
-                background: #0b1017ee;
+                background: Theme.backdrop;
                 border-width: 2px;
                 border-color: Theme.accent;
 
                 VerticalLayout {
                     alignment: center;
-                    spacing: 12px;
+                    spacing: Theme.space-3;
 
                     Text {
                         text: "Перетащите сюда видео или папку";
                         color: Theme.text-primary;
-                        font-size: 24px;
+                        font-size: Theme.text-title;
                         font-weight: 700;
                         horizontal-alignment: center;
                     }
@@ -298,7 +298,7 @@ export component AppWindow inherits Window {
                     Text {
                         text: "Отпустите, чтобы начать воспроизведение";
                         color: Theme.text-secondary;
-                        font-size: 14px;
+                        font-size: Theme.text-body;
                         horizontal-alignment: center;
                     }
                 }
@@ -311,9 +311,9 @@ export component AppWindow inherits Window {
                 width: 420px;
                 height: 76px;
                 border-radius: Theme.radius-medium;
-                background: #3a171bee;
+                background: Theme.danger-subtle;
                 border-width: 1px;
-                border-color: #ff5f57;
+                border-color: Theme.danger;
 
                 TouchArea {
                     clicked => {

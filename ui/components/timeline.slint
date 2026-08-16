@@ -22,13 +22,13 @@ export component Timeline inherits Rectangle {
         y: parent.height / 2 - 3px;
         width: parent.width;
         height: 6px;
-        border-radius: 999px;
-        background: #ffffff22;
+        border-radius: Theme.radius-full;
+        background: Theme.border-default;
 
         Rectangle {
             width: parent.width * root.progress;
             height: parent.height;
-            border-radius: 999px;
+            border-radius: Theme.radius-full;
             background: Theme.accent;
         }
 
@@ -37,8 +37,8 @@ export component Timeline inherits Rectangle {
             y: parent.height / 2 - 8px;
             width: 16px;
             height: 16px;
-            border-radius: 8px;
-            background: white;
+            border-radius: Theme.radius-small;
+            background: Theme.text-primary;
             border-width: 2px;
             border-color: Theme.bg-primary;
         }

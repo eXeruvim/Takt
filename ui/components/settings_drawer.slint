@@ -18,29 +18,29 @@ export component SettingsDrawer inherits Rectangle {
     width: 320px;
     height: parent_height;
     x: drawer_visible ? parent_width - self.width : parent_width + 20px;
-    background: #121821ee;
+    background: Theme.surface-elevated;
     border-width: 1px;
-    border-color: Theme.border;
+    border-color: Theme.border-default;
 
     animate x {
-        duration: 220ms;
+        duration: Theme.motion-slow;
         easing: ease-in-out;
     }
 
     VerticalLayout {
-        padding: 24px;
-        spacing: 18px;
+        padding: Theme.space-6;
+        spacing: Theme.space-5;
 
         Text {
             text: "Настройки";
             color: Theme.text-primary;
-            font-size: 22px;
+            font-size: Theme.text-heading;
             font-weight: 700;
         }
 
         Rectangle {
             height: 1px;
-            background: Theme.border;
+            background: Theme.border-subtle;
         }
 
         Text {
@@ -49,7 +49,7 @@ export component SettingsDrawer inherits Rectangle {
         }
 
         HorizontalLayout {
-            spacing: 8px;
+            spacing: Theme.space-2;
 
             for value in [
                 "0.5",
@@ -60,8 +60,8 @@ export component SettingsDrawer inherits Rectangle {
                 "2.0"
             ] : Rectangle {
                 height: 34px;
-                border-radius: 10px;
-                background: speed == value.to-float() ? Theme.accent : #ffffff10;
+                border-radius: Theme.radius-small;
+                background: speed == value.to-float() ? Theme.accent : Theme.surface-hover;
 
                 TouchArea {
                     clicked => {
@@ -71,7 +71,7 @@ export component SettingsDrawer inherits Rectangle {
 
                 Text {
                     text: value + "x";
-                    color: white;
+                    color: speed == value.to-float() ? Theme.on-accent : Theme.text-primary;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
@@ -80,13 +80,13 @@ export component SettingsDrawer inherits Rectangle {
 
         Rectangle {
             height: 1px;
-            background: Theme.border;
+            background: Theme.border-subtle;
         }
 
         Rectangle {
             height: 44px;
-            border-radius: 12px;
-            background: loop_enabled ? Theme.accent : #ffffff10;
+            border-radius: Theme.radius-medium;
+            background: loop_enabled ? Theme.accent : Theme.surface-hover;
 
             TouchArea {
                 clicked => {
@@ -96,7 +96,7 @@ export component SettingsDrawer inherits Rectangle {
 
             Text {
                 text: loop_enabled ? "Повтор файла включён" : "Повтор файла";
-                color: white;
+                color: loop_enabled ? Theme.on-accent : Theme.text-primary;
                 vertical-alignment: center;
                 horizontal-alignment: center;
             }
@@ -104,8 +104,8 @@ export component SettingsDrawer inherits Rectangle {
 
         Rectangle {
             height: 44px;
-            border-radius: 12px;
-            background: folder_loop_enabled ? Theme.accent : #ffffff10;
+            border-radius: Theme.radius-medium;
+            background: folder_loop_enabled ? Theme.accent : Theme.surface-hover;
 
             TouchArea {
                 clicked => {
@@ -115,7 +115,7 @@ export component SettingsDrawer inherits Rectangle {
 
             Text {
                 text: folder_loop_enabled ? "Повтор папки включён" : "Повтор папки";
-                color: white;
+                color: folder_loop_enabled ? Theme.on-accent : Theme.text-primary;
                 vertical-alignment: center;
                 horizontal-alignment: center;
             }
@@ -123,8 +123,8 @@ export component SettingsDrawer inherits Rectangle {
 
         Rectangle {
             height: 44px;
-            border-radius: 12px;
-            background: shuffle_enabled ? Theme.accent : #ffffff10;
+            border-radius: Theme.radius-medium;
+            background: shuffle_enabled ? Theme.accent : Theme.surface-hover;
 
             TouchArea {
                 clicked => {
@@ -134,7 +134,7 @@ export component SettingsDrawer inherits Rectangle {
 
             Text {
                 text: shuffle_enabled ? "Случайный порядок включён" : "Случайный порядок";
-                color: white;
+                color: shuffle_enabled ? Theme.on-accent : Theme.text-primary;
                 vertical-alignment: center;
                 horizontal-alignment: center;
             }

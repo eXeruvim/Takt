@@ -23,16 +23,16 @@ export component PlayerControls inherits Rectangle {
 
     height: Theme.panel-height;
     border-radius: Theme.radius-large;
-    background: #0f131c;
+    background: Theme.surface-panel;
     border-width: 1px;
-    border-color: Theme.border;
+    border-color: Theme.border-default;
 
     VerticalLayout {
-        padding-left: 22px;
-        padding-right: 22px;
-        padding-top: 14px;
-        padding-bottom: 14px;
-        spacing: 14px;
+        padding-left: Theme.space-5;
+        padding-right: Theme.space-5;
+        padding-top: Theme.space-3;
+        padding-bottom: Theme.space-3;
+        spacing: Theme.space-3;
 
         Timeline {
             progress: root.progress;
@@ -42,13 +42,13 @@ export component PlayerControls inherits Rectangle {
         }
 
         HorizontalLayout {
-            spacing: 12px;
+            spacing: Theme.space-3;
 
             Rectangle {
                 width: 42px;
                 height: 42px;
-                border-radius: 21px;
-                background: #ffffff10;
+                border-radius: Theme.radius-full;
+                background: Theme.surface-hover;
 
                 TouchArea {
                     clicked => {
@@ -58,17 +58,17 @@ export component PlayerControls inherits Rectangle {
 
                 Text {
                     text: "⏮";
-                    color: white;
+                    color: Theme.text-primary;
                     horizontal-alignment: center;
                     vertical-alignment: center;
-                    font-size: 18px;
+                    font-size: Theme.text-large;
                 }
             }
 
             Rectangle {
                 width: 52px;
                 height: 52px;
-                border-radius: 26px;
+                border-radius: Theme.radius-full;
                 background: Theme.accent;
 
                 TouchArea {
@@ -79,18 +79,18 @@ export component PlayerControls inherits Rectangle {
 
                 Text {
                     text: root.is_playing ? "⏸" : "▶";
-                    color: white;
+                    color: Theme.on-accent;
                     horizontal-alignment: center;
                     vertical-alignment: center;
-                    font-size: 18px;
+                    font-size: Theme.text-large;
                 }
             }
 
             Rectangle {
                 width: 42px;
                 height: 42px;
-                border-radius: 21px;
-                background: #ffffff10;
+                border-radius: Theme.radius-full;
+                background: Theme.surface-hover;
 
                 TouchArea {
                     clicked => {
@@ -100,18 +100,18 @@ export component PlayerControls inherits Rectangle {
 
                 Text {
                     text: "⏹";
-                    color: white;
+                    color: Theme.text-primary;
                     horizontal-alignment: center;
                     vertical-alignment: center;
-                    font-size: 16px;
+                    font-size: Theme.text-large;
                 }
             }
 
             Rectangle {
                 width: 42px;
                 height: 42px;
-                border-radius: 21px;
-                background: #ffffff10;
+                border-radius: Theme.radius-full;
+                background: Theme.surface-hover;
 
                 TouchArea {
                     clicked => {
@@ -121,24 +121,24 @@ export component PlayerControls inherits Rectangle {
 
                 Text {
                     text: "⏭";
-                    color: white;
+                    color: Theme.text-primary;
                     horizontal-alignment: center;
                     vertical-alignment: center;
-                    font-size: 18px;
+                    font-size: Theme.text-large;
                 }
             }
 
             Rectangle {
                 width: 2px;
                 height: 42px;
-                background: Theme.border;
+                background: Theme.border-subtle;
             }
 
             Rectangle {
                 width: 132px;
                 height: 34px;
-                border-radius: 12px;
-                background: root.loop_enabled ? Theme.accent : #ffffff10;
+                border-radius: Theme.radius-medium;
+                background: root.loop_enabled ? Theme.accent : Theme.surface-hover;
 
                 TouchArea {
                     clicked => root.toggle_loop();
@@ -146,18 +146,18 @@ export component PlayerControls inherits Rectangle {
 
                 Text {
                     text: root.loop_enabled ? "Повтор включен" : "Повтор";
-                    color: white;
+                    color: root.loop_enabled ? Theme.on-accent : Theme.text-primary;
                     horizontal-alignment: center;
                     vertical-alignment: center;
-                    font-size: 12px;
+                    font-size: Theme.text-small;
                 }
             }
 
             Rectangle {
                 width: 34px;
                 height: 34px;
-                border-radius: 17px;
-                background: #ffffff10;
+                border-radius: Theme.radius-full;
+                background: Theme.surface-hover;
 
                 TouchArea {
                     clicked => root.toggle_mute();
@@ -165,29 +165,29 @@ export component PlayerControls inherits Rectangle {
 
                 Text {
                     text: !root.muted && root.volume > 0.0 ? "🔊" : "🔇";
-                    color: white;
+                    color: Theme.text-primary;
                     horizontal-alignment: center;
                     vertical-alignment: center;
-                    font-size: 16px;
+                    font-size: Theme.text-large;
                 }
             }
 
             Rectangle {
                 width: 1px;
                 height: 34px;
-                background: Theme.border;
+                background: Theme.border-subtle;
             }
 
             Rectangle {
                 width: 160px;
                 height: 6px;
-                border-radius: 3px;
-                background: #ffffff20;
+                border-radius: Theme.radius-full;
+                background: Theme.border-default;
 
                 Rectangle {
                     width: parent.width * root.volume;
                     height: parent.height;
-                    border-radius: 3px;
+                    border-radius: Theme.radius-full;
                     background: Theme.accent;
                 }
 
@@ -201,14 +201,14 @@ export component PlayerControls inherits Rectangle {
             Rectangle {
                 width: 1px;
                 height: 42px;
-                background: Theme.border;
+                background: Theme.border-subtle;
             }
 
             Rectangle {
                 width: 42px;
                 height: 42px;
-                border-radius: 21px;
-                background: #ffffff10;
+                border-radius: Theme.radius-full;
+                background: Theme.surface-hover;
 
                 TouchArea {
                     clicked => root.open_file();
@@ -218,16 +218,16 @@ export component PlayerControls inherits Rectangle {
                     text: "📄";
                     horizontal-alignment: center;
                     vertical-alignment: center;
-                    color: white;
-                    font-size: 18px;
+                    color: Theme.text-primary;
+                    font-size: Theme.text-large;
                 }
             }
 
             Rectangle {
                 width: 42px;
                 height: 42px;
-                border-radius: 21px;
-                background: #ffffff10;
+                border-radius: Theme.radius-full;
+                background: Theme.surface-hover;
 
                 TouchArea {
                     clicked => root.open_folder();
@@ -237,8 +237,8 @@ export component PlayerControls inherits Rectangle {
                     text: "📁";
                     horizontal-alignment: center;
                     vertical-alignment: center;
-                    color: white;
-                    font-size: 18px;
+                    color: Theme.text-primary;
+                    font-size: Theme.text-large;
                 }
             }
 

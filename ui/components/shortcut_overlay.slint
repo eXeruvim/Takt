@@ -7,7 +7,7 @@ export component ShortcutOverlay inherits Rectangle {
     width: 100%;
     height: 100%;
 
-    background: #00000099;
+    background: Theme.backdrop;
 
     visible: root.overlay_visible;
 
@@ -19,33 +19,33 @@ export component ShortcutOverlay inherits Rectangle {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
 
-        border-radius: 20px;
+        border-radius: Theme.radius-xlarge;
 
         background: Theme.bg-elevated;
 
         border-width: 1px;
-        border-color: Theme.border;
+        border-color: Theme.border-default;
 
         VerticalLayout {
 
-            padding: 28px;
-            spacing: 16px;
+            padding: Theme.space-7;
+            spacing: Theme.space-4;
 
             Text {
                 text: "Горячие клавиши";
-                font-size: 26px;
+                font-size: Theme.text-title;
                 font-weight: 700;
                 color: Theme.text-primary;
             }
 
             Rectangle {
                 height: 1px;
-                background: Theme.border;
+                background: Theme.border-subtle;
             }
 
             GridLayout {
 
-                spacing: 12px;
+                spacing: Theme.space-3;
 
                 Row {
                     Text { text: "Space"; color: Theme.accent; }

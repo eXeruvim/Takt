@@ -26,28 +26,28 @@ export component InfoDrawer inherits Rectangle {
         : -self.width - 20px;
 
 
-    background: #121821ee;
+    background: Theme.surface-elevated;
 
     border-width: 1px;
-    border-color: Theme.border;
+    border-color: Theme.border-default;
 
 
     animate x {
-        duration: 220ms;
+        duration: Theme.motion-slow;
         easing: ease-in-out;
     }
 
 
     VerticalLayout {
 
-        padding: 24px;
-        spacing: 12px;
+        padding: Theme.space-6;
+        spacing: Theme.space-3;
 
 
         Text {
             text: "Информация";
 
-            font-size: 22px;
+            font-size: Theme.text-heading;
             font-weight: 700;
 
             color: Theme.text-primary;
@@ -57,7 +57,7 @@ export component InfoDrawer inherits Rectangle {
         Rectangle {
             height: 1px;
 
-            background: Theme.border;
+            background: Theme.border-subtle;
         }
 
 
@@ -78,7 +78,7 @@ export component InfoDrawer inherits Rectangle {
         Rectangle {
             height: 1px;
 
-            background: Theme.border;
+            background: Theme.border-subtle;
         }
 
 
@@ -113,7 +113,7 @@ export component InfoDrawer inherits Rectangle {
         Rectangle {
             height: 1px;
 
-            background: Theme.border;
+            background: Theme.border-subtle;
         }
 
 
