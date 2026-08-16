@@ -5,22 +5,21 @@ import { SettingsDrawer } from "components/settings_drawer.slint";
 import { NextVideoCard } from "components/next_video_card.slint";
 import { ShortcutOverlay } from "components/shortcut_overlay.slint";
 import { Toast } from "design_system/composites.slint";
-import { Icon, IconButton } from "design_system/primitives.slint";
+import { EmptyState, Icon, IconButton, UiText, TextVariant } from "design_system/primitives.slint";
 
 export component AppWindow inherits Window {
     forward-focus: keyboard;
     preferred-width: 1280px;
     preferred-height: 760px;
-    min-width: 960px;
-    min-height: 600px;
-    background: Theme.bg-primary;
+    min-width: 760px;
+    min-height: 520px;
+    background: transparent;
 
     in-out property <string> file_name: "Не выбран файл";
     in-out property <string> codec: "—";
     in-out property <string> audio_codec: "—";
     in-out property <string> resolution: "—";
     in-out property <string> fps: "—";
-
     in-out property <string> current_time: "00:00";
     in-out property <string> total_time: "00:00";
     in-out property <float> progress: 0.0;
@@ -32,16 +31,15 @@ export component AppWindow inherits Window {
     in-out property <bool> loop_enabled: false;
     in-out property <bool> folder_loop_enabled: false;
     in-out property <bool> shuffle_enabled: false;
-
     in-out property <string> next_file: "";
     in-out property <bool> next_card_visible: false;
-
     in-out property <bool> info_drawer_visible: false;
     in-out property <bool> settings_drawer_visible: false;
     in-out property <bool> shortcut_overlay_visible: false;
     in-out property <bool> error_visible: false;
     in-out property <string> error_message: "";
     in-out property <bool> drop_target_visible: false;
+    in-out property <bool> player_chrome_visible: true;
 
     callback open_file();
     callback open_folder();
@@ -68,12 +66,33 @@ export component AppWindow inherits Window {
     Rectangle {
         width: parent.width;
         height: parent.height;
-        background: Theme.bg-primary;
+        background: Theme.surface-canvas;
+        clip: true;
+
+        Rectangle {
+            x: -140px;
+            y: -180px;
+            width: 520px;
+            height: 520px;
+            border-radius: Theme.radius-full;
+            background: Theme.accent-subtle;
+            opacity: 0.42;
+        }
+
+        Rectangle {
+            x: parent.width - 360px;
+            y: parent.height - 320px;
+            width: 460px;
+            height: 460px;
+            border-radius: Theme.radius-full;
+            background: Theme.surface-selected;
+            opacity: 0.32;
+        }
 
         keyboard := FocusScope {
             width: parent.width;
             height: parent.height;
-            focus_on_click: true;
+            focus-on-click: true;
 
             KeyBinding { keys: @keys(Space); activated => root.play_pause(); }
             KeyBinding { keys: @keys(K); activated => root.play_pause(); }
@@ -92,16 +111,48 @@ export component AppWindow inherits Window {
             KeyBinding { keys: @keys(O); activated => root.open_file(); }
 
             Rectangle {
-                x: 0px;
-                y: 0px;
-                width: parent.width;
-                height: 96px;
-                background: Theme.surface-panel;
+                x: Theme.space-3;
+                y: Theme.space-3;
+                width: parent.width - Theme.space-6;
+                height: parent.height - Theme.space-6;
+                border-radius: Theme.radius-xlarge;
+                background: root.media_loaded ? Theme.surface-media : transparent;
+                border-width: 1px;
+                border-color: Theme.border-subtle;
+            }
+
+            if !root.media_loaded : EmptyState {
+                x: (parent.width - self.width) / 2;
+                y: Theme.space-12 * 2;
+                width: min(parent.width - Theme.space-12 * 2, Theme.space-12 * 9);
+                height: parent.height - Theme.space-12 * 4;
+                title: "Откройте видео";
+                description: "Перетащите файл или папку в окно либо выберите их вручную";
+                action-text: "Выбрать видео";
+                action => root.open_file();
+            }
+
+            Rectangle {
+                x: Theme.space-4;
+                y: root.player_chrome_visible ? Theme.space-4 : -self.height - Theme.space-4;
+                width: parent.width - Theme.space-8;
+                height: Theme.top-bar-height;
+                border-radius: Theme.radius-large;
+                background: Theme.surface-glass;
+                border-width: 1px;
+                border-color: Theme.border-glass;
+                drop-shadow-color: Theme.shadow-low;
+                drop-shadow-blur: Theme.elevation-low-blur;
+                drop-shadow-offset-y: Theme.elevation-low-y;
+                opacity: root.player_chrome_visible ? 1 : 0;
+
+                animate y, opacity { duration: Theme.motion-normal; easing: ease-in-out; }
 
                 HorizontalLayout {
-                    x: 28px;
-                    y: 24px;
-                    spacing: Theme.space-5;
+                    padding-left: Theme.space-3;
+                    padding-right: Theme.space-2;
+                    spacing: Theme.space-3;
+                    alignment: center;
 
                     Icon {
                         source: @image-url("icons/oxide.svg");
@@ -109,40 +160,51 @@ export component AppWindow inherits Window {
                         tint: Theme.accent;
                     }
 
-                    Text {
-                        text: "Oxide";
-                        font-size: Theme.text-display;
-                        font-weight: 700;
-                        color: Theme.text-primary;
+                    VerticalLayout {
+                        vertical-stretch: 1;
+                        alignment: center;
+                        spacing: Theme.space-0;
+
+                        UiText {
+                            text: root.media_loaded ? root.file_name : "Oxide";
+                            variant: TextVariant.label;
+                            overflow: elide;
+                        }
+
+                        if parent.width > 840px : UiText {
+                            text: root.media_loaded
+                                ? (root.is_playing ? "Воспроизведение" : "Пауза") + " · " + root.resolution
+                                : "Локальный видеоплеер";
+                            variant: TextVariant.caption;
+                            color: Theme.text-secondary;
+                            overflow: elide;
+                        }
                     }
 
-                    Text {
-                        text: "Современный видеоплеер";
-                        font-size: Theme.text-body;
-                        color: Theme.text-secondary;
+                    IconButton {
+                        icon: @image-url("icons/file-video.svg");
+                        accessible-name: "Открыть видео";
+                        clicked => root.open_file();
                     }
-                }
-
-                HorizontalLayout {
-                    x: parent.width - 212px;
-                    y: 24px;
-                    spacing: Theme.space-2;
 
                     IconButton {
                         icon: @image-url("icons/info.svg");
                         accessible-name: "Информация о файле";
+                        selected: root.info_drawer_visible;
                         clicked => root.toggle_info();
                     }
 
                     IconButton {
                         icon: @image-url("icons/settings.svg");
                         accessible-name: "Настройки";
+                        selected: root.settings_drawer_visible;
                         clicked => root.toggle_settings();
                     }
 
-                    IconButton {
+                    if parent.width > 800px : IconButton {
                         icon: @image-url("icons/help.svg");
                         accessible-name: "Горячие клавиши";
+                        selected: root.shortcut_overlay_visible;
                         clicked => root.toggle_shortcuts();
                     }
 
@@ -154,57 +216,13 @@ export component AppWindow inherits Window {
                 }
             }
 
-            Rectangle {
-                x: 28px;
-                y: 118px;
-                width: parent.width - 56px;
-                height: parent.height - 206px;
-                border-radius: Theme.radius-large;
-                background: Theme.surface-panel;
-                border-width: 1px;
-                border-color: Theme.border-subtle;
-
-                Rectangle {
-                    x: 24px;
-                    y: 24px;
-                    width: parent.width - 104px;
-                    height: parent.height - 254px;
-                    border-radius: Theme.radius-large;
-                    background: Theme.surface-media;
-                    border-width: 1px;
-                    border-color: Theme.border-strong;
-                }
-
-                Text {
-                    x: 40px;
-                    y: 40px;
-                    text: root.file_name != "Не выбран файл" ? root.file_name : "Откройте любой видеофайл";
-                    color: Theme.text-primary;
-                    font-size: Theme.text-heading;
-                    font-weight: 700;
-                }
-
-                Text {
-                    x: 40px;
-                    y: 78px;
-                    text: root.file_name != "Не выбран файл" ? root.resolution + " · " + root.codec + " · " + root.fps + " FPS" : "Файл не выбран";
-                    color: Theme.text-secondary;
-                    font-size: Theme.text-body;
-                }
-
-                Text {
-                    x: 40px;
-                    y: 106px;
-                    text: root.file_name != "Не выбран файл" ? "Используйте клавишу H для подсказки" : "Нажмите O или кнопку ниже, чтобы начать";
-                    color: Theme.text-secondary;
-                    font-size: Theme.text-body;
-                }
-            }
-
             PlayerControls {
-                x: 28px;
-                y: parent.height - 148px;
-                width: parent.width - 56px;
+                x: Theme.space-4;
+                y: root.player_chrome_visible
+                    ? parent.height - self.height - Theme.space-4
+                    : parent.height + Theme.space-4;
+                width: parent.width - Theme.space-8;
+                media_loaded: root.media_loaded;
                 is_playing: root.is_playing;
                 progress: root.progress;
                 time_pos: root.current_time;
@@ -212,7 +230,8 @@ export component AppWindow inherits Window {
                 volume: root.volume;
                 muted: root.muted;
                 loop_enabled: root.loop_enabled;
-
+                opacity: root.player_chrome_visible ? 1 : 0;
+                animate y, opacity { duration: Theme.motion-normal; easing: ease-in-out; }
                 play_pause => root.play_pause();
                 stop => root.stop();
                 previous => root.previous_video();
@@ -252,16 +271,13 @@ export component AppWindow inherits Window {
                 shuffle_enabled: root.shuffle_enabled;
                 parent_width: parent.width;
                 parent_height: parent.height;
-
                 set_speed(value) => root.set_speed(value);
                 toggle_loop => root.toggle_loop();
                 toggle_folder_loop => root.toggle_folder_loop();
                 toggle_shuffle => root.toggle_shuffle();
             }
 
-            ShortcutOverlay {
-                overlay_visible: root.shortcut_overlay_visible;
-            }
+            ShortcutOverlay { overlay_visible: root.shortcut_overlay_visible; }
 
             Rectangle {
                 visible: root.drop_target_visible;
@@ -275,18 +291,14 @@ export component AppWindow inherits Window {
                     alignment: center;
                     spacing: Theme.space-3;
 
-                    Text {
+                    UiText {
                         text: "Перетащите сюда видео или папку";
-                        color: Theme.text-primary;
-                        font-size: Theme.text-title;
-                        font-weight: 700;
+                        variant: TextVariant.title;
                         horizontal-alignment: center;
                     }
-
-                    Text {
+                    UiText {
                         text: "Отпустите, чтобы начать воспроизведение";
                         color: Theme.text-secondary;
-                        font-size: Theme.text-body;
                         horizontal-alignment: center;
                     }
                 }
@@ -296,11 +308,9 @@ export component AppWindow inherits Window {
                 shown: root.error_visible;
                 message: root.error_message;
                 danger: true;
-                x: parent.width - self.width - 24px;
-                y: 108px;
-                dismissed => {
-                    root.error_visible = false;
-                }
+                x: parent.width - self.width - Theme.space-6;
+                y: Theme.space-12 + Theme.space-8;
+                dismissed => { root.error_visible = false; }
             }
         }
     }

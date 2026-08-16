@@ -13,6 +13,9 @@ export global Theme {
     out property <color> surface-pressed: is-dark ? #2d2d33 : #e8e8eb;
     out property <color> surface-selected: is-dark ? #ff5f5726 : #e5484d18;
     out property <color> surface-media: #08080a;
+    out property <color> surface-glass: is-dark ? #17171bd9 : #ffffffe0;
+    out property <color> surface-glass-strong: is-dark ? #1c1c21f2 : #fffffff2;
+    out property <color> surface-glass-hover: is-dark ? #2a2a31e6 : #f3f3f6eb;
     out property <color> backdrop: is-dark ? #000000a6 : #16161a66;
 
     // Raycast-inspired accent and interactive states.
@@ -30,6 +33,7 @@ export global Theme {
     out property <color> border-subtle: is-dark ? #ffffff14 : #00000012;
     out property <color> border-default: is-dark ? #ffffff24 : #0000001f;
     out property <color> border-strong: is-dark ? #ffffff3d : #00000033;
+    out property <color> border-glass: is-dark ? #ffffff2e : #ffffffb8;
 
     // Feedback colors.
     out property <color> success: is-dark ? #32d583 : #168a55;
@@ -86,8 +90,9 @@ export global Theme {
     out property <duration> motion-normal: 180ms;
     out property <duration> motion-slow: 240ms;
 
-    // Product layout tokens retained here until the player layout is rebuilt.
-    out property <length> panel-height: 92px;
+    // Player layout.
+    out property <length> top-bar-height: 52px;
+    out property <length> player-controls-height: 96px;
 
     // Compatibility aliases for components migrated in later slices.
     out property <color> bg-primary: surface-canvas;

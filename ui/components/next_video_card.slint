@@ -27,11 +27,14 @@ export component NextVideoCard inherits Rectangle {
     y: parent_height - self.height - 140px;
 
 
-    background: Theme.surface-elevated;
+    background: Theme.surface-glass-strong;
 
 
     border-width: 1px;
     border-color: Theme.border-default;
+    drop-shadow-color: Theme.shadow-high;
+    drop-shadow-blur: Theme.elevation-high-blur;
+    drop-shadow-offset-y: Theme.elevation-high-y;
 
 
     animate x {

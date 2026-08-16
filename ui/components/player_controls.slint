@@ -1,8 +1,9 @@
 import { Theme } from "../theme.slint";
-import { IconButton, Slider } from "../design_system/primitives.slint";
+import { Button, IconButton, Slider, UiText, TextVariant } from "../design_system/primitives.slint";
 import { Timeline } from "timeline.slint";
 
 export component PlayerControls inherits Rectangle {
+    in-out property <bool> media_loaded;
     in-out property <bool> is_playing;
     in-out property <string> time_pos;
     in-out property <string> time_duration;
@@ -22,43 +23,48 @@ export component PlayerControls inherits Rectangle {
     callback open_file();
     callback open_folder();
 
-    height: Theme.panel-height;
+    height: Theme.player-controls-height;
     border-radius: Theme.radius-large;
-    background: Theme.surface-panel;
+    background: Theme.surface-glass-strong;
     border-width: 1px;
-    border-color: Theme.border-default;
+    border-color: Theme.border-glass;
+    drop-shadow-color: Theme.shadow-high;
+    drop-shadow-blur: Theme.elevation-high-blur;
+    drop-shadow-offset-y: Theme.elevation-high-y;
 
     VerticalLayout {
-        padding-left: Theme.space-5;
-        padding-right: Theme.space-5;
+        padding-left: Theme.space-4;
+        padding-right: Theme.space-4;
         padding-top: Theme.space-3;
         padding-bottom: Theme.space-3;
-        spacing: Theme.space-3;
+        spacing: Theme.space-2;
 
         Timeline {
             progress: root.progress;
-            seek(value) => {
-                root.seek(value);
-            }
+            enabled: root.media_loaded;
+            seek(value) => root.seek(value);
         }
 
         HorizontalLayout {
-            spacing: Theme.space-3;
+            spacing: Theme.space-2;
+            alignment: center;
 
             IconButton {
                 icon: @image-url("../icons/skip-back.svg");
                 accessible-name: "Предыдущее видео";
                 circular: true;
+                enabled: root.media_loaded;
                 clicked => root.previous();
             }
 
             IconButton {
-                width: 52px;
-                height: 52px;
+                width: Theme.space-12;
+                height: Theme.space-12;
                 icon: root.is_playing ? @image-url("../icons/pause.svg") : @image-url("../icons/play.svg");
                 accessible-name: root.is_playing ? "Пауза" : "Воспроизведение";
                 primary: true;
                 circular: true;
+                enabled: root.media_loaded;
                 clicked => root.play_pause();
             }
 
@@ -66,6 +72,7 @@ export component PlayerControls inherits Rectangle {
                 icon: @image-url("../icons/stop.svg");
                 accessible-name: "Остановить";
                 circular: true;
+                enabled: root.media_loaded;
                 clicked => root.stop();
             }
 
@@ -73,32 +80,24 @@ export component PlayerControls inherits Rectangle {
                 icon: @image-url("../icons/skip-forward.svg");
                 accessible-name: "Следующее видео";
                 circular: true;
+                enabled: root.media_loaded;
                 clicked => root.next();
             }
 
-            Rectangle {
-                width: 2px;
-                height: 42px;
-                background: Theme.border-subtle;
+            Button {
+                text: "Повтор";
+                selected: root.loop_enabled;
+                enabled: root.media_loaded;
+                clicked => root.toggle_loop();
             }
 
-            Rectangle {
-                width: 132px;
-                height: 34px;
-                border-radius: Theme.radius-medium;
-                background: root.loop_enabled ? Theme.accent : Theme.surface-hover;
+            Rectangle { horizontal-stretch: 1; background: transparent; }
 
-                TouchArea {
-                    clicked => root.toggle_loop();
-                }
-
-                Text {
-                    text: root.loop_enabled ? "Повтор включен" : "Повтор";
-                    color: root.loop_enabled ? Theme.on-accent : Theme.text-primary;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    font-size: Theme.text-small;
-                }
+            UiText {
+                text: root.time_pos + " / " + root.time_duration;
+                variant: TextVariant.caption;
+                color: Theme.text-secondary;
+                horizontal-alignment: right;
             }
 
             IconButton {
@@ -111,47 +110,17 @@ export component PlayerControls inherits Rectangle {
                 clicked => root.toggle_mute();
             }
 
-            Rectangle {
-                width: 1px;
-                height: 34px;
-                background: Theme.border-subtle;
-            }
-
-            Slider {
-                width: 160px;
+            if parent.width > 850px : Slider {
+                width: 132px;
                 value <=> root.volume;
                 changed(value) => root.set_volume(value);
             }
 
-            Rectangle {
-                width: 1px;
-                height: 42px;
-                background: Theme.border-subtle;
-            }
-
-            IconButton {
-                icon: @image-url("../icons/file-video.svg");
-                accessible-name: "Открыть видео";
-                circular: true;
-                clicked => root.open_file();
-            }
-
-            IconButton {
+            if parent.width > 980px : IconButton {
                 icon: @image-url("../icons/folder-open.svg");
                 accessible-name: "Открыть папку";
                 circular: true;
                 clicked => root.open_folder();
-            }
-
-            Rectangle {
-                width: 120px;
-                background: transparent;
-
-                Text {
-                    text: root.time_pos + " / " + root.time_duration;
-                    color: Theme.text-secondary;
-                    vertical-alignment: center;
-                }
             }
         }
     }

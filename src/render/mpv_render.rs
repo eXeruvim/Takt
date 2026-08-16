@@ -18,11 +18,9 @@ mod windows {
         UI::WindowsAndMessaging::*,
     };
 
-    const VIDEO_TOP: f32 = 118.0;
-    const VIDEO_BOTTOM: f32 = 166.0;
-
     static VIDEO_WINDOW_CLASS: OnceLock<Vec<u16>> = OnceLock::new();
     static FULLSCREEN_REQUESTED: AtomicBool = AtomicBool::new(false);
+    static POINTER_ACTIVITY: AtomicBool = AtomicBool::new(false);
 
     pub struct VideoHost {
         handle: usize,
@@ -89,13 +87,15 @@ mod windows {
             window: &slint::Window,
             left_inset: f32,
             right_inset: f32,
+            top_inset: f32,
+            bottom_inset: f32,
         ) -> Result<()> {
             let size = window.size();
             let scale = window.scale_factor();
             let x = (left_inset * scale).round() as i32;
-            let y = (VIDEO_TOP * scale).round() as i32;
+            let y = (top_inset * scale).round() as i32;
             let right = (right_inset * scale).round() as i32;
-            let bottom = (VIDEO_BOTTOM * scale).round() as i32;
+            let bottom = (bottom_inset * scale).round() as i32;
             let width = (size.width as i32 - x - right).max(1);
             let height = (size.height as i32 - y - bottom).max(1);
             let bounds = (x, y, width, height);
@@ -122,6 +122,10 @@ mod windows {
         pub fn take_fullscreen_request() -> bool {
             FULLSCREEN_REQUESTED.swap(false, Ordering::AcqRel)
         }
+
+        pub fn take_pointer_activity() -> bool {
+            POINTER_ACTIVITY.swap(false, Ordering::AcqRel)
+        }
     }
 
     impl Drop for VideoHost {
@@ -145,6 +149,10 @@ mod windows {
         lparam: LPARAM,
     ) -> LRESULT {
         match message {
+            WM_MOUSEMOVE => {
+                POINTER_ACTIVITY.store(true, Ordering::Release);
+                DefWindowProcW(window, message, wparam, lparam)
+            }
             WM_LBUTTONDBLCLK => {
                 FULLSCREEN_REQUESTED.store(true, Ordering::Release);
                 0

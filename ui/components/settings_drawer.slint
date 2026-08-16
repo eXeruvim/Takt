@@ -1,4 +1,6 @@
 import { Theme } from "../theme.slint";
+import { Button, Divider, Toggle, UiText, TextVariant } from "../design_system/primitives.slint";
+import { SettingsRow } from "../design_system/composites.slint";
 
 export component SettingsDrawer inherits Rectangle {
     in-out property <bool> drawer_visible;
@@ -6,7 +8,6 @@ export component SettingsDrawer inherits Rectangle {
     in-out property <bool> loop_enabled;
     in-out property <bool> folder_loop_enabled;
     in-out property <bool> shuffle_enabled;
-
     in property <length> parent_width;
     in property <length> parent_height;
 
@@ -15,129 +16,78 @@ export component SettingsDrawer inherits Rectangle {
     callback toggle_folder_loop();
     callback toggle_shuffle();
 
-    width: 320px;
-    height: parent_height;
-    x: drawer_visible ? parent_width - self.width : parent_width + 20px;
-    background: Theme.surface-elevated;
+    width: min(360px, parent_width - Theme.space-8);
+    height: parent_height - Theme.space-8;
+    x: drawer_visible ? parent_width - self.width - Theme.space-4 : parent_width + Theme.space-5;
+    y: Theme.space-4;
+    border-radius: Theme.radius-xlarge;
+    background: Theme.surface-glass-strong;
     border-width: 1px;
-    border-color: Theme.border-default;
+    border-color: Theme.border-glass;
+    drop-shadow-color: Theme.shadow-high;
+    drop-shadow-blur: Theme.elevation-high-blur;
+    drop-shadow-offset-y: Theme.elevation-high-y;
 
-    animate x {
-        duration: Theme.motion-slow;
-        easing: ease-in-out;
-    }
+    animate x { duration: Theme.motion-slow; easing: ease-in-out; }
 
     VerticalLayout {
-        padding: Theme.space-6;
-        spacing: Theme.space-5;
+        padding: Theme.space-5;
+        spacing: Theme.space-4;
 
-        Text {
-            text: "Настройки";
-            color: Theme.text-primary;
-            font-size: Theme.text-heading;
-            font-weight: 700;
+        UiText { text: "Настройки"; variant: TextVariant.title; }
+        UiText {
+            text: "Воспроизведение";
+            variant: TextVariant.caption;
+            color: Theme.text-muted;
         }
+        Divider { }
 
-        Rectangle {
-            height: 1px;
-            background: Theme.border-subtle;
-        }
-
-        Text {
-            text: "Скорость";
-            color: Theme.text-secondary;
-        }
-
+        UiText { text: "Скорость"; variant: TextVariant.label; }
         HorizontalLayout {
             spacing: Theme.space-2;
 
-            for value in [
-                "0.5",
-                "0.75",
-                "1.0",
-                "1.25",
-                "1.5",
-                "2.0"
-            ] : Rectangle {
-                height: 34px;
-                border-radius: Theme.radius-small;
-                background: speed == value.to-float() ? Theme.accent : Theme.surface-hover;
-
-                TouchArea {
-                    clicked => {
-                        root.set_speed(value.to-float());
-                    }
-                }
-
-                Text {
-                    text: value + "x";
-                    color: speed == value.to-float() ? Theme.on-accent : Theme.text-primary;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
+            for value in ["0.5", "1.0", "1.25", "1.5", "2.0"] : Button {
+                min-width: Theme.space-10;
+                text: value + "×";
+                selected: root.speed == value.to-float();
+                clicked => root.set_speed(value.to-float());
             }
         }
 
-        Rectangle {
-            height: 1px;
-            background: Theme.border-subtle;
-        }
+        Divider { }
 
-        Rectangle {
-            height: 44px;
-            border-radius: Theme.radius-medium;
-            background: loop_enabled ? Theme.accent : Theme.surface-hover;
-
-            TouchArea {
-                clicked => {
-                    root.toggle_loop();
-                }
-            }
-
-            Text {
-                text: loop_enabled ? "Повтор файла включён" : "Повтор файла";
-                color: loop_enabled ? Theme.on-accent : Theme.text-primary;
-                vertical-alignment: center;
-                horizontal-alignment: center;
+        SettingsRow {
+            title: "Повтор файла";
+            description: "Запускать текущее видео заново";
+            Toggle {
+                checked: root.loop_enabled;
+                toggled => root.toggle_loop();
             }
         }
 
-        Rectangle {
-            height: 44px;
-            border-radius: Theme.radius-medium;
-            background: folder_loop_enabled ? Theme.accent : Theme.surface-hover;
-
-            TouchArea {
-                clicked => {
-                    root.toggle_folder_loop();
-                }
-            }
-
-            Text {
-                text: folder_loop_enabled ? "Повтор папки включён" : "Повтор папки";
-                color: folder_loop_enabled ? Theme.on-accent : Theme.text-primary;
-                vertical-alignment: center;
-                horizontal-alignment: center;
+        SettingsRow {
+            title: "Повтор папки";
+            description: "Возвращаться к началу списка";
+            Toggle {
+                checked: root.folder_loop_enabled;
+                toggled => root.toggle_folder_loop();
             }
         }
 
-        Rectangle {
-            height: 44px;
-            border-radius: Theme.radius-medium;
-            background: shuffle_enabled ? Theme.accent : Theme.surface-hover;
-
-            TouchArea {
-                clicked => {
-                    root.toggle_shuffle();
-                }
+        SettingsRow {
+            title: "Случайный порядок";
+            description: "Перемешивать соседние видео";
+            Toggle {
+                checked: root.shuffle_enabled;
+                toggled => root.toggle_shuffle();
             }
+        }
 
-            Text {
-                text: shuffle_enabled ? "Случайный порядок включён" : "Случайный порядок";
-                color: shuffle_enabled ? Theme.on-accent : Theme.text-primary;
-                vertical-alignment: center;
-                horizontal-alignment: center;
-            }
+        Rectangle { vertical-stretch: 1; background: transparent; }
+        UiText {
+            text: "Все изменения применяются сразу";
+            variant: TextVariant.caption;
+            color: Theme.text-muted;
         }
     }
 }

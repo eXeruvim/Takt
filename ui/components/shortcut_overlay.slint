@@ -13,18 +13,21 @@ export component ShortcutOverlay inherits Rectangle {
 
     Rectangle {
 
-        width: 720px;
-        height: 520px;
+        width: min(parent.width - Theme.space-12, 720px);
+        height: min(parent.height - Theme.space-12, 560px);
 
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
 
         border-radius: Theme.radius-xlarge;
 
-        background: Theme.bg-elevated;
+        background: Theme.surface-glass-strong;
 
         border-width: 1px;
         border-color: Theme.border-default;
+        drop-shadow-color: Theme.shadow-high;
+        drop-shadow-blur: Theme.elevation-high-blur;
+        drop-shadow-offset-y: Theme.elevation-high-y;
 
         VerticalLayout {
 
