@@ -1,0 +1,237 @@
+import { Theme } from "../theme.slint";
+import { Timeline } from "timeline.slint";
+
+export component PlayerControls inherits Rectangle {
+    in-out property <bool> is_playing;
+    in-out property <string> time_pos;
+    in-out property <string> time_duration;
+    in-out property <float> progress;
+    in-out property <float> volume;
+    in-out property <bool> muted;
+    in-out property <bool> loop_enabled;
+
+    callback play_pause();
+    callback stop();
+    callback previous();
+    callback next();
+    callback seek(float);
+    callback set_volume(float);
+    callback toggle_mute();
+    callback toggle_loop();
+    callback open_file();
+
+    height: Theme.panel-height;
+    border-radius: Theme.radius-large;
+    background: #0f131c;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        padding-left: 22px;
+        padding-right: 22px;
+        padding-top: 14px;
+        padding-bottom: 14px;
+        spacing: 14px;
+
+        Timeline {
+            progress: root.progress;
+            seek(value) => {
+                root.seek(value);
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 12px;
+
+            Rectangle {
+                width: 42px;
+                height: 42px;
+                border-radius: 21px;
+                background: #ffffff10;
+
+                TouchArea {
+                    clicked => {
+                        root.previous();
+                    }
+                }
+
+                Text {
+                    text: "⏮";
+                    color: white;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: 18px;
+                }
+            }
+
+            Rectangle {
+                width: 52px;
+                height: 52px;
+                border-radius: 26px;
+                background: Theme.accent;
+
+                TouchArea {
+                    clicked => {
+                        root.play_pause();
+                    }
+                }
+
+                Text {
+                    text: root.is_playing ? "⏸" : "▶";
+                    color: white;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: 18px;
+                }
+            }
+
+            Rectangle {
+                width: 42px;
+                height: 42px;
+                border-radius: 21px;
+                background: #ffffff10;
+
+                TouchArea {
+                    clicked => {
+                        root.stop();
+                    }
+                }
+
+                Text {
+                    text: "⏹";
+                    color: white;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: 16px;
+                }
+            }
+
+            Rectangle {
+                width: 42px;
+                height: 42px;
+                border-radius: 21px;
+                background: #ffffff10;
+
+                TouchArea {
+                    clicked => {
+                        root.next();
+                    }
+                }
+
+                Text {
+                    text: "⏭";
+                    color: white;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: 18px;
+                }
+            }
+
+            Rectangle {
+                width: 2px;
+                height: 42px;
+                background: Theme.border;
+            }
+
+            Rectangle {
+                width: 132px;
+                height: 34px;
+                border-radius: 12px;
+                background: root.loop_enabled ? Theme.accent : #ffffff10;
+
+                TouchArea {
+                    clicked => root.toggle_loop();
+                }
+
+                Text {
+                    text: root.loop_enabled ? "Повтор включен" : "Повтор";
+                    color: white;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: 12px;
+                }
+            }
+
+            Rectangle {
+                width: 34px;
+                height: 34px;
+                border-radius: 17px;
+                background: #ffffff10;
+
+                TouchArea {
+                    clicked => root.toggle_mute();
+                }
+
+                Text {
+                    text: !root.muted && root.volume > 0.0 ? "🔊" : "🔇";
+                    color: white;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: 16px;
+                }
+            }
+
+            Rectangle {
+                width: 1px;
+                height: 34px;
+                background: Theme.border;
+            }
+
+            Rectangle {
+                width: 160px;
+                height: 6px;
+                border-radius: 3px;
+                background: #ffffff20;
+
+                Rectangle {
+                    width: parent.width * root.volume;
+                    height: parent.height;
+                    border-radius: 3px;
+                    background: Theme.accent;
+                }
+
+                TouchArea {
+                    clicked => {
+                        root.set_volume(self.mouse-x / self.width);
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 1px;
+                height: 42px;
+                background: Theme.border;
+            }
+
+            Rectangle {
+                width: 42px;
+                height: 42px;
+                border-radius: 21px;
+                background: #ffffff10;
+
+                TouchArea {
+                    clicked => root.open_file();
+                }
+
+                Text {
+                    text: "📁";
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    color: white;
+                    font-size: 18px;
+                }
+            }
+
+            Rectangle {
+                width: 120px;
+                background: transparent;
+
+                Text {
+                    text: root.time_pos + " / " + root.time_duration;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

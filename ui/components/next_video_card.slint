@@ -1,0 +1,88 @@
+import { Theme } from "../theme.slint";
+
+export component NextVideoCard inherits Rectangle {
+
+    in-out property <bool> card_visible;
+    in-out property <string> next_file;
+
+    in property <length> parent_width;
+    in property <length> parent_height;
+
+    callback play_next();
+
+
+    width: 320px;
+    height: 140px;
+
+
+    border-radius: 18px;
+
+
+    x: card_visible
+        ? parent_width - self.width - 24px
+        : parent_width + 40px;
+
+
+    y: parent_height - self.height - 140px;
+
+
+    background: #111827ee;
+
+
+    border-width: 1px;
+    border-color: Theme.border;
+
+
+    animate x {
+        duration: 240ms;
+        easing: ease-in-out;
+    }
+
+
+    VerticalLayout {
+
+        padding: 16px;
+        spacing: 10px;
+
+
+        Text {
+            text: "Следующее видео";
+
+            color: Theme.text-secondary;
+        }
+
+
+        Text {
+            text: next_file;
+
+            color: Theme.text-primary;
+        }
+
+
+        Rectangle {
+
+            height: 38px;
+
+            border-radius: 10px;
+
+            background: Theme.accent;
+
+
+            TouchArea {
+                clicked => {
+                    root.play_next();
+                }
+            }
+
+
+            Text {
+                text: "Смотреть";
+
+                color: white;
+
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

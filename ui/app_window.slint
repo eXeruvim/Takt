@@ -1,0 +1,293 @@
+import { Theme } from "theme.slint";
+import { PlayerControls } from "components/player_controls.slint";
+import { InfoDrawer } from "components/info_drawer.slint";
+import { SettingsDrawer } from "components/settings_drawer.slint";
+import { NextVideoCard } from "components/next_video_card.slint";
+import { ShortcutOverlay } from "components/shortcut_overlay.slint";
+
+component FeatureButton inherits Rectangle {
+    in-out property <string> label;
+    callback action();
+
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    background: #ffffff10;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    TouchArea {
+        clicked => action();
+    }
+
+    Text {
+        text: root.label;
+        color: white;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 18px;
+    }
+}
+
+export component AppWindow inherits Window {
+    forward-focus: keyboard;
+    width: 1280px;
+    height: 760px;
+    background: Theme.bg-primary;
+
+    in-out property <string> file_name: "Не выбран файл";
+    in-out property <string> codec: "—";
+    in-out property <string> audio_codec: "—";
+    in-out property <string> resolution: "—";
+    in-out property <string> fps: "—";
+
+    in-out property <string> current_time: "00:00";
+    in-out property <string> total_time: "00:00";
+    in-out property <float> progress: 0.0;
+    in-out property <bool> is_playing: false;
+    in-out property <float> volume: 0.65;
+    in-out property <bool> muted: false;
+    in-out property <float> speed: 1.0;
+    in-out property <bool> loop_enabled: false;
+
+    in-out property <string> next_file: "";
+    in-out property <bool> next_card_visible: false;
+
+    in-out property <bool> info_drawer_visible: false;
+    in-out property <bool> settings_drawer_visible: false;
+    in-out property <bool> shortcut_overlay_visible: false;
+    in-out property <bool> error_visible: false;
+    in-out property <string> error_message: "";
+
+    callback open_file();
+    callback play_pause();
+    callback stop();
+    callback previous_video();
+    callback next_video();
+    callback seek(float);
+    callback set_volume(float);
+    callback set_speed(float);
+    callback toggle_loop();
+    callback request_media_info();
+    callback toggle_fullscreen();
+    callback toggle_info();
+    callback toggle_settings();
+    callback toggle_shortcuts();
+    callback seek_relative(float);
+    callback adjust_volume(float);
+    callback toggle_mute();
+    callback play_next();
+
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: Theme.bg-primary;
+
+        keyboard := FocusScope {
+            width: parent.width;
+            height: parent.height;
+            focus_on_click: true;
+
+            KeyBinding { keys: @keys(Space); activated => root.play_pause(); }
+            KeyBinding { keys: @keys(K); activated => root.play_pause(); }
+            KeyBinding { keys: @keys(N); activated => root.next_video(); }
+            KeyBinding { keys: @keys(P); activated => root.previous_video(); }
+            KeyBinding { keys: @keys(J); activated => root.seek_relative(-10.0); }
+            KeyBinding { keys: @keys(L); activated => root.seek_relative(10.0); }
+            KeyBinding { keys: @keys(LeftArrow); activated => root.seek_relative(-5.0); }
+            KeyBinding { keys: @keys(RightArrow); activated => root.seek_relative(5.0); }
+            KeyBinding { keys: @keys(UpArrow); activated => root.adjust_volume(5.0); }
+            KeyBinding { keys: @keys(DownArrow); activated => root.adjust_volume(-5.0); }
+            KeyBinding { keys: @keys(M); activated => root.toggle_mute(); }
+            KeyBinding { keys: @keys(F); activated => root.toggle_fullscreen(); }
+            KeyBinding { keys: @keys(I); activated => root.toggle_info(); }
+            KeyBinding { keys: @keys(H); activated => root.toggle_shortcuts(); }
+            KeyBinding { keys: @keys(O); activated => root.open_file(); }
+
+            Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: 96px;
+                background: Theme.bg-secondary;
+
+                HorizontalLayout {
+                    x: 28px;
+                    y: 24px;
+                    spacing: 18px;
+
+                    Text {
+                        text: "Oxide";
+                        font-size: 28px;
+                        font-weight: 700;
+                        color: white;
+                    }
+
+                    Text {
+                        text: "Современный видеоплеер";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                    }
+                }
+
+                HorizontalLayout {
+                    x: parent.width - 212px;
+                    y: 24px;
+                    spacing: 10px;
+
+                    FeatureButton {
+                        label: "i";
+                        action => root.toggle_info();
+                    }
+
+                    FeatureButton {
+                        label: "⚙";
+                        action => root.toggle_settings();
+                    }
+
+                    FeatureButton {
+                        label: "?";
+                        action => root.toggle_shortcuts();
+                    }
+
+                    FeatureButton {
+                        label: "⛶";
+                        action => root.toggle_fullscreen();
+                    }
+                }
+            }
+
+            Rectangle {
+                x: 28px;
+                y: 118px;
+                width: parent.width - 56px;
+                height: parent.height - 206px;
+                border-radius: Theme.radius-large;
+                background: #10171f;
+                border-width: 1px;
+                border-color: Theme.border;
+
+                Rectangle {
+                    x: 24px;
+                    y: 24px;
+                    width: parent.width - 104px;
+                    height: parent.height - 254px;
+                    border-radius: Theme.radius-large;
+                    background: #0b1017;
+                    border-width: 1px;
+                    border-color: #4f5a6d;
+                }
+
+                Text {
+                    x: 40px;
+                    y: 40px;
+                    text: root.file_name != "Не выбран файл" ? root.file_name : "Откройте любой видеофайл";
+                    color: Theme.text-primary;
+                    font-size: 22px;
+                    font-weight: 700;
+                }
+
+                Text {
+                    x: 40px;
+                    y: 78px;
+                    text: root.file_name != "Не выбран файл" ? root.resolution + " · " + root.codec + " · " + root.fps + " FPS" : "Файл не выбран";
+                    color: Theme.text-secondary;
+                    font-size: 14px;
+                }
+
+                Text {
+                    x: 40px;
+                    y: 106px;
+                    text: root.file_name != "Не выбран файл" ? "Используйте клавишу H для подсказки" : "Нажмите O или кнопку ниже, чтобы начать";
+                    color: Theme.text-secondary;
+                    font-size: 14px;
+                }
+            }
+
+            PlayerControls {
+                x: 28px;
+                y: parent.height - 148px;
+                width: parent.width - 56px;
+                is_playing: root.is_playing;
+                progress: root.progress;
+                time_pos: root.current_time;
+                time_duration: root.total_time;
+                volume: root.volume;
+                muted: root.muted;
+                loop_enabled: root.loop_enabled;
+
+                play_pause => root.play_pause();
+                stop => root.stop();
+                previous => root.previous_video();
+                next => root.next_video();
+                seek(value) => root.seek(value);
+                set_volume(value) => root.set_volume(value);
+                toggle_mute => root.toggle_mute();
+                toggle_loop => root.toggle_loop();
+                open_file => root.open_file();
+            }
+
+            NextVideoCard {
+                card_visible: root.next_card_visible;
+                next_file: root.next_file;
+                parent_width: parent.width;
+                parent_height: parent.height;
+                play_next => root.play_next();
+            }
+
+            InfoDrawer {
+                drawer_visible: root.info_drawer_visible;
+                file_name: root.file_name;
+                codec: root.codec;
+                audio_codec: root.audio_codec;
+                resolution: root.resolution;
+                fps: root.fps;
+                parent_width: parent.width;
+                parent_height: parent.height;
+            }
+
+            SettingsDrawer {
+                drawer_visible: root.settings_drawer_visible;
+                speed: root.speed;
+                loop_enabled: root.loop_enabled;
+                parent_width: parent.width;
+                parent_height: parent.height;
+
+                set_speed(value) => root.set_speed(value);
+                toggle_loop => root.toggle_loop();
+            }
+
+            ShortcutOverlay {
+                overlay_visible: root.shortcut_overlay_visible;
+            }
+
+            Rectangle {
+                visible: root.error_visible;
+                x: parent.width - self.width - 24px;
+                y: 108px;
+                width: 420px;
+                height: 76px;
+                border-radius: Theme.radius-medium;
+                background: #3a171bee;
+                border-width: 1px;
+                border-color: #ff5f57;
+
+                TouchArea {
+                    clicked => {
+                        root.error_visible = false;
+                    }
+                }
+
+                Text {
+                    x: 16px;
+                    width: parent.width - 32px;
+                    height: parent.height;
+                    text: root.error_message;
+                    color: Theme.text-primary;
+                    wrap: word-wrap;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

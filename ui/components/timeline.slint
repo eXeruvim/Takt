@@ -1,0 +1,46 @@
+import { Theme } from "../theme.slint";
+
+export component Timeline inherits Rectangle {
+    in-out property <float> progress: 0.0;
+
+    callback seek(float);
+
+    background: transparent;
+    height: 20px;
+
+    touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+
+        clicked => {
+            root.seek(self.mouse-x / self.width);
+        }
+    }
+
+    Rectangle {
+        x: 0;
+        y: parent.height / 2 - 3px;
+        width: parent.width;
+        height: 6px;
+        border-radius: 999px;
+        background: #ffffff22;
+
+        Rectangle {
+            width: parent.width * root.progress;
+            height: parent.height;
+            border-radius: 999px;
+            background: Theme.accent;
+        }
+
+        Rectangle {
+            x: parent.width * root.progress - 8px;
+            y: parent.height / 2 - 8px;
+            width: 16px;
+            height: 16px;
+            border-radius: 8px;
+            background: white;
+            border-width: 2px;
+            border-color: Theme.bg-primary;
+        }
+    }
+}

@@ -1,0 +1,127 @@
+import { Theme } from "../theme.slint";
+
+export component ShortcutOverlay inherits Rectangle {
+
+    in-out property <bool> overlay_visible;
+
+    width: 100%;
+    height: 100%;
+
+    background: #00000099;
+
+    visible: root.overlay_visible;
+
+    Rectangle {
+
+        width: 720px;
+        height: 520px;
+
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        border-radius: 20px;
+
+        background: Theme.bg-elevated;
+
+        border-width: 1px;
+        border-color: Theme.border;
+
+        VerticalLayout {
+
+            padding: 28px;
+            spacing: 16px;
+
+            Text {
+                text: "Горячие клавиши";
+                font-size: 26px;
+                font-weight: 700;
+                color: Theme.text-primary;
+            }
+
+            Rectangle {
+                height: 1px;
+                background: Theme.border;
+            }
+
+            GridLayout {
+
+                spacing: 12px;
+
+                Row {
+                    Text { text: "Space"; color: Theme.accent; }
+                    Text { text: "Пауза / Воспроизведение"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "K"; color: Theme.accent; }
+                    Text { text: "Пауза / Воспроизведение"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "J"; color: Theme.accent; }
+                    Text { text: "Назад на 10 секунд"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "L"; color: Theme.accent; }
+                    Text { text: "Вперёд на 10 секунд"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "←"; color: Theme.accent; }
+                    Text { text: "Назад на 5 секунд"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "→"; color: Theme.accent; }
+                    Text { text: "Вперёд на 5 секунд"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "↑"; color: Theme.accent; }
+                    Text { text: "Громкость +"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "↓"; color: Theme.accent; }
+                    Text { text: "Громкость -"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "M"; color: Theme.accent; }
+                    Text { text: "Без звука"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "F"; color: Theme.accent; }
+                    Text { text: "Полноэкранный режим"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "Двойной клик"; color: Theme.accent; }
+                    Text { text: "Полноэкранный режим"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "N"; color: Theme.accent; }
+                    Text { text: "Следующее видео"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "P"; color: Theme.accent; }
+                    Text { text: "Предыдущее видео"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "I"; color: Theme.accent; }
+                    Text { text: "Информация о файле"; color: Theme.text-primary; }
+                }
+
+                Row {
+                    Text { text: "H"; color: Theme.accent; }
+                    Text { text: "Это окно"; color: Theme.text-primary; }
+                }
+            }
+        }
+    }
+}

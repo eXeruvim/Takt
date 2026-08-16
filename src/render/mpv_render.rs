@@ -1,0 +1,164 @@
+#[cfg(target_os = "windows")]
+mod windows {
+    use std::{
+        ffi::{c_void, OsStr},
+        os::windows::ffi::OsStrExt,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            OnceLock,
+        },
+    };
+
+    use anyhow::{anyhow, Result};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::{
+        Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+        Graphics::Gdi::{BeginPaint, EndPaint, PAINTSTRUCT},
+        System::LibraryLoader::GetModuleHandleW,
+        UI::WindowsAndMessaging::*,
+    };
+
+    const VIDEO_TOP: f32 = 118.0;
+    const VIDEO_BOTTOM: f32 = 166.0;
+
+    static VIDEO_WINDOW_CLASS: OnceLock<Vec<u16>> = OnceLock::new();
+    static FULLSCREEN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+    pub struct VideoHost {
+        handle: usize,
+        last_bounds: Option<(i32, i32, i32, i32)>,
+    }
+
+    impl VideoHost {
+        pub fn create(window: &slint::Window) -> Result<Self> {
+            let window_handle = window.window_handle();
+            let raw_handle = window_handle
+                .window_handle()
+                .map_err(|error| anyhow!("Не удалось получить дескриптор окна: {error:?}"))?;
+            let RawWindowHandle::Win32(handle) = raw_handle.as_raw() else {
+                return Err(anyhow!("Ожидался Win32-дескриптор окна"));
+            };
+
+            let parent = handle.hwnd.get() as *mut c_void;
+            let class_name = VIDEO_WINDOW_CLASS.get_or_init(|| to_wide_null("OxideVideoHost"));
+
+            let child = unsafe {
+                let instance = GetModuleHandleW(std::ptr::null());
+                let window_class = WNDCLASSW {
+                    style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
+                    lpfnWndProc: Some(video_host_proc),
+                    hInstance: instance,
+                    hCursor: LoadCursorW(std::ptr::null_mut(), IDC_ARROW),
+                    lpszClassName: class_name.as_ptr(),
+                    ..std::mem::zeroed()
+                };
+                RegisterClassW(&window_class);
+
+                CreateWindowExW(
+                    WS_EX_NOACTIVATE,
+                    class_name.as_ptr(),
+                    std::ptr::null(),
+                    WS_CHILD | WS_VISIBLE,
+                    0,
+                    0,
+                    1,
+                    1,
+                    parent,
+                    std::ptr::null_mut(),
+                    instance,
+                    std::ptr::null_mut(),
+                )
+            };
+
+            if child.is_null() {
+                return Err(anyhow!("Не удалось создать поверхность видео"));
+            }
+
+            Ok(Self {
+                handle: child as usize,
+                last_bounds: None,
+            })
+        }
+
+        pub fn handle(&self) -> usize {
+            self.handle
+        }
+
+        pub fn resize(
+            &mut self,
+            window: &slint::Window,
+            left_inset: f32,
+            right_inset: f32,
+        ) -> Result<()> {
+            let size = window.size();
+            let scale = window.scale_factor();
+            let x = (left_inset * scale).round() as i32;
+            let y = (VIDEO_TOP * scale).round() as i32;
+            let right = (right_inset * scale).round() as i32;
+            let bottom = (VIDEO_BOTTOM * scale).round() as i32;
+            let width = (size.width as i32 - x - right).max(1);
+            let height = (size.height as i32 - y - bottom).max(1);
+            let bounds = (x, y, width, height);
+
+            if self.last_bounds == Some(bounds) {
+                return Ok(());
+            }
+
+            let moved = unsafe { MoveWindow(self.handle as HWND, x, y, width, height, 1) };
+            if moved == 0 {
+                return Err(anyhow!("Не удалось изменить размер поверхности видео"));
+            }
+
+            self.last_bounds = Some(bounds);
+            Ok(())
+        }
+
+        pub fn set_visible(&self, visible: bool) {
+            unsafe {
+                ShowWindow(self.handle as HWND, if visible { SW_SHOW } else { SW_HIDE });
+            }
+        }
+
+        pub fn take_fullscreen_request() -> bool {
+            FULLSCREEN_REQUESTED.swap(false, Ordering::AcqRel)
+        }
+    }
+
+    impl Drop for VideoHost {
+        fn drop(&mut self) {
+            unsafe {
+                if IsWindow(self.handle as HWND) != 0 {
+                    DestroyWindow(self.handle as HWND);
+                }
+            }
+        }
+    }
+
+    fn to_wide_null(text: &str) -> Vec<u16> {
+        OsStr::new(text).encode_wide().chain(Some(0)).collect()
+    }
+
+    unsafe extern "system" fn video_host_proc(
+        window: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        match message {
+            WM_LBUTTONDBLCLK => {
+                FULLSCREEN_REQUESTED.store(true, Ordering::Release);
+                0
+            }
+            WM_PAINT => {
+                let mut paint = std::mem::zeroed::<PAINTSTRUCT>();
+                BeginPaint(window, &mut paint);
+                EndPaint(window, &paint);
+                0
+            }
+            _ => DefWindowProcW(window, message, wparam, lparam),
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub use windows::VideoHost;

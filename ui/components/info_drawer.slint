@@ -1,0 +1,133 @@
+import { Theme } from "../theme.slint";
+
+export component InfoDrawer inherits Rectangle {
+
+    in-out property <bool> drawer_visible;
+
+    in-out property <string> file_name;
+
+    in-out property <string> codec;
+    in-out property <string> audio_codec;
+
+    in-out property <string> resolution;
+    in-out property <string> fps;
+
+
+    in property <length> parent_width;
+    in property <length> parent_height;
+
+
+    width: 340px;
+    height: parent_height;
+
+
+    x: drawer_visible
+        ? 0px
+        : -self.width - 20px;
+
+
+    background: #121821ee;
+
+    border-width: 1px;
+    border-color: Theme.border;
+
+
+    animate x {
+        duration: 220ms;
+        easing: ease-in-out;
+    }
+
+
+    VerticalLayout {
+
+        padding: 24px;
+        spacing: 12px;
+
+
+        Text {
+            text: "Информация";
+
+            font-size: 22px;
+            font-weight: 700;
+
+            color: Theme.text-primary;
+        }
+
+
+        Rectangle {
+            height: 1px;
+
+            background: Theme.border;
+        }
+
+
+        Text {
+            text: "Файл";
+
+            color: Theme.text-muted;
+        }
+
+
+        Text {
+            text: file_name;
+
+            color: Theme.text-primary;
+        }
+
+
+        Rectangle {
+            height: 1px;
+
+            background: Theme.border;
+        }
+
+
+        Text {
+            text: "Видео";
+
+            color: Theme.text-muted;
+        }
+
+
+        Text {
+            text: codec;
+
+            color: Theme.text-primary;
+        }
+
+
+        Text {
+            text: resolution;
+
+            color: Theme.text-primary;
+        }
+
+
+        Text {
+            text: fps;
+
+            color: Theme.text-primary;
+        }
+
+
+        Rectangle {
+            height: 1px;
+
+            background: Theme.border;
+        }
+
+
+        Text {
+            text: "Аудио";
+
+            color: Theme.text-muted;
+        }
+
+
+        Text {
+            text: audio_codec;
+
+            color: Theme.text-primary;
+        }
+    }
+}

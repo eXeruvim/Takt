@@ -1,0 +1,101 @@
+import { Theme } from "../theme.slint";
+
+export component SettingsDrawer inherits Rectangle {
+    in-out property <bool> drawer_visible;
+    in-out property <float> speed;
+    in-out property <bool> loop_enabled;
+
+    in property <length> parent_width;
+    in property <length> parent_height;
+
+    callback set_speed(float);
+    callback toggle_loop();
+
+    width: 320px;
+    height: parent_height;
+    x: drawer_visible ? parent_width - self.width : parent_width + 20px;
+    background: #121821ee;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    animate x {
+        duration: 220ms;
+        easing: ease-in-out;
+    }
+
+    VerticalLayout {
+        padding: 24px;
+        spacing: 18px;
+
+        Text {
+            text: "Настройки";
+            color: Theme.text-primary;
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Theme.border;
+        }
+
+        Text {
+            text: "Скорость";
+            color: Theme.text-secondary;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+
+            for value in [
+                "0.5",
+                "0.75",
+                "1.0",
+                "1.25",
+                "1.5",
+                "2.0"
+            ] : Rectangle {
+                height: 34px;
+                border-radius: 10px;
+                background: speed == value.to-float() ? Theme.accent : #ffffff10;
+
+                TouchArea {
+                    clicked => {
+                        root.set_speed(value.to-float());
+                    }
+                }
+
+                Text {
+                    text: value + "x";
+                    color: white;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Theme.border;
+        }
+
+        Rectangle {
+            height: 44px;
+            border-radius: 12px;
+            background: loop_enabled ? Theme.accent : #ffffff10;
+
+            TouchArea {
+                clicked => {
+                    root.toggle_loop();
+                }
+            }
+
+            Text {
+                text: loop_enabled ? "Повтор включен" : "Повтор";
+                color: white;
+                vertical-alignment: center;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}
