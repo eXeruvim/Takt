@@ -72,6 +72,14 @@ export component PlayerControls inherits Rectangle {
             }
 
             IconButton {
+                icon: @image-url("../icons/stop.svg");
+                accessible-name: "Остановить";
+                circular: true;
+                enabled: root.media_loaded;
+                clicked => root.stop();
+            }
+
+            IconButton {
                 width: Theme.space-12;
                 height: Theme.space-12;
                 icon: root.is_playing ? @image-url("../icons/pause.svg") : @image-url("../icons/play.svg");
@@ -80,14 +88,6 @@ export component PlayerControls inherits Rectangle {
                 circular: true;
                 enabled: root.media_loaded;
                 clicked => root.play_pause();
-            }
-
-            IconButton {
-                icon: @image-url("../icons/stop.svg");
-                accessible-name: "Остановить";
-                circular: true;
-                enabled: root.media_loaded;
-                clicked => root.stop();
             }
 
             IconButton {
