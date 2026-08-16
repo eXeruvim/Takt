@@ -1,5 +1,5 @@
 #[cfg(target_os = "windows")]
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{
     path::Path,
     sync::{Arc, Mutex},
@@ -60,18 +60,7 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
     } else {
         16.0
     };
-    let (top_inset, bottom_inset) = if app.get_player_chrome_visible() {
-        (76.0, 116.0)
-    } else {
-        (16.0, 16.0)
-    };
-    host.resize(
-        app.window(),
-        left_inset,
-        right_inset,
-        top_inset,
-        bottom_inset,
-    )
+    host.resize(app.window(), left_inset, right_inset, 76.0, 116.0)
 }
 
 pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
@@ -81,6 +70,17 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     let video_host = Arc::new(Mutex::new(None::<VideoHost>));
     #[cfg(target_os = "windows")]
     let video_resize_timer = slint::Timer::default();
+
+    {
+        let app_weak = app.as_weak();
+        app.on_drag_window(move || {
+            if let Some(app) = app_weak.upgrade() {
+                app.window().with_winit_window(|window| {
+                    let _ = window.drag_window();
+                });
+            }
+        });
+    }
 
     {
         let tx = tx.clone();
@@ -356,8 +356,6 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
         let timer_app = app.as_weak();
         let timer_video_host = video_host.clone();
-        let mut last_pointer_activity = Instant::now();
-        let mut chrome_was_forced_visible = true;
         video_resize_timer.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(50),
@@ -368,23 +366,6 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 if VideoHost::take_fullscreen_request() {
                     app.window().set_fullscreen(!app.window().is_fullscreen());
                 }
-                if VideoHost::take_pointer_activity() {
-                    last_pointer_activity = Instant::now();
-                    app.set_player_chrome_visible(true);
-                }
-                let force_chrome_visible = !app.get_media_loaded()
-                    || !app.get_is_playing()
-                    || app.get_info_drawer_visible()
-                    || app.get_settings_drawer_visible()
-                    || app.get_shortcut_overlay_visible();
-                if chrome_was_forced_visible && !force_chrome_visible {
-                    last_pointer_activity = Instant::now();
-                }
-                chrome_was_forced_visible = force_chrome_visible;
-                app.set_player_chrome_visible(
-                    force_chrome_visible
-                        || last_pointer_activity.elapsed() < Duration::from_secs(3),
-                );
                 let Ok(mut video_host) = timer_video_host.lock() else {
                     return;
                 };

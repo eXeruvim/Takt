@@ -1,5 +1,5 @@
 import { Theme } from "../theme.slint";
-import { Button, IconButton, Slider, UiText, TextVariant } from "../design_system/primitives.slint";
+import { IconButton, Slider, UiText, TextVariant } from "../design_system/primitives.slint";
 import { Timeline } from "timeline.slint";
 
 export component PlayerControls inherits Rectangle {
@@ -20,8 +20,6 @@ export component PlayerControls inherits Rectangle {
     callback set_volume(float);
     callback toggle_mute();
     callback toggle_loop();
-    callback open_file();
-    callback open_folder();
 
     height: Theme.player-controls-height;
     border-radius: Theme.radius-large;
@@ -32,20 +30,36 @@ export component PlayerControls inherits Rectangle {
     drop-shadow-blur: Theme.elevation-high-blur;
     drop-shadow-offset-y: Theme.elevation-high-y;
 
-    VerticalLayout {
-        padding-left: Theme.space-4;
-        padding-right: Theme.space-4;
-        padding-top: Theme.space-3;
-        padding-bottom: Theme.space-3;
-        spacing: Theme.space-2;
+    Timeline {
+        x: Theme.space-4;
+        y: Theme.space-2;
+        width: parent.width - Theme.space-8;
+        progress: root.progress;
+        enabled: root.media_loaded;
+        seek(value) => root.seek(value);
+    }
 
-        Timeline {
-            progress: root.progress;
-            enabled: root.media_loaded;
-            seek(value) => root.seek(value);
+    Rectangle {
+        x: Theme.space-4;
+        y: Theme.space-8;
+        width: parent.width - Theme.space-8;
+        height: Theme.space-12;
+        background: transparent;
+
+        UiText {
+            x: 0px;
+            width: 150px;
+            height: parent.height;
+            text: root.time_pos + " / " + root.time_duration;
+            variant: TextVariant.caption;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
         }
 
         HorizontalLayout {
+            x: (parent.width - self.width) / 2;
+            width: Theme.space-12 * 5;
+            height: parent.height;
             spacing: Theme.space-2;
             alignment: center;
 
@@ -84,43 +98,41 @@ export component PlayerControls inherits Rectangle {
                 clicked => root.next();
             }
 
-            Button {
-                text: "Повтор";
+            IconButton {
+                icon: @image-url("../icons/repeat.svg");
+                accessible-name: root.loop_enabled ? "Выключить повтор" : "Включить повтор";
+                circular: true;
                 selected: root.loop_enabled;
                 enabled: root.media_loaded;
                 clicked => root.toggle_loop();
             }
+        }
 
-            Rectangle { horizontal-stretch: 1; background: transparent; }
+        Rectangle {
+            width: parent.width > 900px ? 208px : Theme.space-10;
+            height: parent.height;
+            x: parent.width - self.width;
+            background: transparent;
 
-            UiText {
-                text: root.time_pos + " / " + root.time_duration;
-                variant: TextVariant.caption;
-                color: Theme.text-secondary;
-                horizontal-alignment: right;
-            }
+            HorizontalLayout {
+                spacing: Theme.space-2;
+                alignment: center;
 
-            IconButton {
-                icon: !root.muted && root.volume > 0.0
-                    ? @image-url("../icons/volume.svg")
-                    : @image-url("../icons/volume-off.svg");
-                accessible-name: root.muted ? "Включить звук" : "Выключить звук";
-                circular: true;
-                selected: root.muted;
-                clicked => root.toggle_mute();
-            }
+                IconButton {
+                    icon: !root.muted && root.volume > 0.0
+                        ? @image-url("../icons/volume.svg")
+                        : @image-url("../icons/volume-off.svg");
+                    accessible-name: root.muted ? "Включить звук" : "Выключить звук";
+                    circular: true;
+                    selected: root.muted;
+                    clicked => root.toggle_mute();
+                }
 
-            if parent.width > 850px : Slider {
-                width: 132px;
-                value <=> root.volume;
-                changed(value) => root.set_volume(value);
-            }
-
-            if parent.width > 980px : IconButton {
-                icon: @image-url("../icons/folder-open.svg");
-                accessible-name: "Открыть папку";
-                circular: true;
-                clicked => root.open_folder();
+                if parent.width > 100px : Slider {
+                    width: 152px;
+                    value <=> root.volume;
+                    changed(value) => root.set_volume(value);
+                }
             }
         }
     }

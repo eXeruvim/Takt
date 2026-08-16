@@ -14,6 +14,10 @@ export component AppWindow inherits Window {
     min-width: 760px;
     min-height: 520px;
     background: transparent;
+    no-frame: true;
+    resize-border-width: 6px;
+    title: "Oxide";
+    icon: @image-url("icons/oxide.svg");
 
     in-out property <string> file_name: "Не выбран файл";
     in-out property <string> codec: "—";
@@ -39,7 +43,6 @@ export component AppWindow inherits Window {
     in-out property <bool> error_visible: false;
     in-out property <string> error_message: "";
     in-out property <bool> drop_target_visible: false;
-    in-out property <bool> player_chrome_visible: true;
 
     callback open_file();
     callback open_folder();
@@ -62,6 +65,7 @@ export component AppWindow inherits Window {
     callback adjust_volume(float);
     callback toggle_mute();
     callback play_next();
+    callback drag_window();
 
     Rectangle {
         width: parent.width;
@@ -137,7 +141,7 @@ export component AppWindow inherits Window {
 
             Rectangle {
                 x: Theme.space-4;
-                y: root.player_chrome_visible ? Theme.space-4 : -self.height - Theme.space-4;
+                y: Theme.space-4;
                 width: parent.width - Theme.space-8;
                 height: Theme.top-bar-height;
                 border-radius: Theme.radius-large;
@@ -147,9 +151,16 @@ export component AppWindow inherits Window {
                 drop-shadow-color: Theme.shadow-low;
                 drop-shadow-blur: Theme.elevation-low-blur;
                 drop-shadow-offset-y: Theme.elevation-low-y;
-                opacity: root.player_chrome_visible ? 1 : 0;
-
-                animate y, opacity { duration: Theme.motion-normal; easing: ease-in-out; }
+                title-drag := TouchArea {
+                    width: parent.width;
+                    height: parent.height;
+                    pointer-event(event) => {
+                        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                            root.drag_window();
+                        }
+                    }
+                    double-clicked => { root.maximized = !root.maximized; }
+                }
 
                 HorizontalLayout {
                     padding-left: Theme.space-3;
@@ -191,6 +202,12 @@ export component AppWindow inherits Window {
                     }
 
                     IconButton {
+                        icon: @image-url("icons/folder-open.svg");
+                        accessible-name: "Открыть папку";
+                        clicked => root.open_folder();
+                    }
+
+                    IconButton {
                         icon: @image-url("icons/info.svg");
                         accessible-name: "Информация о файле";
                         selected: root.info_drawer_visible;
@@ -216,14 +233,38 @@ export component AppWindow inherits Window {
                         accessible-name: "Полноэкранный режим";
                         clicked => root.toggle_fullscreen();
                     }
+
+                    Rectangle {
+                        width: 1px;
+                        height: Theme.space-6;
+                        background: Theme.border-default;
+                    }
+
+                    IconButton {
+                        icon: @image-url("icons/window-minimize.svg");
+                        accessible-name: "Свернуть окно";
+                        clicked => { root.minimized = true; }
+                    }
+
+                    IconButton {
+                        icon: @image-url("icons/window-maximize.svg");
+                        accessible-name: root.maximized ? "Восстановить окно" : "Развернуть окно";
+                        selected: root.maximized;
+                        clicked => { root.maximized = !root.maximized; }
+                    }
+
+                    IconButton {
+                        icon: @image-url("icons/window-close.svg");
+                        accessible-name: "Закрыть окно";
+                        danger: true;
+                        clicked => { root.close(); }
+                    }
                 }
             }
 
             PlayerControls {
                 x: Theme.space-4;
-                y: root.player_chrome_visible
-                    ? parent.height - self.height - Theme.space-4
-                    : parent.height + Theme.space-4;
+                y: parent.height - self.height - Theme.space-4;
                 width: parent.width - Theme.space-8;
                 media_loaded: root.media_loaded;
                 is_playing: root.is_playing;
@@ -233,8 +274,6 @@ export component AppWindow inherits Window {
                 volume: root.volume;
                 muted: root.muted;
                 loop_enabled: root.loop_enabled;
-                opacity: root.player_chrome_visible ? 1 : 0;
-                animate y, opacity { duration: Theme.motion-normal; easing: ease-in-out; }
                 play_pause => root.play_pause();
                 stop => root.stop();
                 previous => root.previous_video();
@@ -243,8 +282,6 @@ export component AppWindow inherits Window {
                 set_volume(value) => root.set_volume(value);
                 toggle_mute => root.toggle_mute();
                 toggle_loop => root.toggle_loop();
-                open_file => root.open_file();
-                open_folder => root.open_folder();
             }
 
             NextVideoCard {
