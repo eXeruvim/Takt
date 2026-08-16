@@ -147,6 +147,22 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     {
         let tx = tx.clone();
 
+        app.on_toggle_folder_loop(move || {
+            let _ = tx.send(Command::ToggleFolderLoop);
+        });
+    }
+
+    {
+        let tx = tx.clone();
+
+        app.on_toggle_shuffle(move || {
+            let _ = tx.send(Command::ToggleShuffle);
+        });
+    }
+
+    {
+        let tx = tx.clone();
+
         app.on_request_media_info(move || {
             let _ = tx.send(Command::RequestMediaInfo);
         });
@@ -386,6 +402,14 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
                     Event::LoopEnabled(enabled) => {
                         app.set_loop_enabled(enabled);
+                    }
+
+                    Event::FolderLoopEnabled(enabled) => {
+                        app.set_folder_loop_enabled(enabled);
+                    }
+
+                    Event::ShuffleEnabled(enabled) => {
+                        app.set_shuffle_enabled(enabled);
                     }
 
                     Event::Error(message) => {

@@ -4,12 +4,16 @@ export component SettingsDrawer inherits Rectangle {
     in-out property <bool> drawer_visible;
     in-out property <float> speed;
     in-out property <bool> loop_enabled;
+    in-out property <bool> folder_loop_enabled;
+    in-out property <bool> shuffle_enabled;
 
     in property <length> parent_width;
     in property <length> parent_height;
 
     callback set_speed(float);
     callback toggle_loop();
+    callback toggle_folder_loop();
+    callback toggle_shuffle();
 
     width: 320px;
     height: parent_height;
@@ -91,7 +95,45 @@ export component SettingsDrawer inherits Rectangle {
             }
 
             Text {
-                text: loop_enabled ? "Повтор включен" : "Повтор";
+                text: loop_enabled ? "Повтор файла включён" : "Повтор файла";
+                color: white;
+                vertical-alignment: center;
+                horizontal-alignment: center;
+            }
+        }
+
+        Rectangle {
+            height: 44px;
+            border-radius: 12px;
+            background: folder_loop_enabled ? Theme.accent : #ffffff10;
+
+            TouchArea {
+                clicked => {
+                    root.toggle_folder_loop();
+                }
+            }
+
+            Text {
+                text: folder_loop_enabled ? "Повтор папки включён" : "Повтор папки";
+                color: white;
+                vertical-alignment: center;
+                horizontal-alignment: center;
+            }
+        }
+
+        Rectangle {
+            height: 44px;
+            border-radius: 12px;
+            background: shuffle_enabled ? Theme.accent : #ffffff10;
+
+            TouchArea {
+                clicked => {
+                    root.toggle_shuffle();
+                }
+            }
+
+            Text {
+                text: shuffle_enabled ? "Случайный порядок включён" : "Случайный порядок";
                 color: white;
                 vertical-alignment: center;
                 horizontal-alignment: center;

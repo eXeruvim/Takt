@@ -16,6 +16,8 @@ pub enum Command {
     PreviousVideo,
 
     ToggleLoop,
+    ToggleFolderLoop,
+    ToggleShuffle,
 
     SeekRelative(f64),
     AdjustVolume(f64),
@@ -56,6 +58,8 @@ pub enum Event {
     },
 
     LoopEnabled(bool),
+    FolderLoopEnabled(bool),
+    ShuffleEnabled(bool),
 
     Error(String),
 }

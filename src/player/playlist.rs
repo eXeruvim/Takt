@@ -2,6 +2,7 @@ use std::{
     cmp::Ordering,
     fs,
     path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{bail, Context, Result};
@@ -67,14 +68,81 @@ impl DirectoryPlaylist {
         self.files.get(self.current_index)
     }
 
-    pub fn next_path(&self) -> Option<&PathBuf> {
-        self.files.get(self.current_index + 1)
+    pub fn move_next(&mut self, wrap: bool) -> Option<PathBuf> {
+        if self.current_index + 1 < self.files.len() {
+            self.current_index += 1;
+        } else if wrap && !self.files.is_empty() {
+            self.current_index = 0;
+        } else {
+            return None;
+        }
+
+        self.current_path().cloned()
     }
 
-    pub fn previous_path(&self) -> Option<&PathBuf> {
-        self.current_index
-            .checked_sub(1)
-            .and_then(|index| self.files.get(index))
+    pub fn move_previous(&mut self, wrap: bool) -> Option<PathBuf> {
+        if self.current_index > 0 {
+            self.current_index -= 1;
+        } else if wrap && !self.files.is_empty() {
+            self.current_index = self.files.len() - 1;
+        } else {
+            return None;
+        }
+
+        self.current_path().cloned()
+    }
+
+    pub fn set_shuffled(&mut self, shuffled: bool) {
+        let Some(current) = self.current_path().cloned() else {
+            return;
+        };
+
+        if shuffled {
+            self.files.retain(|candidate| candidate != &current);
+            shuffle_paths(&mut self.files, random_seed());
+            self.files.insert(0, current.clone());
+        } else {
+            sort_paths_naturally(&mut self.files);
+        }
+
+        self.current_index = self
+            .files
+            .iter()
+            .position(|candidate| candidate == &current)
+            .unwrap_or_default();
+    }
+
+    pub fn remove_current_and_select(&mut self, next: bool, wrap: bool) -> Option<PathBuf> {
+        if self.files.is_empty() || self.current_index >= self.files.len() {
+            return None;
+        }
+
+        let removed_index = self.current_index;
+        self.files.remove(removed_index);
+        if self.files.is_empty() {
+            self.current_index = 0;
+            return None;
+        }
+
+        if next {
+            if removed_index < self.files.len() {
+                self.current_index = removed_index;
+            } else if wrap {
+                self.current_index = 0;
+            } else {
+                self.current_index = self.files.len() - 1;
+                return None;
+            }
+        } else if removed_index > 0 {
+            self.current_index = removed_index - 1;
+        } else if wrap {
+            self.current_index = self.files.len() - 1;
+        } else {
+            self.current_index = 0;
+            return None;
+        }
+
+        self.current_path().cloned()
     }
 
     pub fn items(&self) -> Vec<String> {
@@ -99,13 +167,39 @@ fn read_video_files(directory: &Path) -> Result<Vec<PathBuf>> {
         .filter(|candidate| candidate.is_file() && is_video_file(candidate))
         .collect::<Vec<_>>();
 
+    sort_paths_naturally(&mut files);
+
+    Ok(files)
+}
+
+fn sort_paths_naturally(files: &mut [PathBuf]) {
     files.sort_by(|left, right| {
         let left = left.file_name().unwrap_or_default().to_string_lossy();
         let right = right.file_name().unwrap_or_default().to_string_lossy();
         natural_cmp(&left, &right)
     });
+}
 
-    Ok(files)
+fn random_seed() -> u64 {
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64)
+        .unwrap_or_default();
+    time ^ u64::from(std::process::id())
+}
+
+fn shuffle_paths(files: &mut [PathBuf], mut state: u64) {
+    if state == 0 {
+        state = 0x9e37_79b9_7f4a_7c15;
+    }
+
+    for index in (1..files.len()).rev() {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        let other = state as usize % (index + 1);
+        files.swap(index, other);
+    }
 }
 
 fn natural_cmp(left: &str, right: &str) -> Ordering {
@@ -173,7 +267,6 @@ fn compare_digit_runs(left: &str, right: &str) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn detects_supported_video_extensions_case_insensitively() {
@@ -226,5 +319,62 @@ mod tests {
         );
 
         fs::remove_dir_all(directory).expect("temporary playlist directory must be removed");
+    }
+
+    #[test]
+    fn adjacent_navigation_only_wraps_when_requested() {
+        let mut playlist = DirectoryPlaylist {
+            files: ["one.mp4", "two.mp4", "three.mp4"]
+                .map(PathBuf::from)
+                .to_vec(),
+            current_index: 2,
+        };
+
+        assert_eq!(playlist.move_next(false), None);
+        assert_eq!(playlist.move_next(true), Some(PathBuf::from("one.mp4")));
+        assert_eq!(
+            playlist.move_previous(true),
+            Some(PathBuf::from("three.mp4"))
+        );
+    }
+
+    #[test]
+    fn shuffle_and_restore_keep_current_video_selected() {
+        let mut playlist = DirectoryPlaylist {
+            files: ["video1.mp4", "video2.mp4", "video3.mp4", "video4.mp4"]
+                .map(PathBuf::from)
+                .to_vec(),
+            current_index: 1,
+        };
+        let current = playlist.current_path().cloned();
+
+        playlist.set_shuffled(true);
+        assert_eq!(playlist.current_path(), current.as_ref());
+        assert_eq!(playlist.current_index(), 0);
+
+        playlist.set_shuffled(false);
+        assert_eq!(
+            playlist.items(),
+            ["video1.mp4", "video2.mp4", "video3.mp4", "video4.mp4"]
+        );
+        assert_eq!(playlist.current_path(), current.as_ref());
+    }
+
+    #[test]
+    fn removing_unavailable_video_selects_the_following_item() {
+        let mut playlist = DirectoryPlaylist {
+            files: ["one.mp4", "missing.mp4", "three.mp4"]
+                .map(PathBuf::from)
+                .to_vec(),
+            current_index: 1,
+        };
+
+        assert_eq!(
+            playlist.remove_current_and_select(true, false),
+            Some(PathBuf::from("three.mp4"))
+        );
+        assert_eq!(playlist.items(), ["one.mp4", "three.mp4"]);
+
+        assert_eq!(playlist.remove_current_and_select(true, false), None);
     }
 }

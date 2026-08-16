@@ -52,6 +52,8 @@ export component AppWindow inherits Window {
     in-out property <bool> muted: false;
     in-out property <float> speed: 1.0;
     in-out property <bool> loop_enabled: false;
+    in-out property <bool> folder_loop_enabled: false;
+    in-out property <bool> shuffle_enabled: false;
 
     in-out property <string> next_file: "";
     in-out property <bool> next_card_visible: false;
@@ -72,6 +74,8 @@ export component AppWindow inherits Window {
     callback set_volume(float);
     callback set_speed(float);
     callback toggle_loop();
+    callback toggle_folder_loop();
+    callback toggle_shuffle();
     callback request_media_info();
     callback toggle_fullscreen();
     callback toggle_info();
@@ -255,11 +259,15 @@ export component AppWindow inherits Window {
                 drawer_visible: root.settings_drawer_visible;
                 speed: root.speed;
                 loop_enabled: root.loop_enabled;
+                folder_loop_enabled: root.folder_loop_enabled;
+                shuffle_enabled: root.shuffle_enabled;
                 parent_width: parent.width;
                 parent_height: parent.height;
 
                 set_speed(value) => root.set_speed(value);
                 toggle_loop => root.toggle_loop();
+                toggle_folder_loop => root.toggle_folder_loop();
+                toggle_shuffle => root.toggle_shuffle();
             }
 
             ShortcutOverlay {

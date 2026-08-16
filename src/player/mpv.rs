@@ -9,6 +9,12 @@ use libmpv::{
     mpv_end_file_reason, Format, Mpv,
 };
 
+#[derive(Default)]
+struct PlaybackOptions {
+    repeat_folder: bool,
+    shuffled: bool,
+}
+
 fn mpv_error<T>(result: Result<T, libmpv::Error>) -> anyhow::Result<T> {
     result.map_err(|e| anyhow::anyhow!("{:?}", e))
 }
@@ -41,9 +47,10 @@ fn load_path(
     tx: &Sender<Event>,
     playlist: &mut Option<DirectoryPlaylist>,
     path: PathBuf,
+    shuffled: bool,
 ) -> anyhow::Result<()> {
     let next_playlist = DirectoryPlaylist::load_from_path(&path)?;
-    activate_playlist(mpv, tx, playlist, next_playlist)
+    activate_playlist(mpv, tx, playlist, next_playlist, shuffled)
 }
 
 fn load_directory(
@@ -51,18 +58,27 @@ fn load_directory(
     tx: &Sender<Event>,
     playlist: &mut Option<DirectoryPlaylist>,
     directory: &Path,
+    shuffled: bool,
 ) -> anyhow::Result<()> {
     let next_playlist = DirectoryPlaylist::load_from_directory(directory)?;
-    activate_playlist(mpv, tx, playlist, next_playlist)
+    activate_playlist(mpv, tx, playlist, next_playlist, shuffled)
 }
 
 fn activate_playlist(
     mpv: &Mpv,
     tx: &Sender<Event>,
     playlist: &mut Option<DirectoryPlaylist>,
-    next_playlist: DirectoryPlaylist,
+    mut next_playlist: DirectoryPlaylist,
+    shuffled: bool,
 ) -> anyhow::Result<()> {
-    let path = next_playlist
+    next_playlist.set_shuffled(shuffled);
+    load_current(mpv, tx, &next_playlist)?;
+    *playlist = Some(next_playlist);
+    Ok(())
+}
+
+fn load_current(mpv: &Mpv, tx: &Sender<Event>, playlist: &DirectoryPlaylist) -> anyhow::Result<()> {
+    let path = playlist
         .current_path()
         .context("В плейлисте нет видео для воспроизведения")?;
     load_file_in_mpv(mpv, path)?;
@@ -70,9 +86,8 @@ fn activate_playlist(
     if let Some(file_name) = path.file_name() {
         let _ = tx.send(Event::FileLoaded(file_name.to_string_lossy().into_owned()));
     }
-    send_playlist(tx, &next_playlist);
+    send_playlist(tx, playlist);
     let _ = tx.send(Event::MediaAvailable(true));
-    *playlist = Some(next_playlist);
     Ok(())
 }
 
@@ -81,20 +96,78 @@ fn load_adjacent(
     tx: &Sender<Event>,
     playlist: &mut Option<DirectoryPlaylist>,
     next: bool,
+    wrap: bool,
 ) -> anyhow::Result<bool> {
-    let path = playlist.as_ref().and_then(|playlist| {
+    let selected = playlist.as_mut().and_then(|playlist| {
         if next {
-            playlist.next_path()
+            playlist.move_next(wrap)
         } else {
-            playlist.previous_path()
+            playlist.move_previous(wrap)
         }
     });
 
-    if let Some(path) = path.cloned() {
-        load_path(mpv, tx, playlist, path)?;
-        return Ok(true);
+    if selected.is_none() {
+        return Ok(false);
     }
-    Ok(false)
+
+    load_selected_or_skip_missing(mpv, tx, playlist, next, wrap)
+}
+
+fn load_selected_or_skip_missing(
+    mpv: &Mpv,
+    tx: &Sender<Event>,
+    playlist: &mut Option<DirectoryPlaylist>,
+    next: bool,
+    wrap: bool,
+) -> anyhow::Result<bool> {
+    loop {
+        let current_exists = playlist
+            .as_ref()
+            .and_then(DirectoryPlaylist::current_path)
+            .is_some_and(|path| path.is_file());
+
+        if current_exists {
+            let playlist = playlist
+                .as_ref()
+                .context("Плейлист исчез во время перехода")?;
+            load_current(mpv, tx, playlist)?;
+            return Ok(true);
+        }
+
+        let selected = playlist
+            .as_mut()
+            .and_then(|playlist| playlist.remove_current_and_select(next, wrap));
+        if selected.is_none() {
+            if let Some(playlist) = playlist.as_ref() {
+                send_playlist(tx, playlist);
+            }
+            return Ok(false);
+        }
+    }
+}
+
+fn skip_failed_current(
+    mpv: &Mpv,
+    tx: &Sender<Event>,
+    playlist: &mut Option<DirectoryPlaylist>,
+    wrap: bool,
+) -> anyhow::Result<bool> {
+    let selected = playlist
+        .as_mut()
+        .and_then(|playlist| playlist.remove_current_and_select(true, wrap));
+    if selected.is_none() {
+        if let Some(playlist) = playlist.as_ref() {
+            send_playlist(tx, playlist);
+        }
+        return Ok(false);
+    }
+
+    load_selected_or_skip_missing(mpv, tx, playlist, true, wrap)
+}
+
+fn send_playback_finished(tx: &Sender<Event>) {
+    let _ = tx.send(Event::MediaAvailable(false));
+    let _ = tx.send(Event::PlaybackState(false));
 }
 
 fn handle_command(
@@ -102,13 +175,14 @@ fn handle_command(
     mpv: &Mpv,
     tx: &Sender<Event>,
     playlist: &mut Option<DirectoryPlaylist>,
+    options: &mut PlaybackOptions,
 ) -> anyhow::Result<bool> {
     match command {
         Command::OpenFile(path) => {
-            load_path(mpv, tx, playlist, PathBuf::from(path))?;
+            load_path(mpv, tx, playlist, PathBuf::from(path), options.shuffled)?;
         }
         Command::OpenFolder(path) => {
-            load_directory(mpv, tx, playlist, Path::new(&path))?;
+            load_directory(mpv, tx, playlist, Path::new(&path), options.shuffled)?;
         }
         Command::TogglePlay => {
             let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
@@ -130,10 +204,10 @@ fn handle_command(
             mpv_error(mpv.set_property("speed", value.clamp(0.25, 4.0)))?;
         }
         Command::NextVideo => {
-            load_adjacent(mpv, tx, playlist, true)?;
+            load_adjacent(mpv, tx, playlist, true, options.repeat_folder)?;
         }
         Command::PreviousVideo => {
-            load_adjacent(mpv, tx, playlist, false)?;
+            load_adjacent(mpv, tx, playlist, false, options.repeat_folder)?;
         }
         Command::ToggleLoop => {
             let loop_file = mpv
@@ -141,6 +215,18 @@ fn handle_command(
                 .unwrap_or_else(|_| "no".into());
             let value = if loop_file == "yes" { "no" } else { "yes" };
             mpv_error(mpv.set_property("loop-file", value.to_owned()))?;
+        }
+        Command::ToggleFolderLoop => {
+            options.repeat_folder = !options.repeat_folder;
+            let _ = tx.send(Event::FolderLoopEnabled(options.repeat_folder));
+        }
+        Command::ToggleShuffle => {
+            options.shuffled = !options.shuffled;
+            if let Some(playlist) = playlist {
+                playlist.set_shuffled(options.shuffled);
+                send_playlist(tx, playlist);
+            }
+            let _ = tx.send(Event::ShuffleEnabled(options.shuffled));
         }
         Command::SetVideoWindow(handle) => {
             mpv_error(mpv.set_property("wid", handle as i64))?;
@@ -188,6 +274,7 @@ fn send_property_change(tx: &Sender<Event>, name: &str, change: PropertyData<'_>
 pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
     let mpv = Mpv::new().map_err(|e| anyhow::anyhow!("{:?}", e))?;
     let mut playlist: Option<DirectoryPlaylist> = None;
+    let mut options = PlaybackOptions::default();
     let mut events = mpv.create_event_context();
 
     mpv_error(events.disable_deprecated_events())?;
@@ -205,7 +292,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
 
     loop {
         while let Ok(command) = rx.try_recv() {
-            match handle_command(command, &mpv, &tx, &mut playlist) {
+            match handle_command(command, &mpv, &tx, &mut playlist, &mut options) {
                 Ok(true) => {}
                 Ok(false) => return Ok(()),
                 Err(error) => {
@@ -218,13 +305,25 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
             match event {
                 Ok(MpvEvent::FileLoaded) => send_media_info(&mpv, &tx),
                 Ok(MpvEvent::EndFile(reason)) if reason == mpv_end_file_reason::Eof => {
-                    match load_adjacent(&mpv, &tx, &mut playlist, true) {
+                    match load_adjacent(&mpv, &tx, &mut playlist, true, options.repeat_folder) {
+                        Ok(true) => {}
+                        Ok(false) => send_playback_finished(&tx),
+                        Err(error) => {
+                            let _ = tx.send(Event::Error(error.to_string()));
+                        }
+                    }
+                }
+                Ok(MpvEvent::EndFile(reason)) if reason == mpv_end_file_reason::Error => {
+                    match skip_failed_current(&mpv, &tx, &mut playlist, options.repeat_folder) {
                         Ok(true) => {}
                         Ok(false) => {
-                            let _ = tx.send(Event::MediaAvailable(false));
-                            let _ = tx.send(Event::PlaybackState(false));
+                            send_playback_finished(&tx);
+                            let _ = tx.send(Event::Error(
+                                "Не удалось воспроизвести видео; очередь завершена".to_owned(),
+                            ));
                         }
                         Err(error) => {
+                            send_playback_finished(&tx);
                             let _ = tx.send(Event::Error(error.to_string()));
                         }
                     }
