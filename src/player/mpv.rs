@@ -13,6 +13,7 @@ use libmpv::{
 struct PlaybackOptions {
     repeat_folder: bool,
     shuffled: bool,
+    media_available: bool,
 }
 
 fn mpv_error<T>(result: Result<T, libmpv::Error>) -> anyhow::Result<T> {
@@ -180,22 +181,33 @@ fn handle_command(
     match command {
         Command::OpenFile(path) => {
             load_path(mpv, tx, playlist, PathBuf::from(path), options.shuffled)?;
+            options.media_available = true;
         }
         Command::OpenFolder(path) => {
             load_directory(mpv, tx, playlist, Path::new(&path), options.shuffled)?;
+            options.media_available = true;
         }
         Command::TogglePlay => {
+            if !options.media_available {
+                return Ok(true);
+            }
             let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
             mpv_error(mpv.set_property("pause", !paused))?;
         }
         Command::Stop => {
+            if !options.media_available {
+                return Ok(true);
+            }
             mpv_error(mpv.command("stop", &[]))?;
+            options.media_available = false;
             let _ = tx.send(Event::MediaAvailable(false));
             let _ = tx.send(Event::PlaybackState(false));
             let _ = tx.send(Event::TimePos(0.0));
         }
         Command::Seek(position) => {
-            mpv_error(mpv.set_property("time-pos", position.max(0.0)))?;
+            if options.media_available {
+                mpv_error(mpv.set_property("time-pos", position.max(0.0)))?;
+            }
         }
         Command::SetVolume(value) => {
             mpv_error(mpv.set_property("volume", value.clamp(0.0, 100.0)))?;
@@ -204,10 +216,14 @@ fn handle_command(
             mpv_error(mpv.set_property("speed", value.clamp(0.25, 4.0)))?;
         }
         Command::NextVideo => {
-            load_adjacent(mpv, tx, playlist, true, options.repeat_folder)?;
+            if load_adjacent(mpv, tx, playlist, true, options.repeat_folder)? {
+                options.media_available = true;
+            }
         }
         Command::PreviousVideo => {
-            load_adjacent(mpv, tx, playlist, false, options.repeat_folder)?;
+            if load_adjacent(mpv, tx, playlist, false, options.repeat_folder)? {
+                options.media_available = true;
+            }
         }
         Command::ToggleLoop => {
             let loop_file = mpv
@@ -234,7 +250,9 @@ fn handle_command(
             mpv_error(mpv.set_property("gpu-context", "win32".to_owned()))?;
         }
         Command::SeekRelative(offset) => {
-            mpv_error(mpv.command("seek", &[&offset.to_string(), "relative"]))?;
+            if options.media_available {
+                mpv_error(mpv.command("seek", &[&offset.to_string(), "relative"]))?;
+            }
         }
         Command::AdjustVolume(delta) => {
             let current = mpv.get_property::<f64>("volume").unwrap_or(50.0);
@@ -248,7 +266,11 @@ fn handle_command(
             let muted = mpv.get_property::<bool>("mute").unwrap_or(false);
             mpv_error(mpv.set_property("mute", !muted))?;
         }
-        Command::RequestMediaInfo => send_media_info(mpv, tx),
+        Command::RequestMediaInfo => {
+            if options.media_available {
+                send_media_info(mpv, tx);
+            }
+        }
         Command::Quit => return Ok(false),
     }
     Ok(true)
@@ -306,23 +328,29 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                 Ok(MpvEvent::FileLoaded) => send_media_info(&mpv, &tx),
                 Ok(MpvEvent::EndFile(reason)) if reason == mpv_end_file_reason::Eof => {
                     match load_adjacent(&mpv, &tx, &mut playlist, true, options.repeat_folder) {
-                        Ok(true) => {}
-                        Ok(false) => send_playback_finished(&tx),
+                        Ok(true) => options.media_available = true,
+                        Ok(false) => {
+                            options.media_available = false;
+                            send_playback_finished(&tx);
+                        }
                         Err(error) => {
+                            options.media_available = false;
                             let _ = tx.send(Event::Error(error.to_string()));
                         }
                     }
                 }
                 Ok(MpvEvent::EndFile(reason)) if reason == mpv_end_file_reason::Error => {
                     match skip_failed_current(&mpv, &tx, &mut playlist, options.repeat_folder) {
-                        Ok(true) => {}
+                        Ok(true) => options.media_available = true,
                         Ok(false) => {
+                            options.media_available = false;
                             send_playback_finished(&tx);
                             let _ = tx.send(Event::Error(
                                 "Не удалось воспроизвести видео; очередь завершена".to_owned(),
                             ));
                         }
                         Err(error) => {
+                            options.media_available = false;
                             send_playback_finished(&tx);
                             let _ = tx.send(Event::Error(error.to_string()));
                         }

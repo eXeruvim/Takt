@@ -41,6 +41,8 @@ component FocusTouchArea {
     forward-focus: focus;
 
     pointer := TouchArea {
+        width: parent.width;
+        height: parent.height;
         enabled: root.enabled;
         clicked => {
             focus.focus();
@@ -49,8 +51,9 @@ component FocusTouchArea {
     }
 
     focus := FocusScope {
+        width: 0px;
         enabled: root.enabled;
-        focus-on-click: true;
+        focus-on-click: false;
         key-pressed(event) => {
             if (event.text == " " || event.text == "\n") {
                 root.clicked();
@@ -123,6 +126,8 @@ export component Button inherits Rectangle {
     forward-focus: interaction;
 
     interaction := FocusTouchArea {
+        width: parent.width;
+        height: parent.height;
         enabled: root.enabled && !root.loading;
         clicked => root.clicked();
     }
@@ -180,6 +185,8 @@ export component IconButton inherits Rectangle {
     forward-focus: interaction;
 
     interaction := FocusTouchArea {
+        width: parent.width;
+        height: parent.height;
         enabled: root.enabled && !root.loading;
         clicked => root.clicked();
     }
@@ -319,6 +326,8 @@ export component Toggle inherits Rectangle {
     accessible-enabled: enabled;
 
     interaction := FocusTouchArea {
+        width: parent.width;
+        height: parent.height;
         enabled: root.enabled;
         clicked => {
             root.checked = !root.checked;

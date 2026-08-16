@@ -394,10 +394,13 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
                     Event::MediaAvailable(available) => {
                         app.set_media_loaded(available);
+                        if !available {
+                            app.set_is_playing(false);
+                        }
                     }
 
                     Event::PlaybackState(state) => {
-                        app.set_is_playing(state);
+                        app.set_is_playing(state && app.get_media_loaded());
                     }
 
                     Event::Volume(v) => {

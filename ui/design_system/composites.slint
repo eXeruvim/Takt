@@ -90,7 +90,7 @@ export component Toast inherits Rectangle {
 
     visible: shown;
     width: Theme.space-12 * 8;
-    min-height: Theme.space-12;
+    height: Theme.space-12 + Theme.space-6;
     border-radius: Theme.radius-medium;
     background: danger ? Theme.danger-subtle : Theme.surface-elevated;
     border-width: 1px;
@@ -99,7 +99,11 @@ export component Toast inherits Rectangle {
     drop-shadow-blur: Theme.elevation-low-blur;
     drop-shadow-offset-y: Theme.elevation-low-y;
 
-    TouchArea { clicked => root.dismissed(); }
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => root.dismissed();
+    }
 
     HorizontalLayout {
         padding: Theme.space-4;
