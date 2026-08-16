@@ -33,6 +33,7 @@ export component Icon inherits Image {
 
 component FocusTouchArea {
     in property <bool> enabled: true;
+    in property <bool> capture-focus: true;
     out property <bool> pressed <=> pointer.pressed;
     out property <bool> has-hover <=> pointer.has-hover;
     out property <bool> has-focus <=> focus.has-focus;
@@ -45,7 +46,9 @@ component FocusTouchArea {
         height: parent.height;
         enabled: root.enabled;
         clicked => {
-            focus.focus();
+            if (root.capture-focus) {
+                focus.focus();
+            }
             root.clicked();
         }
     }
@@ -163,6 +166,7 @@ export component IconButton inherits Rectangle {
     in property <bool> selected: false;
     in property <bool> loading: false;
     in property <bool> danger: false;
+    in property <bool> capture-focus: true;
     callback clicked();
 
     width: Theme.space-10;
@@ -189,6 +193,7 @@ export component IconButton inherits Rectangle {
         width: parent.width;
         height: parent.height;
         enabled: root.enabled && !root.loading;
+        capture-focus: root.capture-focus;
         clicked => root.clicked();
     }
 

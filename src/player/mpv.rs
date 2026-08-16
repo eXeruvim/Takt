@@ -245,9 +245,10 @@ fn handle_command(
             let _ = tx.send(Event::ShuffleEnabled(options.shuffled));
         }
         Command::SetVideoWindow(handle) => {
-            mpv_error(mpv.set_property("wid", handle as i64))?;
-            mpv_error(mpv.set_property("vo", "gpu".to_owned()))?;
-            mpv_error(mpv.set_property("gpu-context", "win32".to_owned()))?;
+            mpv_error(mpv.set_property("wid", handle.to_string()))
+                .context("Не удалось привязать mpv к окну видео")?;
+            mpv_error(mpv.set_property("vo", "gpu".to_owned()))
+                .context("Не удалось выбрать видеовывод mpv")?;
         }
         Command::SeekRelative(offset) => {
             if options.media_available {
@@ -318,6 +319,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                 Ok(true) => {}
                 Ok(false) => return Ok(()),
                 Err(error) => {
+                    eprintln!("Ошибка команды mpv: {error:#}");
                     let _ = tx.send(Event::Error(error.to_string()));
                 }
             }

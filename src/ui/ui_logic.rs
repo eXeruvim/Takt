@@ -50,12 +50,12 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
         && !app.get_drop_target_visible();
     host.set_visible(video_visible);
 
-    let left_inset = if app.get_info_drawer_visible() {
+    let left_inset = if app.get_info_drawer_reserved() {
         368.0
     } else {
         16.0
     };
-    let right_inset = if app.get_settings_drawer_visible() {
+    let right_inset = if app.get_settings_drawer_reserved() {
         388.0
     } else {
         16.0
@@ -244,9 +244,40 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         });
     }
 
+    #[cfg(target_os = "windows")]
     {
         let app_weak = app.as_weak();
+        let panel_video_host = video_host.clone();
 
+        app.on_toggle_info(move || {
+            if let Some(app) = app_weak.upgrade() {
+                let opening = !app.get_info_drawer_visible();
+                if opening {
+                    app.set_info_drawer_reserved(true);
+                    if let Ok(mut video_host) = panel_video_host.lock() {
+                        if let Some(host) = video_host.as_mut() {
+                            let _ = sync_video_host(host, &app);
+                        }
+                    }
+                    app.set_info_drawer_visible(true);
+                } else {
+                    app.set_info_drawer_visible(false);
+                    let delayed_app = app.as_weak();
+                    slint::Timer::single_shot(Duration::from_millis(200), move || {
+                        if let Some(app) = delayed_app.upgrade() {
+                            if !app.get_info_drawer_visible() {
+                                app.set_info_drawer_reserved(false);
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let app_weak = app.as_weak();
         app.on_toggle_info(move || {
             if let Some(app) = app_weak.upgrade() {
                 app.set_info_drawer_visible(!app.get_info_drawer_visible());
@@ -254,9 +285,40 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         });
     }
 
+    #[cfg(target_os = "windows")]
     {
         let app_weak = app.as_weak();
+        let panel_video_host = video_host.clone();
 
+        app.on_toggle_settings(move || {
+            if let Some(app) = app_weak.upgrade() {
+                let opening = !app.get_settings_drawer_visible();
+                if opening {
+                    app.set_settings_drawer_reserved(true);
+                    if let Ok(mut video_host) = panel_video_host.lock() {
+                        if let Some(host) = video_host.as_mut() {
+                            let _ = sync_video_host(host, &app);
+                        }
+                    }
+                    app.set_settings_drawer_visible(true);
+                } else {
+                    app.set_settings_drawer_visible(false);
+                    let delayed_app = app.as_weak();
+                    slint::Timer::single_shot(Duration::from_millis(200), move || {
+                        if let Some(app) = delayed_app.upgrade() {
+                            if !app.get_settings_drawer_visible() {
+                                app.set_settings_drawer_reserved(false);
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let app_weak = app.as_weak();
         app.on_toggle_settings(move || {
             if let Some(app) = app_weak.upgrade() {
                 app.set_settings_drawer_visible(!app.get_settings_drawer_visible());
