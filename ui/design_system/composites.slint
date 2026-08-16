@@ -1,0 +1,267 @@
+import { Theme } from "../theme.slint";
+import { Button, Divider, UiText, TextVariant } from "primitives.slint";
+
+export component Drawer inherits Rectangle {
+    in property <bool> open: false;
+    in property <bool> from-right: true;
+    in property <length> host-width;
+    in property <length> host-height;
+
+    width: Theme.space-12 * 7;
+    height: host-height;
+    x: open ? (from-right ? host-width - self.width : 0px)
+        : (from-right ? host-width + Theme.space-5 : -self.width - Theme.space-5);
+    background: Theme.surface-elevated;
+    border-width: 1px;
+    border-color: Theme.border-default;
+    drop-shadow-color: Theme.shadow-high;
+    drop-shadow-blur: Theme.elevation-high-blur;
+    drop-shadow-offset-y: Theme.elevation-high-y;
+    clip: true;
+
+    animate x { duration: Theme.motion-slow; easing: ease-in-out; }
+
+    @children
+}
+
+export component Popover inherits Rectangle {
+    in property <bool> open: false;
+
+    visible: open;
+    min-width: Theme.space-12 * 4;
+    min-height: Theme.space-12;
+    border-radius: Theme.radius-large;
+    background: Theme.surface-elevated;
+    border-width: 1px;
+    border-color: Theme.border-default;
+    drop-shadow-color: Theme.shadow-high;
+    drop-shadow-blur: Theme.elevation-high-blur;
+    drop-shadow-offset-y: Theme.elevation-high-y;
+
+    @children
+}
+
+export component Dialog inherits Rectangle {
+    in property <bool> open: false;
+    in property <string> title;
+    callback close();
+
+    visible: open;
+    background: Theme.backdrop;
+
+    Rectangle {
+        width: min(parent.width - Theme.space-12, Theme.space-12 * 12);
+        height: min(parent.height - Theme.space-12, Theme.space-12 * 10);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: Theme.radius-xlarge;
+        background: Theme.surface-elevated;
+        border-width: 1px;
+        border-color: Theme.border-default;
+        drop-shadow-color: Theme.shadow-high;
+        drop-shadow-blur: Theme.elevation-high-blur;
+        drop-shadow-offset-y: Theme.elevation-high-y;
+
+        VerticalLayout {
+            padding: Theme.space-6;
+            spacing: Theme.space-4;
+
+            UiText {
+                text: root.title;
+                variant: TextVariant.title;
+            }
+
+            Divider { }
+
+            Rectangle {
+                vertical-stretch: 1;
+                background: transparent;
+                @children
+            }
+        }
+    }
+}
+
+export component Toast inherits Rectangle {
+    in property <bool> shown: false;
+    in property <string> message;
+    in property <bool> danger: false;
+    callback dismissed();
+
+    visible: shown;
+    width: Theme.space-12 * 8;
+    min-height: Theme.space-12;
+    border-radius: Theme.radius-medium;
+    background: danger ? Theme.danger-subtle : Theme.surface-elevated;
+    border-width: 1px;
+    border-color: danger ? Theme.danger : Theme.border-default;
+    drop-shadow-color: Theme.shadow-low;
+    drop-shadow-blur: Theme.elevation-low-blur;
+    drop-shadow-offset-y: Theme.elevation-low-y;
+
+    TouchArea { clicked => root.dismissed(); }
+
+    HorizontalLayout {
+        padding: Theme.space-4;
+
+        UiText {
+            text: root.message;
+            color: Theme.text-primary;
+            wrap: word-wrap;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component ActionPanel inherits Rectangle {
+    in property <bool> open: false;
+    in property <string> title: "Действия";
+
+    visible: open;
+    width: Theme.space-12 * 6;
+    border-radius: Theme.radius-large;
+    background: Theme.surface-elevated;
+    border-width: 1px;
+    border-color: Theme.border-default;
+
+    VerticalLayout {
+        padding: Theme.space-3;
+        spacing: Theme.space-2;
+
+        UiText {
+            text: root.title;
+            variant: TextVariant.label;
+            color: Theme.text-secondary;
+        }
+
+        Divider { }
+        @children
+    }
+}
+
+export component CommandPalette inherits Rectangle {
+    in property <bool> open: false;
+    in property <string> query;
+    in property <length> host-width: Theme.space-12 * 15;
+    in property <length> host-height: Theme.space-12 * 11;
+    callback query-changed(string);
+
+    visible: open;
+    width: min(host-width - Theme.space-12, Theme.space-12 * 14);
+    height: min(host-height - Theme.space-12, Theme.space-12 * 10);
+    border-radius: Theme.radius-xlarge;
+    background: Theme.surface-elevated;
+    border-width: 1px;
+    border-color: Theme.border-default;
+    drop-shadow-color: Theme.shadow-high;
+    drop-shadow-blur: Theme.elevation-high-blur;
+    drop-shadow-offset-y: Theme.elevation-high-y;
+
+    VerticalLayout {
+        padding: Theme.space-4;
+        spacing: Theme.space-3;
+
+        Rectangle {
+            height: Theme.space-10;
+            border-radius: Theme.radius-medium;
+            background: Theme.surface-panel;
+            border-width: 1px;
+            border-color: Theme.border-default;
+
+            UiText {
+                x: Theme.space-3;
+                width: parent.width - Theme.space-6;
+                height: parent.height;
+                text: root.query == "" ? "Введите команду…" : root.query;
+                color: root.query == "" ? Theme.text-muted : Theme.text-primary;
+                vertical-alignment: center;
+            }
+        }
+
+        Divider { }
+
+        Rectangle {
+            vertical-stretch: 1;
+            background: transparent;
+            @children
+        }
+    }
+}
+
+export component ContextMenu inherits Rectangle {
+    in property <bool> open: false;
+
+    visible: open;
+    min-width: Theme.space-12 * 4;
+    border-radius: Theme.radius-medium;
+    background: Theme.surface-elevated;
+    border-width: 1px;
+    border-color: Theme.border-default;
+    drop-shadow-color: Theme.shadow-high;
+    drop-shadow-blur: Theme.elevation-high-blur;
+
+    VerticalLayout {
+        padding: Theme.space-2;
+        spacing: Theme.space-1;
+        @children
+    }
+}
+
+export component SettingsRow inherits Rectangle {
+    in property <string> title;
+    in property <string> description;
+
+    min-height: Theme.space-12;
+    background: transparent;
+
+    HorizontalLayout {
+        spacing: Theme.space-4;
+        alignment: center;
+
+        VerticalLayout {
+            vertical-stretch: 1;
+            spacing: Theme.space-1;
+
+            UiText { text: root.title; variant: TextVariant.label; }
+            UiText { text: root.description; color: Theme.text-secondary; }
+        }
+
+        @children
+    }
+}
+
+export component MediaListItem inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <bool> selected: false;
+    in property <bool> enabled: true;
+    callback activated();
+
+    height: Theme.space-12;
+    border-radius: Theme.radius-medium;
+    background: selected ? Theme.surface-selected
+        : hit.pressed ? Theme.surface-pressed
+        : hit.has-hover ? Theme.surface-hover
+        : transparent;
+    border-width: selected ? 1px : 0px;
+    border-color: Theme.accent;
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: list-item;
+    accessible-label: title;
+
+    hit := TouchArea {
+        enabled: root.enabled;
+        clicked => root.activated();
+    }
+
+    VerticalLayout {
+        padding-left: Theme.space-3;
+        padding-right: Theme.space-3;
+        alignment: center;
+
+        UiText { text: root.title; variant: TextVariant.label; }
+        UiText { text: root.subtitle; color: Theme.text-secondary; variant: TextVariant.caption; }
+    }
+
+    animate background, opacity { duration: Theme.motion-fast; }
+}

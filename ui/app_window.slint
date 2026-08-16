@@ -4,6 +4,7 @@ import { InfoDrawer } from "components/info_drawer.slint";
 import { SettingsDrawer } from "components/settings_drawer.slint";
 import { NextVideoCard } from "components/next_video_card.slint";
 import { ShortcutOverlay } from "components/shortcut_overlay.slint";
+import { Toast } from "design_system/composites.slint";
 
 component FeatureButton inherits Rectangle {
     in-out property <string> label;
@@ -304,31 +305,14 @@ export component AppWindow inherits Window {
                 }
             }
 
-            Rectangle {
-                visible: root.error_visible;
+            Toast {
+                shown: root.error_visible;
+                message: root.error_message;
+                danger: true;
                 x: parent.width - self.width - 24px;
                 y: 108px;
-                width: 420px;
-                height: 76px;
-                border-radius: Theme.radius-medium;
-                background: Theme.danger-subtle;
-                border-width: 1px;
-                border-color: Theme.danger;
-
-                TouchArea {
-                    clicked => {
-                        root.error_visible = false;
-                    }
-                }
-
-                Text {
-                    x: 16px;
-                    width: parent.width - 32px;
-                    height: parent.height;
-                    text: root.error_message;
-                    color: Theme.text-primary;
-                    wrap: word-wrap;
-                    vertical-alignment: center;
+                dismissed => {
+                    root.error_visible = false;
                 }
             }
         }
