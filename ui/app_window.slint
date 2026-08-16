@@ -5,30 +5,7 @@ import { SettingsDrawer } from "components/settings_drawer.slint";
 import { NextVideoCard } from "components/next_video_card.slint";
 import { ShortcutOverlay } from "components/shortcut_overlay.slint";
 import { Toast } from "design_system/composites.slint";
-
-component FeatureButton inherits Rectangle {
-    in-out property <string> label;
-    callback action();
-
-    width: 42px;
-    height: 42px;
-    border-radius: Theme.radius-medium;
-    background: hitbox.pressed ? Theme.surface-pressed : hitbox.has-hover ? Theme.surface-hover : Theme.surface-panel;
-    border-width: 1px;
-    border-color: Theme.border-default;
-
-    hitbox := TouchArea {
-        clicked => action();
-    }
-
-    Text {
-        text: root.label;
-        color: Theme.text-primary;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-        font-size: Theme.text-large;
-    }
-}
+import { Icon, IconButton } from "design_system/primitives.slint";
 
 export component AppWindow inherits Window {
     forward-focus: keyboard;
@@ -126,6 +103,12 @@ export component AppWindow inherits Window {
                     y: 24px;
                     spacing: Theme.space-5;
 
+                    Icon {
+                        source: @image-url("icons/oxide.svg");
+                        size: Theme.icon-large;
+                        tint: Theme.accent;
+                    }
+
                     Text {
                         text: "Oxide";
                         font-size: Theme.text-display;
@@ -145,24 +128,28 @@ export component AppWindow inherits Window {
                     y: 24px;
                     spacing: Theme.space-2;
 
-                    FeatureButton {
-                        label: "i";
-                        action => root.toggle_info();
+                    IconButton {
+                        icon: @image-url("icons/info.svg");
+                        accessible-name: "Информация о файле";
+                        clicked => root.toggle_info();
                     }
 
-                    FeatureButton {
-                        label: "⚙";
-                        action => root.toggle_settings();
+                    IconButton {
+                        icon: @image-url("icons/settings.svg");
+                        accessible-name: "Настройки";
+                        clicked => root.toggle_settings();
                     }
 
-                    FeatureButton {
-                        label: "?";
-                        action => root.toggle_shortcuts();
+                    IconButton {
+                        icon: @image-url("icons/help.svg");
+                        accessible-name: "Горячие клавиши";
+                        clicked => root.toggle_shortcuts();
                     }
 
-                    FeatureButton {
-                        label: "⛶";
-                        action => root.toggle_fullscreen();
+                    IconButton {
+                        icon: @image-url("icons/maximize.svg");
+                        accessible-name: "Полноэкранный режим";
+                        clicked => root.toggle_fullscreen();
                     }
                 }
             }

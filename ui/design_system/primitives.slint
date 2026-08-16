@@ -152,6 +152,8 @@ export component Button inherits Rectangle {
 export component IconButton inherits Rectangle {
     in property <image> icon;
     in property <string> accessible-name;
+    in property <bool> primary: false;
+    in property <bool> circular: false;
     in property <bool> enabled: true;
     in property <bool> selected: false;
     in property <bool> loading: false;
@@ -159,13 +161,15 @@ export component IconButton inherits Rectangle {
 
     width: Theme.space-10;
     height: Theme.space-10;
-    border-radius: Theme.radius-medium;
-    background: interaction.pressed ? Theme.surface-pressed
-        : interaction.has-hover ? Theme.surface-hover
+    border-radius: circular ? Theme.radius-full : Theme.radius-medium;
+    background: interaction.pressed ? (primary ? Theme.accent-pressed : Theme.surface-pressed)
+        : interaction.has-hover ? (primary ? Theme.accent-hover : Theme.surface-hover)
+        : primary ? Theme.accent
         : selected ? Theme.surface-selected
         : transparent;
     border-width: interaction.has-focus ? Theme.focus-ring-width : 1px;
     border-color: interaction.has-focus ? Theme.focus-ring
+        : primary ? transparent
         : selected ? Theme.accent
         : transparent;
     opacity: enabled ? 1 : 0.45;
@@ -189,7 +193,7 @@ export component IconButton inherits Rectangle {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         source: root.icon;
-        tint: root.selected ? Theme.accent : Theme.text-primary;
+        tint: root.primary ? Theme.on-accent : root.selected ? Theme.accent : Theme.text-primary;
     }
 
     animate background, border-color, opacity { duration: Theme.motion-fast; }

@@ -1,4 +1,5 @@
 import { Theme } from "../theme.slint";
+import { IconButton, Slider } from "../design_system/primitives.slint";
 import { Timeline } from "timeline.slint";
 
 export component PlayerControls inherits Rectangle {
@@ -44,88 +45,35 @@ export component PlayerControls inherits Rectangle {
         HorizontalLayout {
             spacing: Theme.space-3;
 
-            Rectangle {
-                width: 42px;
-                height: 42px;
-                border-radius: Theme.radius-full;
-                background: Theme.surface-hover;
-
-                TouchArea {
-                    clicked => {
-                        root.previous();
-                    }
-                }
-
-                Text {
-                    text: "⏮";
-                    color: Theme.text-primary;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    font-size: Theme.text-large;
-                }
+            IconButton {
+                icon: @image-url("../icons/skip-back.svg");
+                accessible-name: "Предыдущее видео";
+                circular: true;
+                clicked => root.previous();
             }
 
-            Rectangle {
+            IconButton {
                 width: 52px;
                 height: 52px;
-                border-radius: Theme.radius-full;
-                background: Theme.accent;
-
-                TouchArea {
-                    clicked => {
-                        root.play_pause();
-                    }
-                }
-
-                Text {
-                    text: root.is_playing ? "⏸" : "▶";
-                    color: Theme.on-accent;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    font-size: Theme.text-large;
-                }
+                icon: root.is_playing ? @image-url("../icons/pause.svg") : @image-url("../icons/play.svg");
+                accessible-name: root.is_playing ? "Пауза" : "Воспроизведение";
+                primary: true;
+                circular: true;
+                clicked => root.play_pause();
             }
 
-            Rectangle {
-                width: 42px;
-                height: 42px;
-                border-radius: Theme.radius-full;
-                background: Theme.surface-hover;
-
-                TouchArea {
-                    clicked => {
-                        root.stop();
-                    }
-                }
-
-                Text {
-                    text: "⏹";
-                    color: Theme.text-primary;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    font-size: Theme.text-large;
-                }
+            IconButton {
+                icon: @image-url("../icons/stop.svg");
+                accessible-name: "Остановить";
+                circular: true;
+                clicked => root.stop();
             }
 
-            Rectangle {
-                width: 42px;
-                height: 42px;
-                border-radius: Theme.radius-full;
-                background: Theme.surface-hover;
-
-                TouchArea {
-                    clicked => {
-                        root.next();
-                    }
-                }
-
-                Text {
-                    text: "⏭";
-                    color: Theme.text-primary;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    font-size: Theme.text-large;
-                }
+            IconButton {
+                icon: @image-url("../icons/skip-forward.svg");
+                accessible-name: "Следующее видео";
+                circular: true;
+                clicked => root.next();
             }
 
             Rectangle {
@@ -153,23 +101,14 @@ export component PlayerControls inherits Rectangle {
                 }
             }
 
-            Rectangle {
-                width: 34px;
-                height: 34px;
-                border-radius: Theme.radius-full;
-                background: Theme.surface-hover;
-
-                TouchArea {
-                    clicked => root.toggle_mute();
-                }
-
-                Text {
-                    text: !root.muted && root.volume > 0.0 ? "🔊" : "🔇";
-                    color: Theme.text-primary;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    font-size: Theme.text-large;
-                }
+            IconButton {
+                icon: !root.muted && root.volume > 0.0
+                    ? @image-url("../icons/volume.svg")
+                    : @image-url("../icons/volume-off.svg");
+                accessible-name: root.muted ? "Включить звук" : "Выключить звук";
+                circular: true;
+                selected: root.muted;
+                clicked => root.toggle_mute();
             }
 
             Rectangle {
@@ -178,24 +117,10 @@ export component PlayerControls inherits Rectangle {
                 background: Theme.border-subtle;
             }
 
-            Rectangle {
+            Slider {
                 width: 160px;
-                height: 6px;
-                border-radius: Theme.radius-full;
-                background: Theme.border-default;
-
-                Rectangle {
-                    width: parent.width * root.volume;
-                    height: parent.height;
-                    border-radius: Theme.radius-full;
-                    background: Theme.accent;
-                }
-
-                TouchArea {
-                    clicked => {
-                        root.set_volume(self.mouse-x / self.width);
-                    }
-                }
+                value <=> root.volume;
+                changed(value) => root.set_volume(value);
             }
 
             Rectangle {
@@ -204,42 +129,18 @@ export component PlayerControls inherits Rectangle {
                 background: Theme.border-subtle;
             }
 
-            Rectangle {
-                width: 42px;
-                height: 42px;
-                border-radius: Theme.radius-full;
-                background: Theme.surface-hover;
-
-                TouchArea {
-                    clicked => root.open_file();
-                }
-
-                Text {
-                    text: "📄";
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    color: Theme.text-primary;
-                    font-size: Theme.text-large;
-                }
+            IconButton {
+                icon: @image-url("../icons/file-video.svg");
+                accessible-name: "Открыть видео";
+                circular: true;
+                clicked => root.open_file();
             }
 
-            Rectangle {
-                width: 42px;
-                height: 42px;
-                border-radius: Theme.radius-full;
-                background: Theme.surface-hover;
-
-                TouchArea {
-                    clicked => root.open_folder();
-                }
-
-                Text {
-                    text: "📁";
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    color: Theme.text-primary;
-                    font-size: Theme.text-large;
-                }
+            IconButton {
+                icon: @image-url("../icons/folder-open.svg");
+                accessible-name: "Открыть папку";
+                circular: true;
+                clicked => root.open_folder();
             }
 
             Rectangle {
