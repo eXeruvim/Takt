@@ -20,6 +20,12 @@ export global Theme {
     out property <color> surface-pressed: is-dark ? #ffffff21 : #0000001a;
     out property <color> surface-selected: is-dark ? #e07a4f26 : #c85f381a;
     out property <color> backdrop: is-dark ? #0000008f : #16161a57;
+    out property <brush> canvas-background: is-dark
+        ? @linear-gradient(160deg, #141419d9 0%, #0d0d11e3 100%)
+        : @linear-gradient(160deg, #fafafbe3 0%, #f1f1f4e8 100%);
+    out property <brush> canvas-background-opaque: is-dark
+        ? @linear-gradient(160deg, #141419 0%, #0d0d11 100%)
+        : @linear-gradient(160deg, #fafafb 0%, #f1f1f4 100%);
 
     // Oxide copper accent: Rust-inspired without copying a brand palette.
     out property <color> accent: is-dark ? #e07a4f : #c85f38;

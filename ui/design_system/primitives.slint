@@ -474,7 +474,9 @@ export component EmptyState inherits Rectangle {
     in property <string> title;
     in property <string> description;
     in property <string> action-text;
+    in property <string> secondary-action-text;
     callback action();
+    callback secondary-action();
 
     background: transparent;
 
@@ -495,10 +497,23 @@ export component EmptyState inherits Rectangle {
             wrap: word-wrap;
         }
 
-        if root.action-text != "" : Button {
-            text: root.action-text;
-            primary: true;
-            clicked => root.action();
+        if root.action-text != "" || root.secondary-action-text != "" : HorizontalLayout {
+            height: Theme.space-10;
+            spacing: Theme.space-2;
+            alignment: center;
+
+            if root.action-text != "" : Button {
+                width: 148px;
+                text: root.action-text;
+                primary: true;
+                clicked => root.action();
+            }
+
+            if root.secondary-action-text != "" : Button {
+                width: 148px;
+                text: root.secondary-action-text;
+                clicked => root.secondary-action();
+            }
         }
     }
 }

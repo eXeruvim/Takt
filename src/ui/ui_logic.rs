@@ -618,6 +618,10 @@ fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
 #[cfg(target_os = "windows")]
 fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
     let video_visible = app.get_media_loaded()
+        && matches!(
+            app.get_player_phase(),
+            PlayerPhase::Playing | PlayerPhase::Paused
+        )
         && !app.get_audio_media()
         && !app.get_modal_overlay_active()
         && !app.get_error_visible()
