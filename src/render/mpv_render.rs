@@ -20,6 +20,7 @@ mod windows {
 
     static VIDEO_WINDOW_CLASS: OnceLock<Vec<u16>> = OnceLock::new();
     static FULLSCREEN_REQUESTED: AtomicBool = AtomicBool::new(false);
+    static POINTER_ACTIVITY_REQUESTED: AtomicBool = AtomicBool::new(false);
 
     pub struct VideoHost {
         handle: usize,
@@ -121,6 +122,10 @@ mod windows {
         pub fn take_fullscreen_request() -> bool {
             FULLSCREEN_REQUESTED.swap(false, Ordering::AcqRel)
         }
+
+        pub fn take_pointer_activity() -> bool {
+            POINTER_ACTIVITY_REQUESTED.swap(false, Ordering::AcqRel)
+        }
     }
 
     impl Drop for VideoHost {
@@ -144,7 +149,12 @@ mod windows {
         lparam: LPARAM,
     ) -> LRESULT {
         match message {
+            WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_MOUSEWHEEL => {
+                POINTER_ACTIVITY_REQUESTED.store(true, Ordering::Release);
+                DefWindowProcW(window, message, wparam, lparam)
+            }
             WM_LBUTTONDBLCLK => {
+                POINTER_ACTIVITY_REQUESTED.store(true, Ordering::Release);
                 FULLSCREEN_REQUESTED.store(true, Ordering::Release);
                 0
             }

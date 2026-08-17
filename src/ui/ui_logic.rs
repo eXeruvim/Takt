@@ -96,6 +96,7 @@ fn shortcut_action(code: KeyCode, modifiers: ModifiersState) -> Option<ShortcutA
 }
 
 fn dispatch_shortcut(app: &AppWindow, action: ShortcutAction) {
+    app.invoke_reveal_controls();
     match action {
         ShortcutAction::PlayPause => app.invoke_play_pause(),
         ShortcutAction::Stop => app.invoke_stop(),
@@ -387,7 +388,13 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
     } else {
         16.0
     };
-    host.resize(app.window(), left_inset, right_inset, 76.0, 116.0)
+    host.resize(
+        app.window(),
+        left_inset,
+        right_inset,
+        app.get_video_top_inset(),
+        app.get_video_bottom_inset(),
+    )
 }
 
 pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
@@ -422,6 +429,19 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
             };
 
             match event {
+                WindowEvent::CursorMoved { position, .. } => {
+                    let scale = f64::from(app.window().scale_factor());
+                    let window_height = f64::from(app.window().size().height);
+                    let top_zone = f64::from(app.get_controls_top_zone()) * scale;
+                    let bottom_zone = f64::from(app.get_controls_bottom_zone()) * scale;
+                    app.set_controls_pointer_over(
+                        position.y <= top_zone || position.y >= window_height - bottom_zone,
+                    );
+                    app.invoke_reveal_controls();
+                }
+                WindowEvent::CursorLeft { .. } => {
+                    app.set_controls_pointer_over(false);
+                }
                 WindowEvent::ModifiersChanged(new_modifiers) => {
                     modifiers = new_modifiers.state();
                 }
@@ -905,6 +925,9 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 };
                 if VideoHost::take_fullscreen_request() {
                     app.window().set_fullscreen(!app.window().is_fullscreen());
+                }
+                if VideoHost::take_pointer_activity() {
+                    app.invoke_reveal_controls();
                 }
                 let Ok(mut video_host) = timer_video_host.lock() else {
                     return;
