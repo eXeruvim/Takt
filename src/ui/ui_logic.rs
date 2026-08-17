@@ -17,6 +17,8 @@ use crate::player::playlist::{
 };
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
+#[cfg(target_os = "windows")]
+use crate::ui::native_fullscreen::NativeFullscreen;
 use slint::winit_030::{
     winit::{
         event::{MouseButton, WindowEvent},
@@ -637,6 +639,23 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
     )
 }
 
+#[cfg(target_os = "windows")]
+fn toggle_native_fullscreen(app: &AppWindow, native_fullscreen: &Arc<Mutex<NativeFullscreen>>) {
+    let fullscreen = !app.get_fullscreen_mode();
+    app.set_fullscreen_mode(fullscreen);
+
+    let result = native_fullscreen
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Не удалось изменить полноэкранный режим"))
+        .and_then(|mut native_fullscreen| native_fullscreen.set(app.window(), fullscreen));
+
+    if let Err(error) = result {
+        app.set_fullscreen_mode(!fullscreen);
+        app.set_error_message(error.to_string().into());
+        app.set_error_visible(true);
+    }
+}
+
 pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     let app = AppWindow::new()?;
     let shortcut_registry = Arc::new(Mutex::new(ShortcutRegistry::default()));
@@ -648,6 +667,8 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     let dialog_active = Arc::new(AtomicBool::new(false));
     #[cfg(target_os = "windows")]
     let video_host = Arc::new(Mutex::new(None::<VideoHost>));
+    #[cfg(target_os = "windows")]
+    let native_fullscreen = Arc::new(Mutex::new(NativeFullscreen::default()));
     #[cfg(target_os = "windows")]
     let video_resize_timer = slint::Timer::default();
 
@@ -715,6 +736,13 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 }
                 WindowEvent::Focused(focused) => {
                     app.set_window_active(*focused);
+                    #[cfg(target_os = "windows")]
+                    if app.get_fullscreen_mode() {
+                        if let Err(error) = NativeFullscreen::set_active(app.window(), *focused) {
+                            app.set_error_message(error.to_string().into());
+                            app.set_error_visible(true);
+                        }
+                    }
                 }
                 WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
                     // Resize the native video child in the same window event. Waiting for the
@@ -1043,6 +1071,19 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         });
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        let app_weak = app.as_weak();
+        let native_fullscreen = native_fullscreen.clone();
+
+        app.on_toggle_fullscreen(move || {
+            if let Some(app) = app_weak.upgrade() {
+                toggle_native_fullscreen(&app, &native_fullscreen);
+            }
+        });
+    }
+
+    #[cfg(not(target_os = "windows"))]
     {
         let app_weak = app.as_weak();
 
@@ -1362,6 +1403,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
         let timer_app = app.as_weak();
         let timer_video_host = video_host.clone();
+        let timer_native_fullscreen = native_fullscreen.clone();
         video_resize_timer.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(50),
@@ -1370,9 +1412,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     return;
                 };
                 if VideoHost::take_fullscreen_request() {
-                    let fullscreen = !app.window().is_fullscreen();
-                    app.set_fullscreen_mode(fullscreen);
-                    app.window().set_fullscreen(fullscreen);
+                    toggle_native_fullscreen(&app, &timer_native_fullscreen);
                 }
                 if VideoHost::take_pointer_activity() {
                     app.invoke_reveal_controls();
