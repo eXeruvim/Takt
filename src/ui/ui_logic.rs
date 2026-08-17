@@ -2,7 +2,10 @@
 use std::time::Duration;
 use std::{
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use anyhow::Result;
@@ -67,6 +70,7 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
 pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     let app = AppWindow::new()?;
     let current_duration = Arc::new(Mutex::new(0.0));
+    let dialog_active = Arc::new(AtomicBool::new(false));
     #[cfg(target_os = "windows")]
     let video_host = Arc::new(Mutex::new(None::<VideoHost>));
     #[cfg(target_os = "windows")]
@@ -120,24 +124,53 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
     {
         let tx = tx.clone();
+        let dialog_active = dialog_active.clone();
 
         app.on_open_file(move || {
-            if let Some(path) = rfd::FileDialog::new()
-                .add_filter("Видео", VIDEO_EXTENSIONS)
-                .pick_file()
+            if dialog_active
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
             {
-                let _ = tx.send(Command::OpenFile(path.to_string_lossy().to_string()));
+                return;
             }
+
+            let tx = tx.clone();
+            let dialog_active = dialog_active.clone();
+            std::thread::spawn(move || {
+                let path = rfd::FileDialog::new()
+                    .add_filter("Видео", VIDEO_EXTENSIONS)
+                    .pick_file();
+                dialog_active.store(false, Ordering::Release);
+
+                if let Some(path) = path {
+                    let _ = tx.send(Command::OpenFile(path.to_string_lossy().into_owned()));
+                }
+            });
         });
     }
 
     {
         let tx = tx.clone();
+        let dialog_active = dialog_active.clone();
 
         app.on_open_folder(move || {
-            if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                let _ = tx.send(Command::OpenFolder(path.to_string_lossy().to_string()));
+            if dialog_active
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
+                return;
             }
+
+            let tx = tx.clone();
+            let dialog_active = dialog_active.clone();
+            std::thread::spawn(move || {
+                let path = rfd::FileDialog::new().pick_folder();
+                dialog_active.store(false, Ordering::Release);
+
+                if let Some(path) = path {
+                    let _ = tx.send(Command::OpenFolder(path.to_string_lossy().into_owned()));
+                }
+            });
         });
     }
 
