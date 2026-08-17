@@ -69,6 +69,7 @@ export component AppWindow inherits Window {
     in-out property <string> command_query: "";
     in property <[CommandEntry]> command_items;
     in-out property <bool> controls_visible: true;
+    in-out property <bool> controls_reserved: true;
     in-out property <bool> controls_pointer_over: false;
     out property <bool> controls_can_hide: media_loaded && is_playing
         && !controls_pointer_over
@@ -77,10 +78,16 @@ export component AppWindow inherits Window {
         && !error_visible && !drop_target_visible;
     out property <length> controls_top_zone: Theme.space-4 + Theme.top-bar-height + Theme.space-2;
     out property <length> controls_bottom_zone: Theme.player-controls-height + Theme.space-5;
-    out property <length> video_top_inset: controls_visible
+    out property <length> video_top_inset: controls_reserved
         ? controls_top_zone
         : Theme.space-4;
-    out property <length> video_bottom_inset: controls_visible
+    out property <length> video_bottom_inset: controls_reserved
+        ? controls_bottom_zone
+        : Theme.space-4;
+    out property <length> audio_top_inset: controls_visible
+        ? controls_top_zone
+        : Theme.space-4;
+    out property <length> audio_bottom_inset: controls_visible
         ? controls_bottom_zone
         : Theme.space-4;
     in-out property <bool> error_visible: false;
@@ -116,7 +123,7 @@ export component AppWindow inherits Window {
     callback play_playlist_index(int);
     callback drag_window();
 
-    animate video_top_inset, video_bottom_inset {
+    animate audio_top_inset, audio_bottom_inset {
         duration: Theme.motion-normal;
         easing: ease-out;
     }
@@ -125,7 +132,7 @@ export component AppWindow inherits Window {
         if (root.controls_can_hide) {
             root.reveal-controls();
         } else {
-            root.controls_visible = true;
+            root.reveal-controls();
             controls-hide-timer.stop();
         }
     }
@@ -136,12 +143,27 @@ export component AppWindow inherits Window {
         triggered => {
             if (root.controls_can_hide) {
                 root.controls_visible = false;
+                controls-layout-timer.start();
+                controls-layout-timer.restart();
                 self.stop();
             }
         }
     }
 
+    controls-layout-timer := Timer {
+        interval: Theme.motion-normal;
+        running: false;
+        triggered => {
+            if (!root.controls_visible) {
+                root.controls_reserved = false;
+            }
+            self.stop();
+        }
+    }
+
     public function reveal-controls() {
+        controls-layout-timer.stop();
+        root.controls_reserved = true;
         root.controls_visible = true;
         if (root.controls_can_hide) {
             controls-hide-timer.start();
@@ -195,10 +217,10 @@ export component AppWindow inherits Window {
 
             AudioCanvas {
                 x: root.info_drawer_reserved || root.playlist_drawer_reserved ? 368px : Theme.space-4;
-                y: root.video_top_inset;
+                y: root.audio_top_inset;
                 width: max(0px, parent.width - self.x
                     - (root.settings_drawer_reserved ? 388px : Theme.space-4));
-                height: max(0px, parent.height - self.y - root.video_bottom_inset);
+                height: max(0px, parent.height - self.y - root.audio_bottom_inset);
                 shown: root.media_loaded && root.audio_media;
                 file-name: root.file_name;
                 audio-codec: root.audio_codec;
