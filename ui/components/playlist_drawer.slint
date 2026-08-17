@@ -1,0 +1,79 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Divider, UiText, TextVariant } from "../design_system/primitives.slint";
+import { MediaListItem } from "../design_system/composites.slint";
+
+export component PlaylistDrawer inherits Rectangle {
+    in-out property <bool> drawer-visible;
+    in property <[string]> items;
+    in property <int> current-index: -1;
+    in property <length> parent-width;
+    in property <length> parent-height;
+    callback play-index(int);
+
+    width: min(340px, parent-width - Theme.space-8);
+    height: parent-height - self.y - Theme.space-4;
+    x: -self.width - Theme.space-12;
+    y: Theme.space-4 + Theme.top-bar-height + Theme.space-2;
+    border-radius: Theme.radius-xlarge;
+    background: Theme.surface-glass-strong;
+    border-width: 1px;
+    border-color: Theme.border-glass;
+    drop-shadow-color: Theme.shadow-high;
+    drop-shadow-blur: Theme.elevation-high-blur;
+    drop-shadow-offset-y: Theme.elevation-high-y;
+    clip: true;
+
+    states [
+        open when root.drawer-visible : {
+            root.x: Theme.space-4;
+            in { animate x { duration: Theme.motion-normal; easing: ease-out; } }
+            out { animate x { duration: Theme.motion-normal; easing: ease-out; } }
+        }
+    ]
+
+    TouchArea { width: parent.width; height: parent.height; }
+
+    VerticalLayout {
+        padding: Theme.space-5;
+        spacing: Theme.space-3;
+
+        UiText { text: "Плейлист"; variant: TextVariant.title; }
+        UiText {
+            text: root.items.length == 0
+                ? "Очередь пока пуста"
+                : root.items.length + (root.items.length == 1 ? " видео" : " видео в очереди");
+            variant: TextVariant.caption;
+            color: Theme.text-secondary;
+        }
+        Divider { }
+
+        if root.items.length == 0 : UiText {
+            text: "Откройте файл или папку, чтобы сформировать очередь";
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+
+        if root.items.length > 0 : ScrollView {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                spacing: Theme.space-1;
+
+                for item[index] in root.items : MediaListItem {
+                    title: item;
+                    subtitle: index == root.current-index ? "Сейчас воспроизводится" : "Открыть";
+                    selected: index == root.current-index;
+                    activated => root.play-index(index);
+                }
+            }
+        }
+
+        Rectangle { vertical-stretch: root.items.length == 0 ? 1 : 0; background: transparent; }
+        UiText {
+            text: "Выберите видео, чтобы перейти к нему";
+            variant: TextVariant.caption;
+            color: Theme.text-muted;
+        }
+    }
+}

@@ -92,6 +92,15 @@ impl DirectoryPlaylist {
         self.current_path().cloned()
     }
 
+    pub fn select(&mut self, index: usize) -> Option<PathBuf> {
+        if index >= self.files.len() {
+            return None;
+        }
+
+        self.current_index = index;
+        self.current_path().cloned()
+    }
+
     pub fn set_shuffled(&mut self, shuffled: bool) {
         let Some(current) = self.current_path().cloned() else {
             return;
@@ -376,5 +385,18 @@ mod tests {
         assert_eq!(playlist.items(), ["one.mp4", "three.mp4"]);
 
         assert_eq!(playlist.remove_current_and_select(true, false), None);
+    }
+
+    #[test]
+    fn selects_playlist_item_by_index_without_changing_on_invalid_index() {
+        let mut playlist = DirectoryPlaylist {
+            files: vec![PathBuf::from("one.mp4"), PathBuf::from("two.mp4")],
+            current_index: 0,
+        };
+
+        assert_eq!(playlist.select(1), Some(PathBuf::from("two.mp4")));
+        assert_eq!(playlist.current_index(), 1);
+        assert_eq!(playlist.select(2), None);
+        assert_eq!(playlist.current_index(), 1);
     }
 }

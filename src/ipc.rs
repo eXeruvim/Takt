@@ -14,6 +14,7 @@ pub enum Command {
 
     NextVideo,
     PreviousVideo,
+    PlayIndex(usize),
 
     ToggleLoop,
     ToggleFolderLoop,

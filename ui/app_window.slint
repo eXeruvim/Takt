@@ -1,6 +1,7 @@
 import { Theme } from "theme.slint";
 import { PlayerControls } from "components/player_controls.slint";
 import { InfoDrawer } from "components/info_drawer.slint";
+import { PlaylistDrawer } from "components/playlist_drawer.slint";
 import { SettingsDrawer } from "components/settings_drawer.slint";
 import { NextVideoCard } from "components/next_video_card.slint";
 import { ShortcutOverlay } from "components/shortcut_overlay.slint";
@@ -39,13 +40,17 @@ export component AppWindow inherits Window {
     in-out property <string> next_file: "";
     in-out property <bool> next_card_visible: false;
     in-out property <bool> info_drawer_visible: false;
+    in-out property <bool> playlist_drawer_visible: false;
     in-out property <bool> settings_drawer_visible: false;
     in-out property <bool> info_drawer_reserved: false;
+    in-out property <bool> playlist_drawer_reserved: false;
     in-out property <bool> settings_drawer_reserved: false;
     in-out property <bool> shortcut_overlay_visible: false;
     in-out property <bool> error_visible: false;
     in-out property <string> error_message: "";
     in-out property <bool> drop_target_visible: false;
+    in property <[string]> playlist_items;
+    in-out property <int> playlist_current_index: -1;
 
     callback open_file();
     callback open_folder();
@@ -62,12 +67,14 @@ export component AppWindow inherits Window {
     callback request_media_info();
     callback toggle_fullscreen();
     callback toggle_info();
+    callback toggle_playlist();
     callback toggle_settings();
     callback toggle_shortcuts();
     callback seek_relative(float);
     callback adjust_volume(float);
     callback toggle_mute();
     callback play_next();
+    callback play_playlist_index(int);
     callback drag_window();
 
     Rectangle {
@@ -155,7 +162,7 @@ export component AppWindow inherits Window {
                 drop-shadow-offset-y: Theme.elevation-low-y;
                 title-drag-left := TouchArea {
                     x: 132px;
-                    width: max(0px, (parent.width - 280px) / 2 - self.x);
+                    width: max(0px, (parent.width - 328px) / 2 - self.x);
                     height: parent.height;
                     pointer-event(event) => {
                         if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
@@ -166,7 +173,7 @@ export component AppWindow inherits Window {
                 }
 
                 title-drag-right := TouchArea {
-                    x: (parent.width + 280px) / 2;
+                    x: (parent.width + 328px) / 2;
                     width: max(0px, parent.width - self.x - 128px);
                     height: parent.height;
                     pointer-event(event) => {
@@ -199,7 +206,7 @@ export component AppWindow inherits Window {
 
                 UiText {
                     x: 108px;
-                    width: max(0px, (parent.width - 280px) / 2 - self.x - Theme.space-2);
+                    width: max(0px, (parent.width - 328px) / 2 - self.x - Theme.space-2);
                     height: parent.height;
                     text: root.media_loaded
                         ? root.file_name + "  ·  " + (root.is_playing ? "Воспроизведение" : "Пауза")
@@ -212,7 +219,7 @@ export component AppWindow inherits Window {
 
                 HorizontalLayout {
                     x: (parent.width - self.width) / 2;
-                    width: 280px;
+                    width: 328px;
                     height: parent.height;
                     spacing: Theme.space-2;
                     alignment: center;
@@ -227,6 +234,13 @@ export component AppWindow inherits Window {
                         icon: @image-url("icons/folder-open.svg");
                         accessible-name: "Открыть папку";
                         clicked => root.open_folder();
+                    }
+
+                    IconButton {
+                        icon: @image-url("icons/playlist.svg");
+                        accessible-name: "Плейлист";
+                        selected: root.playlist_drawer_visible;
+                        clicked => root.toggle_playlist();
                     }
 
                     IconButton {
@@ -329,6 +343,15 @@ export component AppWindow inherits Window {
                 fps: root.fps;
                 parent_width: parent.width;
                 parent_height: parent.height;
+            }
+
+            PlaylistDrawer {
+                drawer-visible: root.playlist_drawer_visible;
+                items: root.playlist_items;
+                current-index: root.playlist_current_index;
+                parent-width: parent.width;
+                parent-height: parent.height;
+                play-index(index) => root.play_playlist_index(index);
             }
 
             SettingsDrawer {

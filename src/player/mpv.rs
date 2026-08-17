@@ -234,6 +234,17 @@ fn handle_command(
                 options.media_available = true;
             }
         }
+        Command::PlayIndex(index) => {
+            let selected = playlist
+                .as_mut()
+                .and_then(|playlist| playlist.select(index));
+            if selected.is_none() {
+                anyhow::bail!("Видео с индексом {index} отсутствует в плейлисте");
+            }
+            if load_selected_or_skip_missing(mpv, tx, playlist, true, false)? {
+                options.media_available = true;
+            }
+        }
         Command::ToggleLoop => {
             let loop_file = mpv
                 .get_property::<String>("loop-file")

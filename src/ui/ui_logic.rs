@@ -13,6 +13,7 @@ use crate::player::playlist::{is_video_file, VIDEO_EXTENSIONS};
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
 use slint::winit_030::{winit::event::WindowEvent, EventResult, WinitWindowAccessor};
+use slint::{ModelRc, SharedString, VecModel};
 
 slint::include_modules!();
 
@@ -50,7 +51,7 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
         && !app.get_drop_target_visible();
     host.set_visible(video_visible);
 
-    let left_inset = if app.get_info_drawer_reserved() {
+    let left_inset = if app.get_info_drawer_reserved() || app.get_playlist_drawer_reserved() {
         368.0
     } else {
         16.0
@@ -254,6 +255,8 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 let opening = !app.get_info_drawer_visible();
                 if opening {
                     app.set_info_drawer_reserved(true);
+                    app.set_playlist_drawer_visible(false);
+                    app.set_playlist_drawer_reserved(false);
                     if let Ok(mut video_host) = panel_video_host.lock() {
                         if let Some(host) = video_host.as_mut() {
                             let _ = sync_video_host(host, &app);
@@ -280,7 +283,58 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         let app_weak = app.as_weak();
         app.on_toggle_info(move || {
             if let Some(app) = app_weak.upgrade() {
-                app.set_info_drawer_visible(!app.get_info_drawer_visible());
+                let opening = !app.get_info_drawer_visible();
+                if opening {
+                    app.set_playlist_drawer_visible(false);
+                }
+                app.set_info_drawer_visible(opening);
+            }
+        });
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let app_weak = app.as_weak();
+        let panel_video_host = video_host.clone();
+
+        app.on_toggle_playlist(move || {
+            if let Some(app) = app_weak.upgrade() {
+                let opening = !app.get_playlist_drawer_visible();
+                if opening {
+                    app.set_playlist_drawer_reserved(true);
+                    app.set_info_drawer_visible(false);
+                    app.set_info_drawer_reserved(false);
+                    if let Ok(mut video_host) = panel_video_host.lock() {
+                        if let Some(host) = video_host.as_mut() {
+                            let _ = sync_video_host(host, &app);
+                        }
+                    }
+                    app.set_playlist_drawer_visible(true);
+                } else {
+                    app.set_playlist_drawer_visible(false);
+                    let delayed_app = app.as_weak();
+                    slint::Timer::single_shot(Duration::from_millis(200), move || {
+                        if let Some(app) = delayed_app.upgrade() {
+                            if !app.get_playlist_drawer_visible() {
+                                app.set_playlist_drawer_reserved(false);
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let app_weak = app.as_weak();
+        app.on_toggle_playlist(move || {
+            if let Some(app) = app_weak.upgrade() {
+                let opening = !app.get_playlist_drawer_visible();
+                if opening {
+                    app.set_info_drawer_visible(false);
+                }
+                app.set_playlist_drawer_visible(opening);
             }
         });
     }
@@ -365,6 +419,16 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
         app.on_play_next(move || {
             let _ = tx.send(Command::NextVideo);
+        });
+    }
+
+    {
+        let tx = tx.clone();
+
+        app.on_play_playlist_index(move |index| {
+            if let Ok(index) = usize::try_from(index) {
+                let _ = tx.send(Command::PlayIndex(index));
+            }
         });
     }
 
@@ -512,8 +576,17 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         items,
                         current_index,
                     } => {
-                        if current_index + 1 < items.len() {
-                            app.set_next_file(items[current_index + 1].clone().into());
+                        let items = items
+                            .into_iter()
+                            .map(SharedString::from)
+                            .collect::<Vec<_>>();
+                        let next_file = items.get(current_index + 1).cloned();
+                        app.set_playlist_items(ModelRc::new(VecModel::from(items)));
+                        app.set_playlist_current_index(
+                            i32::try_from(current_index).unwrap_or(i32::MAX),
+                        );
+                        if let Some(next_file) = next_file {
+                            app.set_next_file(next_file);
                             app.set_next_card_visible(true);
                         } else {
                             app.set_next_card_visible(false);
