@@ -6,13 +6,14 @@ export component NextVideoCard inherits Rectangle {
     in-out property <string> next_file;
     in property <length> parent_width;
     in property <length> parent_height;
+    out property <length> slide_offset: card_visible
+        ? 0px
+        : self.width + Theme.space-4 + Theme.space-5;
     callback play_next();
 
     width: min(280px, parent_width - Theme.space-8);
     height: 76px;
-    x: card_visible
-        ? parent_width - self.width - Theme.space-4
-        : parent_width + Theme.space-5;
+    x: parent_width - self.width - Theme.space-4 + slide_offset;
     y: parent_height - self.height - Theme.player-controls-height - Theme.space-8;
     border-radius: Theme.radius-medium;
     background: hit.pressed ? Theme.surface-pressed
@@ -62,7 +63,7 @@ export component NextVideoCard inherits Rectangle {
         }
     }
 
-    animate x {
+    animate slide_offset {
         duration: Theme.motion-normal;
         easing: cubic-bezier(0.16, 1, 0.3, 1);
     }

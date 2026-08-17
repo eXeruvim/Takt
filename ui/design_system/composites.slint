@@ -6,11 +6,13 @@ export component Drawer inherits Rectangle {
     in property <bool> from-right: true;
     in property <length> host-width;
     in property <length> host-height;
+    out property <length> slide-offset: open
+        ? 0px
+        : from-right ? self.width + Theme.space-5 : -self.width - Theme.space-5;
 
     width: Theme.space-12 * 7;
     height: host-height;
-    x: open ? (from-right ? host-width - self.width : 0px)
-        : (from-right ? host-width + Theme.space-5 : -self.width - Theme.space-5);
+    x: (from-right ? host-width - self.width : 0px) + slide-offset;
     background: Theme.surface-elevated;
     border-width: 1px;
     border-color: Theme.border-default;
@@ -19,7 +21,7 @@ export component Drawer inherits Rectangle {
     drop-shadow-offset-y: Theme.elevation-high-y;
     clip: true;
 
-    animate x {
+    animate slide-offset {
         duration: Theme.motion-slow;
         easing: cubic-bezier(0.16, 1, 0.3, 1);
     }

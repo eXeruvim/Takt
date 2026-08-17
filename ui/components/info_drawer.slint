@@ -35,11 +35,12 @@ export component InfoDrawer inherits Rectangle {
     in property <bool> audio_media;
     in property <length> parent_width;
     in property <length> parent_height;
+    out property <length> slide_offset: -self.width - Theme.space-12 - Theme.space-4;
 
     width: min(340px, parent_width - Theme.space-8);
     height: max(0px, parent_height - self.y
         - Theme.player-controls-height - Theme.space-6);
-    x: -self.width - Theme.space-12;
+    x: Theme.space-4 + slide_offset;
     y: Theme.top-bar-height + Theme.space-2;
     border-radius: Theme.radius-xlarge;
     background: Theme.surface-glass-strong;
@@ -52,15 +53,15 @@ export component InfoDrawer inherits Rectangle {
 
     states [
         open when root.drawer_visible : {
-            root.x: Theme.space-4;
+            root.slide_offset: 0px;
             in {
-                animate x {
+                animate slide_offset {
                     duration: Theme.motion-slow;
                     easing: cubic-bezier(0.16, 1, 0.3, 1);
                 }
             }
             out {
-                animate x {
+                animate slide_offset {
                     duration: Theme.motion-normal;
                     easing: cubic-bezier(0.4, 0, 1, 1);
                 }

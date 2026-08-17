@@ -9,12 +9,13 @@ export component PlaylistDrawer inherits Rectangle {
     in property <int> current-index: -1;
     in property <length> parent-width;
     in property <length> parent-height;
+    out property <length> slide-offset: -self.width - Theme.space-12 - Theme.space-4;
     callback play-index(int);
 
     width: min(340px, parent-width - Theme.space-8);
     height: max(0px, parent-height - self.y
         - Theme.player-controls-height - Theme.space-6);
-    x: -self.width - Theme.space-12;
+    x: Theme.space-4 + slide-offset;
     y: Theme.top-bar-height + Theme.space-2;
     border-radius: Theme.radius-xlarge;
     background: Theme.surface-glass-strong;
@@ -27,15 +28,15 @@ export component PlaylistDrawer inherits Rectangle {
 
     states [
         open when root.drawer-visible : {
-            root.x: Theme.space-4;
+            root.slide-offset: 0px;
             in {
-                animate x {
+                animate slide-offset {
                     duration: Theme.motion-slow;
                     easing: cubic-bezier(0.16, 1, 0.3, 1);
                 }
             }
             out {
-                animate x {
+                animate slide-offset {
                     duration: Theme.motion-normal;
                     easing: cubic-bezier(0.4, 0, 1, 1);
                 }

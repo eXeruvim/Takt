@@ -97,6 +97,9 @@ export component AppWindow inherits Window {
     out property <length> audio_bottom_inset: controls_visible
         ? controls_bottom_zone
         : edge_to_edge ? 0px : Theme.space-4;
+    out property <length> player_controls_slide_offset: controls_visible
+        ? 0px
+        : Theme.player-controls-height + (edge_to_edge ? 0px : Theme.space-4);
     in-out property <bool> error_visible: false;
     in-out property <string> error_message: "";
     in-out property <bool> drop_target_visible: false;
@@ -136,6 +139,11 @@ export component AppWindow inherits Window {
     callback drag_window();
 
     animate audio_top_inset, audio_bottom_inset {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    animate player_controls_slide_offset {
         duration: Theme.motion-normal;
         easing: cubic-bezier(0.16, 1, 0.3, 1);
     }
@@ -475,9 +483,8 @@ export component AppWindow inherits Window {
 
             player-controls := PlayerControls {
                 x: root.edge_to_edge ? 0px : Theme.space-4;
-                y: root.controls_visible
-                    ? parent.height - self.height - (root.edge_to_edge ? 0px : Theme.space-4)
-                    : parent.height + (root.edge_to_edge ? 0px : Theme.space-4);
+                y: parent.height - self.height - (root.edge_to_edge ? 0px : Theme.space-4)
+                    + root.player_controls_slide_offset;
                 width: parent.width - (root.edge_to_edge ? 0px : Theme.space-8);
                 edge_to_edge: root.edge_to_edge;
                 opacity: root.controls_visible ? 1 : 0;
@@ -500,7 +507,7 @@ export component AppWindow inherits Window {
                 toggle_mute => root.toggle_mute();
                 toggle_loop => root.toggle_loop();
 
-                animate y, opacity {
+                animate opacity {
                     duration: Theme.motion-normal;
                     easing: cubic-bezier(0.16, 1, 0.3, 1);
                 }

@@ -71,11 +71,12 @@ export component ShortcutEditorOverlay inherits Rectangle {
     }
 
     Rectangle {
+        property <length> slide-offset: root.open ? 0px : Theme.space-8;
+
         width: min(parent.width - Theme.space-8, 520px);
         height: max(0px, parent.height - self.y
             - Theme.player-controls-height - Theme.space-6);
-        x: parent.width - self.width - Theme.space-4
-            + (root.open ? 0px : Theme.space-8);
+        x: parent.width - self.width - Theme.space-4 + self.slide-offset;
         y: Theme.top-bar-height + Theme.space-2;
         border-radius: Theme.radius-xlarge;
         background: Theme.surface-glass-strong;
@@ -86,7 +87,7 @@ export component ShortcutEditorOverlay inherits Rectangle {
         drop-shadow-offset-y: Theme.elevation-high-y;
         clip: true;
 
-        animate x {
+        animate slide-offset {
             duration: Theme.motion-normal;
             easing: cubic-bezier(0.16, 1, 0.3, 1);
         }
