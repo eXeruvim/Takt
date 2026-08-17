@@ -7,6 +7,7 @@ export component PlayerControls inherits Rectangle {
     in-out property <bool> is_playing;
     in-out property <string> time_pos;
     in-out property <string> time_duration;
+    in property <float> duration_seconds;
     in-out property <float> progress;
     in-out property <float> volume;
     in-out property <bool> muted;
@@ -30,11 +31,12 @@ export component PlayerControls inherits Rectangle {
     drop-shadow-blur: Theme.elevation-high-blur;
     drop-shadow-offset-y: Theme.elevation-high-y;
 
-    Timeline {
+    timeline := Timeline {
         x: Theme.space-4;
         y: Theme.space-2;
         width: parent.width - Theme.space-8;
         value <=> root.progress;
+        duration-seconds: root.duration_seconds;
         enabled: root.media_loaded;
         seek(value) => root.seek(value);
     }
@@ -50,9 +52,11 @@ export component PlayerControls inherits Rectangle {
             x: 0px;
             width: 150px;
             height: parent.height;
-            text: root.time_pos + " / " + root.time_duration;
+            text: timeline.preview-visible
+                ? "Перейти к " + timeline.preview-time
+                : root.time_pos + " / " + root.time_duration;
             variant: TextVariant.caption;
-            color: Theme.text-secondary;
+            color: timeline.preview-visible ? Theme.accent : Theme.text-secondary;
             vertical-alignment: center;
         }
 

@@ -458,6 +458,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         app.set_file_name(name.into());
                         app.set_current_time("00:00".into());
                         app.set_total_time("00:00".into());
+                        app.set_duration_seconds(0.0);
                         app.set_progress(0.0);
                         app.set_error_visible(false);
                         if let Ok(mut duration) = current_duration.lock() {
@@ -504,6 +505,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                             *current_duration = duration;
                         }
                         app.set_total_time(format_time(duration).into());
+                        app.set_duration_seconds(duration as f32);
                     }
 
                     Event::Playlist {

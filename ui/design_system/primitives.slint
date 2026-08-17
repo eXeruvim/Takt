@@ -242,6 +242,11 @@ export component Slider inherits Rectangle {
     in property <float> minimum: 0;
     in property <float> maximum: 1;
     in property <bool> enabled: true;
+    out property <bool> has-hover <=> touch.has-hover;
+    out property <bool> is-dragging <=> touch.pressed;
+    out property <float> pointer-ratio: self.width > 0px
+        ? max(0, min(1, touch.mouse-x / self.width))
+        : 0;
     callback changed(float);
     private property <float> ratio: maximum > minimum ? (value - minimum) / (maximum - minimum) : 0;
 

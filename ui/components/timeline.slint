@@ -1,9 +1,24 @@
 import { Slider } from "../design_system/primitives.slint";
 
 export component Timeline inherits Slider {
+    in property <float> duration-seconds: 0;
+    out property <bool> preview-visible: root.enabled && root.has-hover;
+    out property <string> preview-time: root.format-time(root.pointer-ratio * root.duration-seconds);
     callback seek(float);
 
     minimum: 0;
     maximum: 1;
     changed(value) => root.seek(value);
+
+    function format-time(seconds: float) -> string {
+        let total = Math.floor(max(0, seconds));
+        let hours = Math.floor(total / 3600);
+        let minutes = Math.floor(Math.mod(total, 3600) / 60);
+        let remainder = Math.mod(total, 60);
+        let minute-text = minutes < 10 ? "0" + minutes : "" + minutes;
+        let second-text = remainder < 10 ? "0" + remainder : "" + remainder;
+        return hours > 0
+            ? (hours < 10 ? "0" + hours : "" + hours) + ":" + minute-text + ":" + second-text
+            : minute-text + ":" + second-text;
+    }
 }

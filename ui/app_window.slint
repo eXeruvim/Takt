@@ -26,6 +26,7 @@ export component AppWindow inherits Window {
     in-out property <string> fps: "—";
     in-out property <string> current_time: "00:00";
     in-out property <string> total_time: "00:00";
+    in-out property <float> duration_seconds: 0.0;
     in-out property <float> progress: 0.0;
     in-out property <bool> is_playing: false;
     in-out property <bool> media_loaded: false;
@@ -196,6 +197,19 @@ export component AppWindow inherits Window {
                     }
                 }
 
+                UiText {
+                    x: 108px;
+                    width: max(0px, (parent.width - 280px) / 2 - self.x - Theme.space-2);
+                    height: parent.height;
+                    text: root.media_loaded
+                        ? root.file_name + "  ·  " + (root.is_playing ? "Воспроизведение" : "Пауза")
+                        : "";
+                    variant: TextVariant.caption;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
                 HorizontalLayout {
                     x: (parent.width - self.width) / 2;
                     width: 280px;
@@ -284,6 +298,7 @@ export component AppWindow inherits Window {
                 progress <=> root.progress;
                 time_pos: root.current_time;
                 time_duration: root.total_time;
+                duration_seconds: root.duration_seconds;
                 volume: root.volume;
                 muted: root.muted;
                 loop_enabled: root.loop_enabled;
