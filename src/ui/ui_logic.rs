@@ -422,6 +422,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         let tx = tx.clone();
         let app_weak = app.as_weak();
         let mut modifiers = ModifiersState::empty();
+        let mut last_cursor_position = None::<(f64, f64)>;
 
         app.window().on_winit_window_event(move |_, event| {
             let Some(app) = app_weak.upgrade() else {
@@ -437,7 +438,11 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     app.set_controls_pointer_over(
                         position.y <= top_zone || position.y >= window_height - bottom_zone,
                     );
-                    app.invoke_reveal_controls();
+                    let current_position = (position.x, position.y);
+                    if last_cursor_position != Some(current_position) {
+                        last_cursor_position = Some(current_position);
+                        app.invoke_reveal_controls();
+                    }
                 }
                 WindowEvent::CursorLeft { .. } => {
                     app.set_controls_pointer_over(false);

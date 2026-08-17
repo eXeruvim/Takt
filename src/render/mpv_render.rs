@@ -4,7 +4,7 @@ mod windows {
         ffi::{c_void, OsStr},
         os::windows::ffi::OsStrExt,
         sync::{
-            atomic::{AtomicBool, Ordering},
+            atomic::{AtomicBool, AtomicU64, Ordering},
             OnceLock,
         },
     };
@@ -12,7 +12,7 @@ mod windows {
     use anyhow::{anyhow, Result};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+        Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM},
         Graphics::Gdi::{BeginPaint, EndPaint, PAINTSTRUCT},
         System::LibraryLoader::GetModuleHandleW,
         UI::WindowsAndMessaging::*,
@@ -21,6 +21,7 @@ mod windows {
     static VIDEO_WINDOW_CLASS: OnceLock<Vec<u16>> = OnceLock::new();
     static FULLSCREEN_REQUESTED: AtomicBool = AtomicBool::new(false);
     static POINTER_ACTIVITY_REQUESTED: AtomicBool = AtomicBool::new(false);
+    static LAST_POINTER_SCREEN_POSITION: AtomicU64 = AtomicU64::new(u64::MAX);
 
     pub struct VideoHost {
         handle: usize,
@@ -142,6 +143,26 @@ mod windows {
         OsStr::new(text).encode_wide().chain(Some(0)).collect()
     }
 
+    fn update_pointer_position(last_position: &AtomicU64, x: i32, y: i32) -> bool {
+        let packed = (u64::from(x as u32) << 32) | u64::from(y as u32);
+        last_position.swap(packed, Ordering::AcqRel) != packed
+    }
+
+    fn record_pointer_activity(force: bool) {
+        let mut point = POINT { x: 0, y: 0 };
+        let position_changed = unsafe {
+            if GetCursorPos(&mut point) == 0 {
+                false
+            } else {
+                update_pointer_position(&LAST_POINTER_SCREEN_POSITION, point.x, point.y)
+            }
+        };
+
+        if force || position_changed {
+            POINTER_ACTIVITY_REQUESTED.store(true, Ordering::Release);
+        }
+    }
+
     unsafe extern "system" fn video_host_proc(
         window: HWND,
         message: u32,
@@ -149,12 +170,16 @@ mod windows {
         lparam: LPARAM,
     ) -> LRESULT {
         match message {
-            WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_MOUSEWHEEL => {
-                POINTER_ACTIVITY_REQUESTED.store(true, Ordering::Release);
+            WM_MOUSEMOVE => {
+                record_pointer_activity(false);
+                DefWindowProcW(window, message, wparam, lparam)
+            }
+            WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_MOUSEWHEEL => {
+                record_pointer_activity(true);
                 DefWindowProcW(window, message, wparam, lparam)
             }
             WM_LBUTTONDBLCLK => {
-                POINTER_ACTIVITY_REQUESTED.store(true, Ordering::Release);
+                record_pointer_activity(true);
                 FULLSCREEN_REQUESTED.store(true, Ordering::Release);
                 0
             }
@@ -165,6 +190,24 @@ mod windows {
                 0
             }
             _ => DefWindowProcW(window, message, wparam, lparam),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::sync::atomic::AtomicU64;
+
+        use super::update_pointer_position;
+
+        #[test]
+        fn ignores_duplicate_native_mouse_move_messages() {
+            let last_position = AtomicU64::new(u64::MAX);
+
+            assert!(update_pointer_position(&last_position, 640, 480));
+            assert!(!update_pointer_position(&last_position, 640, 480));
+            assert!(update_pointer_position(&last_position, 641, 480));
+            assert!(update_pointer_position(&last_position, -1, -20));
+            assert!(!update_pointer_position(&last_position, -1, -20));
         }
     }
 }
