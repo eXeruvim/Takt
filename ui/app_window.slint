@@ -24,7 +24,7 @@ export component AppWindow inherits Window {
     preferred-height: 760px;
     min-width: 760px;
     min-height: 520px;
-    background: Theme.surface-canvas;
+    background: transparent;
     no-frame: true;
     resize-border-width: 6px;
     title: "Oxide";
@@ -151,7 +151,7 @@ export component AppWindow inherits Window {
                 width: parent.width - Theme.space-6;
                 height: parent.height - Theme.space-6;
                 border-radius: Theme.radius-xlarge;
-                background: root.media_loaded ? Theme.surface-media : transparent;
+                background: root.media_loaded && !root.audio_media ? Theme.surface-media : transparent;
                 border-width: 1px;
                 border-color: Theme.border-subtle;
             }
@@ -192,7 +192,7 @@ export component AppWindow inherits Window {
 
                     Spinner { spinner-color: Theme.accent; }
                     UiText {
-                        text: root.audio_media ? "Открываем аудио" : "Открываем видео";
+                        text: "Открываем медиафайл";
                         variant: TextVariant.heading;
                         horizontal-alignment: center;
                     }

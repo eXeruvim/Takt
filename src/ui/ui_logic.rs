@@ -34,6 +34,10 @@ fn format_time(seconds: f64) -> String {
     }
 }
 
+fn is_audio_only_media(width: u32, height: u32, video_codec: &str, audio_codec: &str) -> bool {
+    width == 0 && height == 0 && video_codec.is_empty() && !audio_codec.is_empty()
+}
+
 fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
     if path.is_dir() {
         return Ok(Command::OpenFolder(path.to_string_lossy().into_owned()));
@@ -556,9 +560,9 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 };
 
                 match event {
-                    Event::LoadStarted { name, audio_only } => {
+                    Event::LoadStarted(name) => {
                         app.set_file_name(name.into());
-                        app.set_audio_media(audio_only);
+                        app.set_audio_media(false);
                         app.set_media_loaded(false);
                         app.set_is_playing(false);
                         app.set_player_phase(PlayerPhase::Loading);
@@ -682,6 +686,12 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         codec,
                         audio_codec,
                     } => {
+                        app.set_audio_media(is_audio_only_media(
+                            width,
+                            height,
+                            &codec,
+                            &audio_codec,
+                        ));
                         app.set_resolution(format!("{}x{}", width, height).into());
                         app.set_fps(format!("{:.2}", fps).into());
                         app.set_codec(codec.into());
@@ -719,7 +729,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 mod tests {
     use std::path::Path;
 
-    use super::{command_for_dropped_path, format_time};
+    use super::{command_for_dropped_path, format_time, is_audio_only_media};
     use crate::ipc::Command;
 
     #[test]
@@ -732,6 +742,13 @@ mod tests {
     #[test]
     fn clamps_negative_time_to_zero() {
         assert_eq!(format_time(-10.0), "00:00");
+    }
+
+    #[test]
+    fn detects_audio_only_media_from_actual_tracks_not_file_extension() {
+        assert!(is_audio_only_media(0, 0, "", "MP3 (MPEG audio layer 3)"));
+        assert!(!is_audio_only_media(1920, 1080, "yuv420p", "AAC"));
+        assert!(!is_audio_only_media(0, 0, "", ""));
     }
 
     #[test]

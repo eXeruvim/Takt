@@ -1,10 +1,7 @@
 use std::{path::Path, path::PathBuf, time::Duration};
 
 use crate::ipc::{Command, Event};
-use crate::player::{
-    media_info::MediaInfo,
-    playlist::{is_audio_file, DirectoryPlaylist},
-};
+use crate::player::{media_info::MediaInfo, playlist::DirectoryPlaylist};
 use anyhow::Context;
 use crossbeam_channel::{Receiver, Sender};
 use libmpv::{
@@ -44,6 +41,13 @@ fn send_media_info(mpv: &Mpv, tx: &Sender<Event>) {
         codec: info.codec,
         audio_codec: info.audio_codec,
     });
+}
+
+fn send_media_ready(mpv: &Mpv, tx: &Sender<Event>) {
+    send_media_info(mpv, tx);
+    let _ = tx.send(Event::MediaAvailable(true));
+    let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
+    let _ = tx.send(Event::PlaybackState(!paused));
 }
 
 fn load_file_in_mpv(mpv: &Mpv, path: &Path) -> anyhow::Result<()> {
@@ -93,10 +97,7 @@ fn load_current(mpv: &Mpv, tx: &Sender<Event>, playlist: &DirectoryPlaylist) -> 
         .current_path()
         .context("В плейлисте нет медиафайла для воспроизведения")?;
     if let Some(file_name) = path.file_name() {
-        let _ = tx.send(Event::LoadStarted {
-            name: file_name.to_string_lossy().into_owned(),
-            audio_only: is_audio_file(path),
-        });
+        let _ = tx.send(Event::LoadStarted(file_name.to_string_lossy().into_owned()));
     }
     load_file_in_mpv(mpv, path)?;
 
@@ -382,11 +383,8 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
 
         while let Some(event) = events.wait_event(0.0) {
             match event {
-                Ok(MpvEvent::FileLoaded) => {
-                    send_media_info(&mpv, &tx);
-                    let _ = tx.send(Event::MediaAvailable(true));
-                    let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
-                    let _ = tx.send(Event::PlaybackState(!paused));
+                Ok(MpvEvent::FileLoaded) if options.media_available => {
+                    send_media_ready(&mpv, &tx);
                 }
                 Ok(MpvEvent::EndFile(reason)) if reason == mpv_end_file_reason::Eof => {
                     match load_adjacent(&mpv, &tx, &mut playlist, true, options.repeat_folder) {
@@ -417,8 +415,10 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                         }
                     }
                 }
-                Ok(MpvEvent::VideoReconfig | MpvEvent::AudioReconfig) => {
-                    send_media_info(&mpv, &tx);
+                Ok(MpvEvent::VideoReconfig | MpvEvent::AudioReconfig)
+                    if options.media_available =>
+                {
+                    send_media_ready(&mpv, &tx);
                 }
                 Ok(MpvEvent::PropertyChange { name, change, .. }) => {
                     send_property_change(&tx, name, change);
