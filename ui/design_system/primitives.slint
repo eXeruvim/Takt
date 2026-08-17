@@ -293,6 +293,7 @@ export component Slider inherits Rectangle {
     in property <float> minimum: 0;
     in property <float> maximum: 1;
     in property <bool> enabled: true;
+    in property <bool> expand-on-hover: false;
     out property <bool> has-hover <=> touch.has-hover;
     out property <bool> is-dragging <=> touch.pressed;
     out property <float> pointer-ratio: self.width > 0px
@@ -309,7 +310,9 @@ export component Slider inherits Rectangle {
     Rectangle {
         y: (parent.height - self.height) / 2;
         width: parent.width;
-        height: Theme.space-1;
+        height: root.expand-on-hover
+            ? touch.has-hover || touch.pressed ? 6px : 3px
+            : Theme.space-1;
         border-radius: Theme.radius-full;
         background: touch.pressed ? Theme.border-strong
             : touch.has-hover ? Theme.surface-hover
@@ -321,6 +324,11 @@ export component Slider inherits Rectangle {
             height: parent.height;
             border-radius: Theme.radius-full;
             background: Theme.accent;
+        }
+
+        animate height, y {
+            duration: Theme.motion-fast;
+            easing: cubic-bezier(0.2, 0, 0, 1);
         }
     }
 

@@ -12,8 +12,19 @@ export component PlayerControls inherits Rectangle {
     in-out property <float> volume;
     in-out property <bool> muted;
     in property <bool> loop_enabled;
+    in property <bool> edge_to_edge;
+    in property <bool> fullscreen_active;
+    in property <bool> playlist_open;
+    in property <bool> info_open;
     in property <bool> settings_open;
-    out property <bool> show-volume-slider: self.width >= 1000px;
+    in property <bool> command_palette_open;
+    private property <bool> show_remaining_time: true;
+    out property <bool> show-volume-slider: self.width >= 1080px;
+    out property <bool> show-secondary-actions: self.width >= 900px;
+    callback open_file();
+    callback open_folder();
+    callback toggle_playlist();
+    callback toggle_info();
     callback play_pause();
     callback previous();
     callback next();
@@ -22,47 +33,139 @@ export component PlayerControls inherits Rectangle {
     callback toggle_mute();
     callback toggle_loop();
     callback toggle_settings();
+    callback toggle_fullscreen();
+    callback show_more();
 
     height: Theme.player-controls-height;
     border-radius: 0px;
-    background: Theme.surface-chrome;
+    background: transparent;
     border-width: 0px;
 
-    timeline := Timeline {
-        x: Theme.space-4;
-        y: 0px;
-        width: parent.width - Theme.space-8;
-        value <=> root.progress;
-        duration-seconds: root.duration_seconds;
-        enabled: root.media_loaded;
-        seek(value) => root.seek(value);
-    }
+    deck := Rectangle {
+        x: root.edge_to_edge ? 0px : Theme.space-3;
+        width: parent.width - (root.edge_to_edge ? 0px : Theme.space-6);
+        height: parent.height - (root.edge_to_edge ? 0px : Theme.space-2);
+        border-radius: root.edge_to_edge ? 0px : Theme.radius-xlarge;
+        background: Theme.surface-chrome;
+        border-width: root.edge_to_edge ? 0px : 1px;
+        border-color: Theme.border-glass;
+        drop-shadow-color: root.edge_to_edge ? transparent : Theme.shadow-low;
+        drop-shadow-blur: root.edge_to_edge ? 0px : Theme.elevation-low-blur;
+        drop-shadow-offset-y: root.edge_to_edge ? 0px : Theme.elevation-low-y;
 
-    Rectangle {
-        x: Theme.space-3;
-        y: Theme.space-6;
-        width: parent.width - Theme.space-6;
-        height: Theme.space-12 - Theme.space-1;
-        background: transparent;
+        timeline-row := Rectangle {
+            x: Theme.space-3;
+            width: parent.width - Theme.space-6;
+            height: Theme.space-6;
+            background: transparent;
 
-        UiText {
-            x: 0px;
-            width: 144px;
-            height: parent.height;
-            text: timeline.preview-visible
-                ? "Перейти к " + timeline.preview-time
-                : root.time_pos + " / " + root.time_duration;
-            variant: TextVariant.caption;
-            color: timeline.preview-visible ? Theme.accent : Theme.text-secondary;
-            vertical-alignment: center;
+            UiText {
+                width: 64px;
+                height: parent.height;
+                text: root.time_pos;
+                variant: TextVariant.caption;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+
+            timeline := Timeline {
+                x: 72px;
+                width: parent.width - 144px;
+                value <=> root.progress;
+                duration-seconds: root.duration_seconds;
+                enabled: root.media_loaded;
+                seek(value) => root.seek(value);
+            }
+
+            right-time := Rectangle {
+                x: parent.width - 64px;
+                width: 64px;
+                height: parent.height;
+                background: transparent;
+                accessible-role: button;
+                accessible-label: root.show_remaining_time
+                    ? "Показать полную длительность"
+                    : "Показать оставшееся время";
+                accessible-action-default => {
+                    root.show_remaining_time = !root.show_remaining_time;
+                }
+
+                TouchArea {
+                    clicked => {
+                        root.show_remaining_time = !root.show_remaining_time;
+                    }
+                }
+
+                UiText {
+                    width: parent.width;
+                    height: parent.height;
+                    text: timeline.preview-visible
+                        ? timeline.preview-time
+                        : root.show_remaining_time && root.duration_seconds > 0
+                            ? "−" + timeline.remaining-time
+                            : root.time_duration;
+                    variant: TextVariant.caption;
+                    color: timeline.preview-visible ? Theme.accent : Theme.text-secondary;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+            }
         }
 
-        HorizontalLayout {
-            x: (parent.width - self.width) / 2;
-            width: 152px;
-            height: parent.height;
-            spacing: Theme.space-2;
-            alignment: center;
+        controls-row := Rectangle {
+            x: Theme.space-3;
+            y: Theme.space-6;
+            width: parent.width - Theme.space-6;
+            height: Theme.space-12 - Theme.space-1;
+            background: transparent;
+
+            HorizontalLayout {
+                width: root.show-secondary-actions ? 184px : 88px;
+                height: parent.height;
+                spacing: Theme.space-2;
+                alignment: center;
+
+                IconButton {
+                    icon: @image-url("../icons/file-media.svg");
+                    accessible-name: "Открыть медиафайл";
+                    circular: true;
+                    capture-focus: false;
+                    clicked => root.open_file();
+                }
+
+                if root.show-secondary-actions : IconButton {
+                    icon: @image-url("../icons/folder-open.svg");
+                    accessible-name: "Открыть папку";
+                    circular: true;
+                    capture-focus: false;
+                    clicked => root.open_folder();
+                }
+
+                IconButton {
+                    icon: @image-url("../icons/playlist.svg");
+                    accessible-name: "Плейлист";
+                    circular: true;
+                    selected: root.playlist_open;
+                    capture-focus: false;
+                    clicked => root.toggle_playlist();
+                }
+
+                if root.show-secondary-actions : IconButton {
+                    icon: @image-url("../icons/info.svg");
+                    accessible-name: "Информация о файле";
+                    circular: true;
+                    selected: root.info_open;
+                    capture-focus: false;
+                    clicked => root.toggle_info();
+                }
+            }
+
+            HorizontalLayout {
+                x: (parent.width - self.width) / 2;
+                width: 152px;
+                height: parent.height;
+                spacing: Theme.space-2;
+                alignment: center;
 
             IconButton {
                 icon: @image-url("../icons/skip-back.svg");
@@ -96,49 +199,84 @@ export component PlayerControls inherits Rectangle {
 
         }
 
-        Rectangle {
-            width: root.show-volume-slider ? 280px : 136px;
-            height: parent.height;
-            x: parent.width - self.width;
-            background: transparent;
+            Rectangle {
+                width: root.show-volume-slider
+                    ? 352px
+                    : root.show-secondary-actions ? 232px : 184px;
+                height: parent.height;
+                x: parent.width - self.width;
+                background: transparent;
 
-            HorizontalLayout {
-                spacing: Theme.space-2;
-                alignment: center;
+                HorizontalLayout {
+                    spacing: Theme.space-2;
+                    alignment: center;
 
-                IconButton {
-                    icon: !root.muted && root.volume > 0.0
-                        ? @image-url("../icons/volume.svg")
-                        : @image-url("../icons/volume-off.svg");
-                    accessible-name: root.muted ? "Включить звук" : "Выключить звук";
-                    circular: true;
-                    selected: root.muted;
-                    capture-focus: false;
-                    clicked => root.toggle_mute();
-                }
+                    IconButton {
+                        icon: @image-url("../icons/repeat.svg");
+                        accessible-name: root.loop_enabled ? "Выключить повтор" : "Включить повтор";
+                        circular: true;
+                        selected: root.loop_enabled;
+                        capture-focus: false;
+                        clicked => root.toggle_loop();
+                    }
 
-                if root.show-volume-slider : Slider {
-                    width: 136px;
-                    value <=> root.volume;
-                    changed(value) => root.set_volume(value);
-                }
+                    Rectangle {
+                        width: root.show-volume-slider ? 160px : 40px;
+                        height: Theme.space-10;
+                        border-radius: Theme.radius-medium;
+                        background: root.show-volume-slider ? Theme.surface-control : transparent;
 
-                IconButton {
-                    icon: @image-url("../icons/repeat.svg");
-                    accessible-name: root.loop_enabled ? "Выключить повтор" : "Включить повтор";
-                    circular: true;
-                    selected: root.loop_enabled;
-                    capture-focus: false;
-                    clicked => root.toggle_loop();
-                }
+                        HorizontalLayout {
+                            spacing: Theme.space-2;
+                            alignment: center;
 
-                IconButton {
-                    icon: @image-url("../icons/settings.svg");
-                    accessible-name: "Настройки воспроизведения";
-                    circular: true;
-                    selected: root.settings_open;
-                    capture-focus: false;
-                    clicked => root.toggle_settings();
+                            IconButton {
+                                icon: !root.muted && root.volume > 0.0
+                                    ? @image-url("../icons/volume.svg")
+                                    : @image-url("../icons/volume-off.svg");
+                                accessible-name: root.muted ? "Включить звук" : "Выключить звук";
+                                circular: true;
+                                selected: root.muted;
+                                capture-focus: false;
+                                clicked => root.toggle_mute();
+                            }
+
+                            if root.show-volume-slider : Slider {
+                                width: 112px;
+                                value <=> root.volume;
+                                changed(value) => root.set_volume(value);
+                            }
+                        }
+                    }
+
+                    IconButton {
+                        icon: @image-url("../icons/settings.svg");
+                        accessible-name: "Настройки воспроизведения";
+                        circular: true;
+                        selected: root.settings_open;
+                        capture-focus: false;
+                        clicked => root.toggle_settings();
+                    }
+
+                    if root.show-secondary-actions : IconButton {
+                        icon: @image-url("../icons/maximize.svg");
+                        accessible-name: root.fullscreen_active
+                            ? "Выйти из полноэкранного режима"
+                            : "Полноэкранный режим";
+                        circular: true;
+                        selected: root.fullscreen_active;
+                        capture-focus: false;
+                        clicked => root.toggle_fullscreen();
+                    }
+
+                    IconButton {
+                        icon: @image-url("../icons/more-horizontal.svg");
+                        accessible-name: "Другие команды";
+                        circular: true;
+                        selected: root.command_palette_open;
+                        capture-focus: false;
+                        clicked => root.show_more();
+                    }
                 }
             }
         }

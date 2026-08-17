@@ -8,7 +8,7 @@ import { SettingsDrawer } from "components/settings_drawer.slint";
 import { ShortcutEditorOverlay, ShortcutEntry } from "components/shortcut_editor.slint";
 import { NextVideoCard } from "components/next_video_card.slint";
 import { Toast } from "design_system/composites.slint";
-import { CaptionButton, EmptyState, Icon, IconButton, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
+import { CaptionButton, EmptyState, Icon, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
 
 export enum PlayerPhase {
     empty,
@@ -85,7 +85,6 @@ export component AppWindow inherits Window {
         && !shortcut_editor_visible && !command_palette_visible
         && !error_visible && !drop_target_visible;
     out property <length> controls_top_zone: Theme.top-bar-height + Theme.space-2;
-    out property <length> top_actions_width: Theme.space-10 * 4 + Theme.space-2 * 3;
     out property <length> controls_bottom_zone: media_presented
         ? Theme.player-controls-height
         : 0px;
@@ -170,7 +169,11 @@ export component AppWindow inherits Window {
     Rectangle {
         width: parent.width;
         height: parent.height;
-        background: root.edge_to_edge ? Theme.canvas-background-opaque : Theme.canvas-background;
+        background: root.fullscreen_mode
+            ? Theme.canvas-background-opaque
+            : root.maximized
+                ? Theme.canvas-background-maximized
+                : Theme.canvas-background;
         border-radius: root.edge_to_edge ? 0px : Theme.radius-large;
         border-width: root.edge_to_edge ? 0px : 1px;
         border-color: Theme.border-default;
@@ -181,9 +184,14 @@ export component AppWindow inherits Window {
             height: parent.height;
             focus-on-click: true;
 
-            Rectangle {
-                width: parent.width;
-                height: parent.height;
+            media-backdrop := Rectangle {
+                x: root.info_drawer_reserved || root.playlist_drawer_reserved ? 368px : 0px;
+                y: root.video_top_inset;
+                width: max(0px, parent.width - self.x
+                    - (root.shortcut_editor_right_inset > 0px
+                        ? root.shortcut_editor_right_inset
+                        : root.settings_drawer_reserved ? 388px : 0px));
+                height: max(0px, parent.height - self.y - root.video_bottom_inset);
                 background: root.media_presented && !root.audio_media ? Theme.surface-media : transparent;
             }
 
@@ -292,7 +300,7 @@ export component AppWindow inherits Window {
                 title-drag := TouchArea {
                     x: 132px;
                     width: max(0px, parent.width - self.x
-                        - Theme.caption-button-width * 3 - root.top_actions_width - Theme.space-4);
+                        - Theme.caption-button-width * 3 - Theme.space-4);
                     height: parent.height;
                     pointer-event(event) => {
                         if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
@@ -325,7 +333,7 @@ export component AppWindow inherits Window {
                 UiText {
                     x: 140px;
                     width: max(0px, parent.width - self.x
-                        - Theme.caption-button-width * 3 - root.top_actions_width - Theme.space-6);
+                        - Theme.caption-button-width * 3 - Theme.space-6);
                     height: parent.height;
                     text: root.player_phase != PlayerPhase.empty
                         ? root.file_name + "  ·  " + root.player_phase_label
@@ -334,41 +342,6 @@ export component AppWindow inherits Window {
                     color: Theme.text-secondary;
                     vertical-alignment: center;
                     overflow: elide;
-                }
-
-                HorizontalLayout {
-                    x: parent.width - Theme.caption-button-width * 3 - self.width - Theme.space-2;
-                    width: root.top_actions_width;
-                    height: parent.height;
-                    spacing: Theme.space-2;
-                    alignment: center;
-
-                    IconButton {
-                        icon: @image-url("icons/file-media.svg");
-                        accessible-name: "Открыть медиафайл";
-                        clicked => root.open_file();
-                    }
-
-                    IconButton {
-                        icon: @image-url("icons/playlist.svg");
-                        accessible-name: "Плейлист";
-                        selected: root.playlist_drawer_visible;
-                        clicked => root.toggle_playlist();
-                    }
-
-                    IconButton {
-                        icon: @image-url("icons/info.svg");
-                        accessible-name: "Информация о файле";
-                        selected: root.info_drawer_visible;
-                        clicked => root.toggle_info();
-                    }
-
-                    IconButton {
-                        icon: @image-url("icons/more-horizontal.svg");
-                        accessible-name: "Больше действий";
-                        selected: root.command_palette_visible;
-                        clicked => root.toggle_command_palette();
-                    }
                 }
 
                 HorizontalLayout {
@@ -424,7 +397,16 @@ export component AppWindow inherits Window {
                 volume: root.volume;
                 muted: root.muted;
                 loop_enabled: root.loop_enabled;
+                edge_to_edge: root.edge_to_edge;
+                fullscreen_active: root.fullscreen_mode;
+                playlist_open: root.playlist_drawer_visible;
+                info_open: root.info_drawer_visible;
                 settings_open: root.settings_drawer_visible;
+                command_palette_open: root.command_palette_visible;
+                open_file => root.open_file();
+                open_folder => root.open_folder();
+                toggle_playlist => root.toggle_playlist();
+                toggle_info => root.toggle_info();
                 play_pause => root.play_pause();
                 previous => root.previous_video();
                 next => root.next_video();
@@ -433,6 +415,8 @@ export component AppWindow inherits Window {
                 toggle_mute => root.toggle_mute();
                 toggle_loop => root.toggle_loop();
                 toggle_settings => root.toggle_settings();
+                toggle_fullscreen => root.toggle_fullscreen();
+                show_more => root.toggle_command_palette();
 
                 animate opacity {
                     duration: Theme.motion-normal;
