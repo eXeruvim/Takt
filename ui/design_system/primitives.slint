@@ -239,6 +239,7 @@ export component ProgressBar inherits Rectangle {
 
 export component Slider inherits Rectangle {
     in-out property <float> value: 0;
+    in property <float> buffered-value: minimum;
     in property <float> minimum: 0;
     in property <float> maximum: 1;
     in property <bool> enabled: true;
@@ -249,6 +250,9 @@ export component Slider inherits Rectangle {
         : 0;
     callback changed(float);
     private property <float> ratio: maximum > minimum ? (value - minimum) / (maximum - minimum) : 0;
+    private property <float> buffered-ratio: maximum > minimum
+        ? (buffered-value - minimum) / (maximum - minimum)
+        : 0;
 
     height: Theme.space-6;
     background: transparent;
@@ -263,6 +267,15 @@ export component Slider inherits Rectangle {
         background: touch.pressed ? Theme.border-strong
             : touch.has-hover ? Theme.surface-hover
             : Theme.border-default;
+
+        Rectangle {
+            x: 0px;
+            width: parent.width * max(0, min(1, root.buffered-ratio));
+            height: parent.height;
+            border-radius: Theme.radius-full;
+            background: Theme.border-strong;
+            animate width { duration: Theme.motion-fast; }
+        }
 
         Rectangle {
             x: 0px;

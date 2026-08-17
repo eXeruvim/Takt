@@ -313,6 +313,7 @@ fn send_property_change(tx: &Sender<Event>, name: &str, change: PropertyData<'_>
     let event = match (name, change) {
         ("time-pos", PropertyData::Double(value)) => Some(Event::TimePos(value)),
         ("duration", PropertyData::Double(value)) => Some(Event::Duration(value)),
+        ("demuxer-cache-time", PropertyData::Double(value)) => Some(Event::BufferedUntil(value)),
         ("pause", PropertyData::Flag(paused)) => Some(Event::PlaybackState(!paused)),
         ("volume", PropertyData::Double(value)) => Some(Event::Volume(value)),
         ("speed", PropertyData::Double(value)) => Some(Event::Speed(value)),
@@ -343,6 +344,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
         (5, "speed", Format::Double),
         (6, "mute", Format::Flag),
         (7, "loop-file", Format::String),
+        (8, "demuxer-cache-time", Format::Double),
     ] {
         mpv_error(events.observe_property(name, format, id))?;
     }

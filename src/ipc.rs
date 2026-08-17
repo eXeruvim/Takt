@@ -35,6 +35,7 @@ pub enum Command {
 pub enum Event {
     TimePos(f64),
     Duration(f64),
+    BufferedUntil(f64),
 
     PlaybackState(bool),
     LoadStarted(String),

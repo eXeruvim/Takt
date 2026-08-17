@@ -532,6 +532,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         app.set_current_time("00:00".into());
                         app.set_total_time("00:00".into());
                         app.set_duration_seconds(0.0);
+                        app.set_buffered_progress(0.0);
                         app.set_progress(0.0);
                         app.set_error_visible(false);
                         if let Ok(mut duration) = current_duration.lock() {
@@ -602,6 +603,16 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         }
                         app.set_total_time(format_time(duration).into());
                         app.set_duration_seconds(duration as f32);
+                    }
+
+                    Event::BufferedUntil(position) => {
+                        let duration = current_duration
+                            .lock()
+                            .map(|duration| *duration)
+                            .unwrap_or_default();
+                        if duration > 0.0 {
+                            app.set_buffered_progress((position / duration).clamp(0.0, 1.0) as f32);
+                        }
                     }
 
                     Event::Playlist {
