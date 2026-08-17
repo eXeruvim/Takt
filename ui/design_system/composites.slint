@@ -13,12 +13,12 @@ export component Drawer inherits Rectangle {
     width: Theme.space-12 * 7;
     height: host-height;
     x: (from-right ? host-width - self.width : 0px) + slide-offset;
-    background: Theme.surface-elevated;
+    background: Theme.surface-inspector;
     border-width: 1px;
     border-color: Theme.border-default;
-    drop-shadow-color: Theme.shadow-high;
-    drop-shadow-blur: Theme.elevation-high-blur;
-    drop-shadow-offset-y: Theme.elevation-high-y;
+    drop-shadow-color: Theme.shadow-low;
+    drop-shadow-blur: Theme.elevation-low-blur;
+    drop-shadow-offset-y: Theme.elevation-low-y;
     clip: true;
 
     animate slide-offset {
@@ -37,12 +37,12 @@ export component Popover inherits Rectangle {
     min-width: Theme.space-12 * 4;
     min-height: Theme.space-12;
     border-radius: Theme.radius-large;
-    background: Theme.surface-elevated;
+    background: Theme.surface-popover;
     border-width: 1px;
     border-color: Theme.border-default;
-    drop-shadow-color: Theme.shadow-high;
-    drop-shadow-blur: Theme.elevation-high-blur;
-    drop-shadow-offset-y: Theme.elevation-high-y;
+    drop-shadow-color: Theme.shadow-low;
+    drop-shadow-blur: Theme.elevation-low-blur;
+    drop-shadow-offset-y: Theme.elevation-low-y;
 
     animate opacity {
         duration: Theme.motion-normal;
@@ -72,7 +72,7 @@ export component Dialog inherits Rectangle {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         border-radius: Theme.radius-xlarge;
-        background: Theme.surface-elevated;
+        background: Theme.surface-modal;
         border-width: 1px;
         border-color: Theme.border-default;
         drop-shadow-color: Theme.shadow-high;
@@ -110,7 +110,7 @@ export component Toast inherits Rectangle {
     width: Theme.space-12 * 8;
     height: Theme.space-12 + Theme.space-6;
     border-radius: Theme.radius-medium;
-    background: danger ? Theme.danger-subtle : Theme.surface-elevated;
+    background: danger ? Theme.danger-subtle : Theme.surface-popover;
     border-width: 1px;
     border-color: danger ? Theme.danger : Theme.border-default;
     drop-shadow-color: Theme.shadow-low;
@@ -148,7 +148,7 @@ export component ActionPanel inherits Rectangle {
     opacity: open ? 1 : 0;
     width: Theme.space-12 * 6;
     border-radius: Theme.radius-large;
-    background: Theme.surface-elevated;
+    background: Theme.surface-popover;
     border-width: 1px;
     border-color: Theme.border-default;
 
@@ -184,7 +184,7 @@ export component CommandPalette inherits Rectangle {
     width: min(host-width - Theme.space-12, Theme.space-12 * 14);
     height: min(host-height - Theme.space-12, Theme.space-12 * 10);
     border-radius: Theme.radius-xlarge;
-    background: Theme.surface-elevated;
+    background: Theme.surface-modal;
     border-width: 1px;
     border-color: Theme.border-default;
     drop-shadow-color: Theme.shadow-high;
@@ -203,7 +203,7 @@ export component CommandPalette inherits Rectangle {
         Rectangle {
             height: Theme.space-10;
             border-radius: Theme.radius-medium;
-            background: Theme.surface-panel;
+            background: Theme.surface-control;
             border-width: 1px;
             border-color: Theme.border-default;
 
@@ -234,11 +234,11 @@ export component ContextMenu inherits Rectangle {
     opacity: open ? 1 : 0;
     min-width: Theme.space-12 * 4;
     border-radius: Theme.radius-medium;
-    background: Theme.surface-elevated;
+    background: Theme.surface-popover;
     border-width: 1px;
     border-color: Theme.border-default;
-    drop-shadow-color: Theme.shadow-high;
-    drop-shadow-blur: Theme.elevation-high-blur;
+    drop-shadow-color: Theme.shadow-low;
+    drop-shadow-blur: Theme.elevation-low-blur;
 
     animate opacity {
         duration: Theme.motion-normal;

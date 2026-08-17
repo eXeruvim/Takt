@@ -11,6 +11,7 @@ export enum TextVariant {
 export component UiText inherits Text {
     in property <TextVariant> variant: TextVariant.body;
 
+    font-family: "Segoe UI Variable";
     color: Theme.text-primary;
     font-size: variant == TextVariant.caption ? Theme.text-small
         : variant == TextVariant.heading ? Theme.text-heading
@@ -113,12 +114,12 @@ export component Button inherits Rectangle {
     min-width: Theme.space-12 * 2;
     height: Theme.space-10;
     border-radius: Theme.radius-medium;
-    background: !enabled ? Theme.surface-panel
+    background: !enabled ? Theme.surface-control
         : interaction.pressed ? (primary ? Theme.accent-pressed : Theme.surface-pressed)
         : interaction.has-hover ? (primary ? Theme.accent-hover : Theme.surface-hover)
         : primary ? Theme.accent
         : selected ? Theme.surface-selected
-        : Theme.surface-panel;
+        : Theme.surface-control;
     border-width: interaction.has-focus ? Theme.focus-ring-width : 1px;
     border-color: interaction.has-focus ? Theme.focus-ring
         : primary ? transparent
@@ -428,7 +429,7 @@ export component ShortcutBadge inherits Rectangle {
     min-width: Theme.space-8;
     height: Theme.space-6;
     border-radius: Theme.radius-small;
-    background: Theme.surface-hover;
+    background: Theme.surface-control;
     border-width: 1px;
     border-color: Theme.border-default;
 
@@ -449,7 +450,7 @@ export component Tooltip inherits Rectangle {
     min-width: Theme.space-12;
     height: Theme.space-8;
     border-radius: Theme.radius-small;
-    background: Theme.surface-elevated;
+    background: Theme.surface-popover;
     border-width: 1px;
     border-color: Theme.border-default;
     drop-shadow-color: Theme.shadow-low;

@@ -25,12 +25,12 @@ export component PlayerControls inherits Rectangle {
 
     height: Theme.player-controls-height;
     border-radius: edge_to_edge ? 0px : Theme.radius-large;
-    background: Theme.surface-glass-strong;
+    background: Theme.surface-chrome;
     border-width: edge_to_edge ? 0px : 1px;
     border-color: Theme.border-glass;
-    drop-shadow-color: edge_to_edge ? transparent : Theme.shadow-high;
-    drop-shadow-blur: Theme.elevation-high-blur;
-    drop-shadow-offset-y: Theme.elevation-high-y;
+    drop-shadow-color: edge_to_edge ? transparent : Theme.shadow-low;
+    drop-shadow-blur: Theme.elevation-low-blur;
+    drop-shadow-offset-y: Theme.elevation-low-y;
 
     timeline := Timeline {
         x: Theme.space-4;

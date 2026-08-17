@@ -26,6 +26,7 @@ export component AppWindow inherits Window {
     min-width: 760px;
     min-height: 520px;
     background: transparent;
+    default-font-family: "Segoe UI Variable";
     no-frame: true;
     resize-border-width: self.edge_to_edge ? 0px : 6px;
     title: "Oxide";
@@ -329,7 +330,7 @@ export component AppWindow inherits Window {
                 opacity: root.controls_visible ? 1 : 0;
                 visible: root.controls_visible || self.opacity > 0.01;
                 border-radius: 0px;
-                background: Theme.surface-glass;
+                background: Theme.surface-chrome;
                 border-width: 0px;
                 title-drag-left := TouchArea {
                     x: 132px;
@@ -365,7 +366,7 @@ export component AppWindow inherits Window {
                     Icon {
                         source: @image-url("icons/oxide.svg");
                         size: Theme.icon-small;
-                        tint: Theme.accent;
+                        tint: Theme.text-primary;
                     }
 
                     UiText {

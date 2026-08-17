@@ -5,20 +5,21 @@ export global Theme {
     in-out property <ColorScheme> color-scheme <=> Palette.color-scheme;
     out property <bool> is-dark: color-scheme == ColorScheme.dark;
 
-    // Semantic surfaces.
-    out property <color> surface-canvas: is-dark ? #0d0d0feb : #f7f7f8eb;
-    out property <color> surface-canvas-opaque: is-dark ? #0d0d0f : #f7f7f8;
-    out property <color> surface-panel: is-dark ? #151518 : #ffffff;
-    out property <color> surface-elevated: is-dark ? #1c1c20 : #ffffff;
-    out property <color> surface-hover: is-dark ? #25252a : #f1f1f3;
-    out property <color> surface-pressed: is-dark ? #2d2d33 : #e8e8eb;
+    // Semantic surfaces. Canvas may reveal the desktop in a regular window;
+    // focused surfaces become progressively more opaque with their elevation.
+    out property <color> surface-canvas: is-dark ? #101014d9 : #f6f6f8e3;
+    out property <color> surface-canvas-opaque: is-dark ? #101014 : #f6f6f8;
+    out property <color> surface-media: #060608;
+    out property <color> surface-media-glass: is-dark ? #08080acc : #f4f4f6d9;
+    out property <color> surface-chrome: is-dark ? #151519e6 : #fafafbe8;
+    out property <color> surface-inspector: is-dark ? #18181de8 : #fcfcfdea;
+    out property <color> surface-popover: is-dark ? #1c1c21f5 : #fffffff7;
+    out property <color> surface-modal: is-dark ? #19191ef7 : #fffffff9;
+    out property <color> surface-control: is-dark ? #ffffff0d : #0000000a;
+    out property <color> surface-hover: is-dark ? #ffffff16 : #00000010;
+    out property <color> surface-pressed: is-dark ? #ffffff21 : #0000001a;
     out property <color> surface-selected: is-dark ? #e07a4f26 : #c85f381a;
-    out property <color> surface-media: #08080a;
-    out property <color> surface-media-glass: is-dark ? #08080ad9 : #f4f4f6e6;
-    out property <color> surface-glass: is-dark ? #17171bd9 : #ffffffe0;
-    out property <color> surface-glass-strong: is-dark ? #1c1c21f2 : #fffffff2;
-    out property <color> surface-glass-hover: is-dark ? #2a2a31e6 : #f3f3f6eb;
-    out property <color> backdrop: is-dark ? #000000a6 : #16161a66;
+    out property <color> backdrop: is-dark ? #0000008f : #16161a57;
 
     // Oxide copper accent: Rust-inspired without copying a brand palette.
     out property <color> accent: is-dark ? #e07a4f : #c85f38;
@@ -32,10 +33,10 @@ export global Theme {
     out property <color> text-secondary: is-dark ? #b5b5bd : #5f5f68;
     out property <color> text-muted: is-dark ? #7c7c86 : #8a8a94;
     out property <color> text-disabled: is-dark ? #55555e : #b1b1b8;
-    out property <color> border-subtle: is-dark ? #ffffff14 : #00000012;
-    out property <color> border-default: is-dark ? #ffffff24 : #0000001f;
-    out property <color> border-strong: is-dark ? #ffffff3d : #00000033;
-    out property <color> border-glass: is-dark ? #ffffff2e : #ffffffb8;
+    out property <color> border-subtle: is-dark ? #ffffff12 : #00000010;
+    out property <color> border-default: is-dark ? #ffffff20 : #0000001c;
+    out property <color> border-strong: is-dark ? #ffffff36 : #00000030;
+    out property <color> border-glass: is-dark ? #ffffff24 : #ffffffa3;
 
     // Feedback colors.
     out property <color> success: is-dark ? #32d583 : #168a55;
@@ -48,12 +49,12 @@ export global Theme {
     // Focus and elevation.
     out property <color> focus-ring: is-dark ? #f0a17d : #b95330;
     out property <length> focus-ring-width: 2px;
-    out property <color> shadow-low: #0000002e;
-    out property <color> shadow-high: #00000070;
-    out property <length> elevation-low-blur: 12px;
-    out property <length> elevation-high-blur: 32px;
-    out property <length> elevation-low-y: 4px;
-    out property <length> elevation-high-y: 12px;
+    out property <color> shadow-low: #00000026;
+    out property <color> shadow-high: #00000052;
+    out property <length> elevation-low-blur: 10px;
+    out property <length> elevation-high-blur: 24px;
+    out property <length> elevation-low-y: 3px;
+    out property <length> elevation-high-y: 8px;
 
     // Four-point spacing scale.
     out property <length> space-0: 0px;
@@ -69,10 +70,10 @@ export global Theme {
     out property <length> space-12: 48px;
 
     // Shape and icon scales.
-    out property <length> radius-small: 8px;
-    out property <length> radius-medium: 12px;
-    out property <length> radius-large: 16px;
-    out property <length> radius-xlarge: 20px;
+    out property <length> radius-small: 6px;
+    out property <length> radius-medium: 8px;
+    out property <length> radius-large: 10px;
+    out property <length> radius-xlarge: 12px;
     out property <length> radius-full: 999px;
     out property <length> icon-small: 16px;
     out property <length> icon-medium: 20px;
@@ -83,14 +84,15 @@ export global Theme {
     out property <length> text-small: 12px;
     out property <length> text-body: 14px;
     out property <length> text-large: 16px;
-    out property <length> text-heading: 20px;
-    out property <length> text-title: 24px;
-    out property <length> text-display: 28px;
+    out property <length> text-heading: 18px;
+    out property <length> text-title: 20px;
+    out property <length> text-display: 24px;
 
     // Motion.
-    out property <duration> motion-fast: 140ms;
-    out property <duration> motion-normal: 260ms;
-    out property <duration> motion-slow: 320ms;
+    in-out property <bool> reduce-motion: false;
+    out property <duration> motion-fast: reduce-motion ? 0ms : 120ms;
+    out property <duration> motion-normal: reduce-motion ? 0ms : 220ms;
+    out property <duration> motion-slow: reduce-motion ? 0ms : 280ms;
 
     // Player layout.
     out property <length> top-bar-height: 48px;
@@ -98,6 +100,11 @@ export global Theme {
     out property <length> caption-button-width: 46px;
 
     // Compatibility aliases for components migrated in later slices.
+    out property <color> surface-panel: surface-control;
+    out property <color> surface-elevated: surface-popover;
+    out property <color> surface-glass: surface-chrome;
+    out property <color> surface-glass-strong: surface-inspector;
+    out property <color> surface-glass-hover: surface-hover;
     out property <color> bg-primary: surface-canvas;
     out property <color> bg-secondary: surface-panel;
     out property <color> bg-elevated: surface-elevated;

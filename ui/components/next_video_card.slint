@@ -17,8 +17,8 @@ export component NextVideoCard inherits Rectangle {
     y: parent_height - self.height - Theme.player-controls-height - Theme.space-8;
     border-radius: Theme.radius-medium;
     background: hit.pressed ? Theme.surface-pressed
-        : hit.has-hover ? Theme.surface-glass-hover
-        : Theme.surface-glass;
+        : hit.has-hover ? Theme.surface-hover
+        : Theme.surface-chrome;
     border-width: 1px;
     border-color: hit.has-hover ? Theme.border-default : Theme.border-glass;
     drop-shadow-color: Theme.shadow-low;
