@@ -6,7 +6,16 @@ import { SettingsDrawer } from "components/settings_drawer.slint";
 import { NextVideoCard } from "components/next_video_card.slint";
 import { ShortcutOverlay } from "components/shortcut_overlay.slint";
 import { Toast } from "design_system/composites.slint";
-import { EmptyState, Icon, IconButton, UiText, TextVariant } from "design_system/primitives.slint";
+import { EmptyState, Icon, IconButton, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
+
+export enum PlayerPhase {
+    empty,
+    loading,
+    playing,
+    paused,
+    finished,
+    error,
+}
 
 export component AppWindow inherits Window {
     forward-focus: keyboard;
@@ -31,6 +40,13 @@ export component AppWindow inherits Window {
     in-out property <float> progress: 0.0;
     in-out property <bool> is_playing: false;
     in-out property <bool> media_loaded: false;
+    in-out property <PlayerPhase> player_phase: PlayerPhase.empty;
+    out property <string> player_phase_label: player_phase == PlayerPhase.loading ? "Загрузка"
+        : player_phase == PlayerPhase.playing ? "Воспроизведение"
+        : player_phase == PlayerPhase.paused ? "Пауза"
+        : player_phase == PlayerPhase.finished ? "Завершено"
+        : player_phase == PlayerPhase.error ? "Ошибка"
+        : "";
     in-out property <float> volume: 0.65;
     in-out property <bool> muted: false;
     in-out property <float> speed: 1.0;
@@ -137,7 +153,7 @@ export component AppWindow inherits Window {
                 border-color: Theme.border-subtle;
             }
 
-            if !root.media_loaded : EmptyState {
+            if root.player_phase == PlayerPhase.empty : EmptyState {
                 x: (parent.width - self.width) / 2;
                 y: Theme.space-12 * 2;
                 width: min(parent.width - Theme.space-12 * 2, Theme.space-12 * 9);
@@ -145,6 +161,54 @@ export component AppWindow inherits Window {
                 title: "Откройте видео";
                 description: "Перетащите файл или папку в окно либо выберите их вручную";
                 action-text: "Выбрать видео";
+                action => root.open_file();
+            }
+
+            if root.player_phase == PlayerPhase.loading : Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: Theme.space-12 * 2;
+                width: min(parent.width - Theme.space-12 * 2, Theme.space-12 * 9);
+                height: parent.height - Theme.space-12 * 4;
+                background: transparent;
+
+                VerticalLayout {
+                    alignment: center;
+                    spacing: Theme.space-3;
+
+                    Spinner { spinner-color: Theme.accent; }
+                    UiText {
+                        text: "Открываем видео";
+                        variant: TextVariant.heading;
+                        horizontal-alignment: center;
+                    }
+                    UiText {
+                        text: root.file_name;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+
+            if root.player_phase == PlayerPhase.finished : EmptyState {
+                x: (parent.width - self.width) / 2;
+                y: Theme.space-12 * 2;
+                width: min(parent.width - Theme.space-12 * 2, Theme.space-12 * 9);
+                height: parent.height - Theme.space-12 * 4;
+                title: "Воспроизведение завершено";
+                description: "Выберите видео в плейлисте или откройте новый файл";
+                action-text: "Открыть видео";
+                action => root.open_file();
+            }
+
+            if root.player_phase == PlayerPhase.error : EmptyState {
+                x: (parent.width - self.width) / 2;
+                y: Theme.space-12 * 2;
+                width: min(parent.width - Theme.space-12 * 2, Theme.space-12 * 9);
+                height: parent.height - Theme.space-12 * 4;
+                title: "Не удалось воспроизвести видео";
+                description: root.error_message;
+                action-text: "Выбрать другое видео";
                 action => root.open_file();
             }
 
@@ -208,8 +272,8 @@ export component AppWindow inherits Window {
                     x: 108px;
                     width: max(0px, (parent.width - 328px) / 2 - self.x - Theme.space-2);
                     height: parent.height;
-                    text: root.media_loaded
-                        ? root.file_name + "  ·  " + (root.is_playing ? "Воспроизведение" : "Пауза")
+                    text: root.player_phase != PlayerPhase.empty
+                        ? root.file_name + "  ·  " + root.player_phase_label
                         : "";
                     variant: TextVariant.caption;
                     color: Theme.text-secondary;

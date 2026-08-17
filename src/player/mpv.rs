@@ -89,15 +89,15 @@ fn load_current(mpv: &Mpv, tx: &Sender<Event>, playlist: &DirectoryPlaylist) -> 
     let path = playlist
         .current_path()
         .context("В плейлисте нет видео для воспроизведения")?;
+    if let Some(file_name) = path.file_name() {
+        let _ = tx.send(Event::LoadStarted(file_name.to_string_lossy().into_owned()));
+    }
     load_file_in_mpv(mpv, path)?;
 
     if let Some(file_name) = path.file_name() {
         let _ = tx.send(Event::FileLoaded(file_name.to_string_lossy().into_owned()));
     }
     send_playlist(tx, playlist);
-    let _ = tx.send(Event::MediaAvailable(true));
-    let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
-    let _ = tx.send(Event::PlaybackState(!paused));
     Ok(())
 }
 
@@ -178,6 +178,13 @@ fn skip_failed_current(
 fn send_playback_finished(tx: &Sender<Event>) {
     let _ = tx.send(Event::MediaAvailable(false));
     let _ = tx.send(Event::PlaybackState(false));
+    let _ = tx.send(Event::PlaybackFinished);
+}
+
+fn send_playback_failed(tx: &Sender<Event>, message: String) {
+    let _ = tx.send(Event::MediaAvailable(false));
+    let _ = tx.send(Event::PlaybackState(false));
+    let _ = tx.send(Event::PlaybackFailed(message));
 }
 
 fn handle_command(
@@ -212,6 +219,7 @@ fn handle_command(
             let _ = tx.send(Event::MediaAvailable(false));
             let _ = tx.send(Event::PlaybackState(false));
             let _ = tx.send(Event::TimePos(0.0));
+            let _ = tx.send(Event::PlaybackStopped);
         }
         Command::Seek(position) => {
             if options.media_available {
@@ -341,19 +349,37 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
 
     loop {
         while let Ok(command) = rx.try_recv() {
+            let changes_media = matches!(
+                &command,
+                Command::OpenFile(_)
+                    | Command::OpenFolder(_)
+                    | Command::NextVideo
+                    | Command::PreviousVideo
+                    | Command::PlayIndex(_)
+            );
             match handle_command(command, &mpv, &tx, &mut playlist, &mut options) {
                 Ok(true) => {}
                 Ok(false) => return Ok(()),
                 Err(error) => {
                     eprintln!("Ошибка команды mpv: {error:#}");
-                    let _ = tx.send(Event::Error(error.to_string()));
+                    if changes_media {
+                        options.media_available = false;
+                        send_playback_failed(&tx, error.to_string());
+                    } else {
+                        let _ = tx.send(Event::Error(error.to_string()));
+                    }
                 }
             }
         }
 
         while let Some(event) = events.wait_event(0.0) {
             match event {
-                Ok(MpvEvent::FileLoaded) => send_media_info(&mpv, &tx),
+                Ok(MpvEvent::FileLoaded) => {
+                    send_media_info(&mpv, &tx);
+                    let _ = tx.send(Event::MediaAvailable(true));
+                    let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
+                    let _ = tx.send(Event::PlaybackState(!paused));
+                }
                 Ok(MpvEvent::EndFile(reason)) if reason == mpv_end_file_reason::Eof => {
                     match load_adjacent(&mpv, &tx, &mut playlist, true, options.repeat_folder) {
                         Ok(true) => options.media_available = true,
@@ -363,7 +389,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                         }
                         Err(error) => {
                             options.media_available = false;
-                            let _ = tx.send(Event::Error(error.to_string()));
+                            send_playback_failed(&tx, error.to_string());
                         }
                     }
                 }
@@ -372,15 +398,14 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                         Ok(true) => options.media_available = true,
                         Ok(false) => {
                             options.media_available = false;
-                            send_playback_finished(&tx);
-                            let _ = tx.send(Event::Error(
+                            send_playback_failed(
+                                &tx,
                                 "Не удалось воспроизвести видео; очередь завершена".to_owned(),
-                            ));
+                            );
                         }
                         Err(error) => {
                             options.media_available = false;
-                            send_playback_finished(&tx);
-                            let _ = tx.send(Event::Error(error.to_string()));
+                            send_playback_failed(&tx, error.to_string());
                         }
                     }
                 }

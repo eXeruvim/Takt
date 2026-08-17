@@ -518,6 +518,15 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 };
 
                 match event {
+                    Event::LoadStarted(name) => {
+                        app.set_file_name(name.into());
+                        app.set_media_loaded(false);
+                        app.set_is_playing(false);
+                        app.set_player_phase(PlayerPhase::Loading);
+                        app.set_error_visible(false);
+                        app.set_error_message("".into());
+                    }
+
                     Event::FileLoaded(name) => {
                         app.set_file_name(name.into());
                         app.set_current_time("00:00".into());
@@ -539,6 +548,29 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
                     Event::PlaybackState(state) => {
                         app.set_is_playing(state && app.get_media_loaded());
+                        if app.get_media_loaded() {
+                            app.set_player_phase(if state {
+                                PlayerPhase::Playing
+                            } else {
+                                PlayerPhase::Paused
+                            });
+                        }
+                    }
+
+                    Event::PlaybackStopped => {
+                        app.set_player_phase(PlayerPhase::Empty);
+                    }
+
+                    Event::PlaybackFinished => {
+                        app.set_player_phase(PlayerPhase::Finished);
+                    }
+
+                    Event::PlaybackFailed(message) => {
+                        app.set_media_loaded(false);
+                        app.set_is_playing(false);
+                        app.set_player_phase(PlayerPhase::Error);
+                        app.set_error_message(message.into());
+                        app.set_error_visible(false);
                     }
 
                     Event::Volume(v) => {

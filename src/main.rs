@@ -15,7 +15,7 @@ fn main() -> anyhow::Result<()> {
         let error_tx = player_tx.clone();
         if let Err(err) = player::mpv::run(player_rx, player_tx) {
             eprintln!("Player error: {err}");
-            let _ = error_tx.send(ipc::Event::Error(format!(
+            let _ = error_tx.send(ipc::Event::PlaybackFailed(format!(
                 "Не удалось запустить проигрыватель: {err}"
             )));
         }

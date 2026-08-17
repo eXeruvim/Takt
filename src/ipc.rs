@@ -37,6 +37,10 @@ pub enum Event {
     Duration(f64),
 
     PlaybackState(bool),
+    LoadStarted(String),
+    PlaybackStopped,
+    PlaybackFinished,
+    PlaybackFailed(String),
 
     Volume(f64),
     Muted(bool),
