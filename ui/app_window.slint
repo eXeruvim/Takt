@@ -38,7 +38,6 @@ export component AppWindow inherits Window {
     in-out property <string> current_time: "00:00";
     in-out property <string> total_time: "00:00";
     in-out property <float> duration_seconds: 0.0;
-    in-out property <float> buffered_progress: 0.0;
     in-out property <float> progress: 0.0;
     in-out property <bool> is_playing: false;
     in-out property <bool> media_loaded: false;
@@ -392,7 +391,6 @@ export component AppWindow inherits Window {
                 time_pos: root.current_time;
                 time_duration: root.total_time;
                 duration_seconds: root.duration_seconds;
-                buffered_progress: root.buffered_progress;
                 volume: root.volume;
                 muted: root.muted;
                 loop_enabled: root.loop_enabled;

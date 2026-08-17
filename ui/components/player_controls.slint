@@ -8,7 +8,6 @@ export component PlayerControls inherits Rectangle {
     in-out property <string> time_pos;
     in-out property <string> time_duration;
     in property <float> duration_seconds;
-    in property <float> buffered_progress;
     in-out property <float> progress;
     in-out property <float> volume;
     in-out property <bool> muted;
@@ -38,7 +37,6 @@ export component PlayerControls inherits Rectangle {
         width: parent.width - Theme.space-8;
         value <=> root.progress;
         duration-seconds: root.duration_seconds;
-        buffered-progress: root.buffered_progress;
         enabled: root.media_loaded;
         seek(value) => root.seek(value);
     }
