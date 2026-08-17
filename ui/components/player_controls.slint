@@ -21,10 +21,15 @@ export component PlayerControls inherits Rectangle {
     private property <bool> show_remaining_time: true;
     out property <bool> show-volume-slider: self.width >= 1080px;
     out property <bool> show-secondary-actions: self.width >= 900px;
-    out property <length> left-actions-width: show-secondary-actions ? 184px : 88px;
+    out property <length> group-spacing: self.width >= 1600px ? Theme.space-4 : Theme.space-2;
+    out property <length> left-actions-width: show-secondary-actions
+        ? 160px + group-spacing * 3
+        : 80px + group-spacing;
     out property <length> side-zone-width: show-volume-slider
-        ? 352px
-        : show-secondary-actions ? 232px : 184px;
+        ? 320px + group-spacing * 4
+        : show-secondary-actions
+            ? 200px + group-spacing * 4
+            : 160px + group-spacing * 3;
     callback open_file();
     callback open_folder();
     callback toggle_playlist();
@@ -46,7 +51,10 @@ export component PlayerControls inherits Rectangle {
     border-width: 0px;
 
     deck := Rectangle {
-        property <length> content-width: min(self.width - Theme.space-6, 1080px);
+        property <length> content-width: min(
+            self.width - Theme.space-6,
+            max(self.width * 0.6, root.side-zone-width * 2 + 192px)
+        );
         property <length> content-height: 68px;
         property <length> content-y: (self.height - content-height) / 2;
 
@@ -152,7 +160,7 @@ export component PlayerControls inherits Rectangle {
                         y: 0px;
                         width: parent.width;
                         height: parent.height;
-                        spacing: Theme.space-2;
+                        spacing: root.group-spacing;
                         alignment: center;
 
                         IconButton {
@@ -204,7 +212,7 @@ export component PlayerControls inherits Rectangle {
                     y: 0px;
                     width: parent.width;
                     height: parent.height;
-                    spacing: Theme.space-2;
+                    spacing: root.group-spacing;
                     alignment: center;
 
                     IconButton {
@@ -288,10 +296,18 @@ export component PlayerControls inherits Rectangle {
                                 clicked => root.toggle_mute();
                             }
 
-                            if root.show-volume-slider : Slider {
+                            if root.show-volume-slider : Rectangle {
                                 width: 112px;
-                                value <=> root.volume;
-                                changed(value) => root.set_volume(value);
+                                height: parent.height;
+                                background: transparent;
+
+                                Slider {
+                                    x: 0px;
+                                    y: (parent.height - self.height) / 2;
+                                    width: parent.width;
+                                    value <=> root.volume;
+                                    changed(value) => root.set_volume(value);
+                                }
                             }
                         }
                     }

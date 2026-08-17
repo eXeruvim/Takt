@@ -435,20 +435,28 @@ export component ShortcutBadge inherits Rectangle {
     in property <string> shortcut;
 
     min-width: Theme.space-8;
-    height: Theme.space-6;
-    border-radius: Theme.radius-small;
-    background: Theme.surface-control;
-    border-width: 1px;
-    border-color: Theme.border-default;
+    min-height: Theme.space-6;
+    vertical-stretch: 1;
+    background: transparent;
 
-    UiText {
+    badge := Rectangle {
+        y: (parent.height - self.height) / 2;
         width: parent.width;
-        height: parent.height;
-        text: root.shortcut;
-        variant: TextVariant.label;
-        color: Theme.text-secondary;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+        height: Theme.space-6;
+        border-radius: Theme.radius-small;
+        background: Theme.surface-control;
+        border-width: 1px;
+        border-color: Theme.border-default;
+
+        UiText {
+            width: parent.width;
+            height: parent.height;
+            text: root.shortcut;
+            variant: TextVariant.label;
+            color: Theme.text-secondary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
     }
 }
 

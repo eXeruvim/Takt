@@ -666,6 +666,8 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         let tx = tx.clone();
         let app_weak = app.as_weak();
         let shortcut_registry = shortcut_registry.clone();
+        #[cfg(target_os = "windows")]
+        let resize_video_host = video_host.clone();
         let mut modifiers = ModifiersState::empty();
         let mut last_cursor_position = None::<(f64, f64)>;
         let mut drawer_swipe = None::<(DrawerSwipeTarget, f64)>;
@@ -715,11 +717,18 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     app.set_window_active(*focused);
                 }
                 WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
-                    // Slint normally throttles redraws to the display refresh rate. During a
-                    // native interactive resize Windows exposes the enlarged client area first,
-                    // which can leave a transparent strip visible until the next throttled frame.
-                    // Queue a native redraw now; it is delivered after Slint has processed this
-                    // resize event, so both the scene and the mpv child host use the new bounds.
+                    // Resize the native video child in the same window event. Waiting for the
+                    // next throttled Slint frame exposes the enlarged parent before the child,
+                    // which appears as a short-lived empty strip during interactive resize.
+                    #[cfg(target_os = "windows")]
+                    if let Ok(mut video_host) = resize_video_host.lock() {
+                        if let Some(host) = video_host.as_mut() {
+                            if let Err(error) = sync_video_host(host, &app) {
+                                app.set_error_message(error.to_string().into());
+                                app.set_error_visible(true);
+                            }
+                        }
+                    }
                     app.window()
                         .with_winit_window(|window| window.request_redraw());
                 }
