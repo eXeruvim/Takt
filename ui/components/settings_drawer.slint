@@ -17,9 +17,9 @@ export component SettingsDrawer inherits Rectangle {
     callback toggle_shuffle();
 
     width: min(360px, parent_width - Theme.space-8);
-    height: parent_height - Theme.space-8;
-    x: parent_width + Theme.space-5;
-    y: Theme.space-4;
+    height: parent_height - self.y - Theme.space-4;
+    x: parent_width + Theme.space-12;
+    y: Theme.space-4 + Theme.top-bar-height + Theme.space-2;
     border-radius: Theme.radius-xlarge;
     background: Theme.surface-glass-strong;
     border-width: 1px;
@@ -39,6 +39,11 @@ export component SettingsDrawer inherits Rectangle {
             }
         }
     ]
+
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+    }
 
     VerticalLayout {
         padding: Theme.space-5;

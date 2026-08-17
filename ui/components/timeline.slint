@@ -1,10 +1,8 @@
 import { Slider } from "../design_system/primitives.slint";
 
 export component Timeline inherits Slider {
-    in-out property <float> progress: 0.0;
     callback seek(float);
 
-    value <=> root.progress;
     minimum: 0;
     maximum: 1;
     changed(value) => root.seek(value);

@@ -73,9 +73,8 @@ export component AppWindow inherits Window {
         width: parent.width;
         height: parent.height;
         background: Theme.surface-canvas;
-        border-radius: Theme.radius-xlarge;
-        border-width: 1px;
-        border-color: Theme.border-glass;
+        border-radius: 0px;
+        border-width: 0px;
         clip: true;
 
         Rectangle {
@@ -282,7 +281,7 @@ export component AppWindow inherits Window {
                 width: parent.width - Theme.space-8;
                 media_loaded: root.media_loaded;
                 is_playing: root.is_playing;
-                progress: root.progress;
+                progress <=> root.progress;
                 time_pos: root.current_time;
                 time_duration: root.total_time;
                 volume: root.volume;

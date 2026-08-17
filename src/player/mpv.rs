@@ -20,6 +20,10 @@ fn mpv_error<T>(result: Result<T, libmpv::Error>) -> anyhow::Result<T> {
     result.map_err(|e| anyhow::anyhow!("{:?}", e))
 }
 
+fn loop_value_is_enabled(value: &str) -> bool {
+    !matches!(value, "" | "no" | "0" | "false")
+}
+
 fn send_playlist(tx: &Sender<Event>, playlist: &DirectoryPlaylist) {
     let _ = tx.send(Event::Playlist {
         items: playlist.items(),
@@ -92,6 +96,8 @@ fn load_current(mpv: &Mpv, tx: &Sender<Event>, playlist: &DirectoryPlaylist) -> 
     }
     send_playlist(tx, playlist);
     let _ = tx.send(Event::MediaAvailable(true));
+    let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
+    let _ = tx.send(Event::PlaybackState(!paused));
     Ok(())
 }
 
@@ -232,7 +238,11 @@ fn handle_command(
             let loop_file = mpv
                 .get_property::<String>("loop-file")
                 .unwrap_or_else(|_| "no".into());
-            let value = if loop_file == "yes" { "no" } else { "yes" };
+            let value = if loop_value_is_enabled(&loop_file) {
+                "no"
+            } else {
+                "inf"
+            };
             mpv_error(mpv.set_property("loop-file", value.to_owned()))?;
         }
         Command::ToggleFolderLoop => {
@@ -288,7 +298,9 @@ fn send_property_change(tx: &Sender<Event>, name: &str, change: PropertyData<'_>
         ("volume", PropertyData::Double(value)) => Some(Event::Volume(value)),
         ("speed", PropertyData::Double(value)) => Some(Event::Speed(value)),
         ("mute", PropertyData::Flag(muted)) => Some(Event::Muted(muted)),
-        ("loop-file", PropertyData::Str(value)) => Some(Event::LoopEnabled(value == "yes")),
+        ("loop-file", PropertyData::Str(value)) => {
+            Some(Event::LoopEnabled(loop_value_is_enabled(value)))
+        }
         _ => None,
     };
 
@@ -378,5 +390,18 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
         }
 
         std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::loop_value_is_enabled;
+
+    #[test]
+    fn recognizes_normalized_mpv_loop_values() {
+        assert!(loop_value_is_enabled("inf"));
+        assert!(loop_value_is_enabled("yes"));
+        assert!(!loop_value_is_enabled("no"));
+        assert!(!loop_value_is_enabled("0"));
     }
 }

@@ -34,7 +34,7 @@ export component PlayerControls inherits Rectangle {
         x: Theme.space-4;
         y: Theme.space-2;
         width: parent.width - Theme.space-8;
-        progress: root.progress;
+        value <=> root.progress;
         enabled: root.media_loaded;
         seek(value) => root.seek(value);
     }
