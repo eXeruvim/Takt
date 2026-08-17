@@ -260,6 +260,7 @@ export component Slider inherits Rectangle {
             : Theme.border-default;
 
         Rectangle {
+            x: 0px;
             width: parent.width * max(0, min(1, root.ratio));
             height: parent.height;
             border-radius: Theme.radius-full;

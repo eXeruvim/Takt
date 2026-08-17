@@ -68,6 +68,7 @@ export component PlayerControls inherits Rectangle {
                 accessible-name: "Предыдущее видео";
                 circular: true;
                 enabled: root.media_loaded;
+                capture-focus: false;
                 clicked => root.previous();
             }
 
@@ -76,6 +77,7 @@ export component PlayerControls inherits Rectangle {
                 accessible-name: "Остановить";
                 circular: true;
                 enabled: root.media_loaded;
+                capture-focus: false;
                 clicked => root.stop();
             }
 
@@ -87,6 +89,7 @@ export component PlayerControls inherits Rectangle {
                 primary: true;
                 circular: true;
                 enabled: root.media_loaded;
+                capture-focus: false;
                 clicked => root.play_pause();
             }
 
@@ -95,6 +98,7 @@ export component PlayerControls inherits Rectangle {
                 accessible-name: "Следующее видео";
                 circular: true;
                 enabled: root.media_loaded;
+                capture-focus: false;
                 clicked => root.next();
             }
 
@@ -104,6 +108,7 @@ export component PlayerControls inherits Rectangle {
                 circular: true;
                 selected: root.loop_enabled;
                 enabled: root.media_loaded;
+                capture-focus: false;
                 clicked => root.toggle_loop();
             }
         }
@@ -125,6 +130,7 @@ export component PlayerControls inherits Rectangle {
                     accessible-name: root.muted ? "Включить звук" : "Выключить звук";
                     circular: true;
                     selected: root.muted;
+                    capture-focus: false;
                     clicked => root.toggle_mute();
                 }
 

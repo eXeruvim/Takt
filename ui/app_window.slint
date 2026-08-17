@@ -13,7 +13,7 @@ export component AppWindow inherits Window {
     preferred-height: 760px;
     min-width: 760px;
     min-height: 520px;
-    background: transparent;
+    background: Theme.surface-canvas;
     no-frame: true;
     resize-border-width: 6px;
     title: "Oxide";
@@ -153,9 +153,21 @@ export component AppWindow inherits Window {
                 drop-shadow-color: Theme.shadow-low;
                 drop-shadow-blur: Theme.elevation-low-blur;
                 drop-shadow-offset-y: Theme.elevation-low-y;
-                title-drag := TouchArea {
+                title-drag-left := TouchArea {
                     x: 132px;
-                    width: parent.width - 264px;
+                    width: max(0px, (parent.width - 280px) / 2 - self.x);
+                    height: parent.height;
+                    pointer-event(event) => {
+                        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                            root.drag_window();
+                        }
+                    }
+                    double-clicked => { root.maximized = !root.maximized; }
+                }
+
+                title-drag-right := TouchArea {
+                    x: (parent.width + 280px) / 2;
+                    width: max(0px, parent.width - self.x - 128px);
                     height: parent.height;
                     pointer-event(event) => {
                         if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {

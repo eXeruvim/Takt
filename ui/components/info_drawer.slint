@@ -37,7 +37,7 @@ export component InfoDrawer inherits Rectangle {
 
     width: min(340px, parent_width - Theme.space-8);
     height: parent_height - Theme.space-8;
-    x: drawer_visible ? Theme.space-4 : -self.width - Theme.space-5;
+    x: -self.width - Theme.space-5;
     y: Theme.space-4;
     border-radius: Theme.radius-xlarge;
     background: Theme.surface-glass-strong;
@@ -47,7 +47,17 @@ export component InfoDrawer inherits Rectangle {
     drop-shadow-blur: Theme.elevation-high-blur;
     drop-shadow-offset-y: Theme.elevation-high-y;
 
-    animate x { duration: Theme.motion-normal; easing: ease-out; }
+    states [
+        open when root.drawer_visible : {
+            root.x: Theme.space-4;
+            in {
+                animate x { duration: Theme.motion-normal; easing: ease-out; }
+            }
+            out {
+                animate x { duration: Theme.motion-normal; easing: ease-out; }
+            }
+        }
+    ]
 
     VerticalLayout {
         padding: Theme.space-5;
