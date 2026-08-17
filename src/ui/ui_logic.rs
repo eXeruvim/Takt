@@ -628,22 +628,10 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
         && !app.get_drop_target_visible();
     host.set_visible(video_visible);
 
-    let left_inset = if app.get_info_drawer_reserved() || app.get_playlist_drawer_reserved() {
-        368.0
-    } else {
-        0.0
-    };
-    let right_inset = if app.get_shortcut_editor_right_inset() > 0.0 {
-        app.get_shortcut_editor_right_inset()
-    } else if app.get_settings_drawer_reserved() {
-        388.0
-    } else {
-        0.0
-    };
     host.resize(
         app.window(),
-        left_inset,
-        right_inset,
+        app.get_video_left_panel_inset(),
+        app.get_video_right_panel_inset(),
         app.get_video_top_inset(),
         app.get_video_bottom_inset(),
     )

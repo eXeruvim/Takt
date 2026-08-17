@@ -21,6 +21,10 @@ export component PlayerControls inherits Rectangle {
     private property <bool> show_remaining_time: true;
     out property <bool> show-volume-slider: self.width >= 1080px;
     out property <bool> show-secondary-actions: self.width >= 900px;
+    out property <length> left-actions-width: show-secondary-actions ? 184px : 88px;
+    out property <length> side-zone-width: show-volume-slider
+        ? 352px
+        : show-secondary-actions ? 232px : 184px;
     callback open_file();
     callback open_folder();
     callback toggle_playlist();
@@ -42,6 +46,10 @@ export component PlayerControls inherits Rectangle {
     border-width: 0px;
 
     deck := Rectangle {
+        property <length> content-width: min(self.width - Theme.space-6, 1080px);
+        property <length> content-height: 68px;
+        property <length> content-y: (self.height - content-height) / 2;
+
         x: root.edge_to_edge ? 0px : Theme.space-3;
         y: 0px;
         width: parent.width - (root.edge_to_edge ? 0px : Theme.space-6);
@@ -55,9 +63,9 @@ export component PlayerControls inherits Rectangle {
         drop-shadow-offset-y: root.edge_to_edge ? 0px : Theme.elevation-low-y;
 
         timeline-row := Rectangle {
-            x: Theme.space-3;
-            y: 0px;
-            width: parent.width - Theme.space-6;
+            x: (parent.width - self.width) / 2;
+            y: deck.content-y;
+            width: deck.content-width;
             height: Theme.space-6;
             background: transparent;
 
@@ -119,59 +127,67 @@ export component PlayerControls inherits Rectangle {
         }
 
         controls-row := Rectangle {
-            x: Theme.space-3;
-            y: Theme.space-6;
-            width: parent.width - Theme.space-6;
+            x: (parent.width - self.width) / 2;
+            y: deck.content-y + Theme.space-6;
+            width: deck.content-width;
             height: Theme.space-12 - Theme.space-1;
             background: transparent;
 
             left-actions := Rectangle {
                 x: 0px;
                 y: 0px;
-                width: root.show-secondary-actions ? 184px : 88px;
+                width: root.side-zone-width;
                 height: parent.height;
                 background: transparent;
 
-                HorizontalLayout {
-                    x: 0px;
+                left-action-items := Rectangle {
+                    x: parent.width - self.width;
                     y: 0px;
-                    width: parent.width;
+                    width: root.left-actions-width;
                     height: parent.height;
-                    spacing: Theme.space-2;
-                    alignment: center;
+                    background: transparent;
 
-                    IconButton {
-                        icon: @image-url("../icons/file-media.svg");
-                        accessible-name: "Открыть медиафайл";
-                        circular: true;
-                        capture-focus: false;
-                        clicked => root.open_file();
-                    }
+                    HorizontalLayout {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        spacing: Theme.space-2;
+                        alignment: center;
 
-                    if root.show-secondary-actions : IconButton {
-                        icon: @image-url("../icons/folder-open.svg");
-                        accessible-name: "Открыть папку";
-                        circular: true;
-                        capture-focus: false;
-                        clicked => root.open_folder();
-                    }
+                        IconButton {
+                            icon: @image-url("../icons/file-media.svg");
+                            accessible-name: "Открыть медиафайл";
+                            circular: true;
+                            capture-focus: false;
+                            clicked => root.open_file();
+                        }
 
-                    IconButton {
-                        icon: @image-url("../icons/playlist.svg");
-                        accessible-name: "Плейлист";
-                        circular: true;
-                        selected: root.playlist_open;
-                        capture-focus: false;
-                        clicked => root.toggle_playlist();
-                    }
+                        if root.show-secondary-actions : IconButton {
+                            icon: @image-url("../icons/folder-open.svg");
+                            accessible-name: "Открыть папку";
+                            circular: true;
+                            capture-focus: false;
+                            clicked => root.open_folder();
+                        }
 
-                    if root.show-secondary-actions : IconButton {
-                        icon: @image-url("../icons/info.svg");
-                        accessible-name: "Информация о файле";
-                        circular: true;
-                        selected: root.info_open;
-                        capture-focus: false;
-                        clicked => root.toggle_info();
+                        IconButton {
+                            icon: @image-url("../icons/playlist.svg");
+                            accessible-name: "Плейлист";
+                            circular: true;
+                            selected: root.playlist_open;
+                            capture-focus: false;
+                            clicked => root.toggle_playlist();
+                        }
+
+                        if root.show-secondary-actions : IconButton {
+                            icon: @image-url("../icons/info.svg");
+                            accessible-name: "Информация о файле";
+                            circular: true;
+                            selected: root.info_open;
+                            capture-focus: false;
+                            clicked => root.toggle_info();
+                        }
                     }
                 }
             }
@@ -224,9 +240,7 @@ export component PlayerControls inherits Rectangle {
             }
 
             right-actions := Rectangle {
-                width: root.show-volume-slider
-                    ? 352px
-                    : root.show-secondary-actions ? 232px : 184px;
+                width: root.side-zone-width;
                 height: parent.height;
                 x: parent.width - self.width;
                 y: 0px;
@@ -256,6 +270,10 @@ export component PlayerControls inherits Rectangle {
                         background: root.show-volume-slider ? Theme.surface-control : transparent;
 
                         HorizontalLayout {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            height: parent.height;
                             spacing: Theme.space-2;
                             alignment: center;
 

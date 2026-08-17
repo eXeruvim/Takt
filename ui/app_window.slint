@@ -103,6 +103,20 @@ export component AppWindow inherits Window {
     out property <length> shortcut_editor_right_inset: shortcut-editor.visible
         ? min(self.width - Theme.space-8, 520px) + Theme.space-6
         : 0px;
+    out property <length> video_left_panel_inset:
+        info_drawer_reserved || playlist_drawer_reserved ? 368px : 0px;
+    out property <length> video_right_panel_inset: shortcut_editor_right_inset > 0px
+        ? shortcut_editor_right_inset
+        : settings_drawer_reserved ? 388px : 0px;
+    out property <length> audio_left_panel_inset:
+        info_drawer_reserved || playlist_drawer_reserved
+            ? 368px
+            : edge_to_edge ? 0px : Theme.space-4;
+    out property <length> audio_right_panel_inset: shortcut_editor_right_inset > 0px
+        ? shortcut_editor_right_inset
+        : settings_drawer_reserved
+            ? 388px
+            : edge_to_edge ? 0px : Theme.space-4;
     out property <bool> modal_overlay_active: command-palette.visible || drop-overlay.visible;
 
     callback open_file();
@@ -135,6 +149,12 @@ export component AppWindow inherits Window {
 
     animate player_controls_slide_offset {
         duration: Theme.motion-normal;
+        easing: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    animate video_left_panel_inset, video_right_panel_inset,
+        audio_left_panel_inset, audio_right_panel_inset {
+        duration: Theme.motion-slow;
         easing: cubic-bezier(0.16, 1, 0.3, 1);
     }
 
@@ -185,27 +205,17 @@ export component AppWindow inherits Window {
             focus-on-click: true;
 
             media-backdrop := Rectangle {
-                x: root.info_drawer_reserved || root.playlist_drawer_reserved ? 368px : 0px;
+                x: root.video_left_panel_inset;
                 y: root.video_top_inset;
-                width: max(0px, parent.width - self.x
-                    - (root.shortcut_editor_right_inset > 0px
-                        ? root.shortcut_editor_right_inset
-                        : root.settings_drawer_reserved ? 388px : 0px));
+                width: max(0px, parent.width - self.x - root.video_right_panel_inset);
                 height: max(0px, parent.height - self.y - root.video_bottom_inset);
                 background: root.media_presented && !root.audio_media ? Theme.surface-media : transparent;
             }
 
             AudioCanvas {
-                x: root.info_drawer_reserved || root.playlist_drawer_reserved
-                    ? 368px
-                    : root.edge_to_edge ? 0px : Theme.space-4;
+                x: root.audio_left_panel_inset;
                 y: root.audio_top_inset;
-                width: max(0px, parent.width - self.x
-                    - (root.shortcut_editor_right_inset > 0px
-                        ? root.shortcut_editor_right_inset
-                        : root.settings_drawer_reserved
-                            ? 388px
-                            : root.edge_to_edge ? 0px : Theme.space-4));
+                width: max(0px, parent.width - self.x - root.audio_right_panel_inset);
                 height: max(0px, parent.height - self.y - root.audio_bottom_inset);
                 shown: root.media_presented && root.audio_media;
                 file-name: root.file_name;
