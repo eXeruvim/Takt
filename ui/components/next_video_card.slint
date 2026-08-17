@@ -62,5 +62,12 @@ export component NextVideoCard inherits Rectangle {
         }
     }
 
-    animate x, background, border-color { duration: Theme.motion-normal; easing: ease-out; }
+    animate x {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    animate background, border-color {
+        duration: Theme.motion-fast;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 }

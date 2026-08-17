@@ -10,7 +10,13 @@ export component ShortcutOverlay inherits Rectangle {
 
     background: Theme.backdrop;
 
-    visible: root.overlay_visible;
+    visible: root.overlay_visible || self.opacity > 0.01;
+    opacity: root.overlay_visible ? 1 : 0;
+
+    animate opacity {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 
     Rectangle {
 
@@ -18,7 +24,8 @@ export component ShortcutOverlay inherits Rectangle {
         height: min(parent.height - Theme.space-12, 560px);
 
         x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
+        y: (parent.height - self.height) / 2
+            + (root.overlay_visible ? 0px : -Theme.space-3);
 
         border-radius: Theme.radius-xlarge;
 
@@ -29,6 +36,11 @@ export component ShortcutOverlay inherits Rectangle {
         drop-shadow-color: Theme.shadow-high;
         drop-shadow-blur: Theme.elevation-high-blur;
         drop-shadow-offset-y: Theme.elevation-high-y;
+
+        animate y {
+            duration: Theme.motion-normal;
+            easing: cubic-bezier(0.16, 1, 0.3, 1);
+        }
 
         VerticalLayout {
 

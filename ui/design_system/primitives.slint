@@ -94,7 +94,10 @@ export component Spinner inherits Rectangle {
             border-radius: Theme.radius-full;
             background: root.spinner-color;
             opacity: root.current-step == index ? 1 : 0.35;
-            animate opacity { duration: Theme.motion-fast; }
+            animate opacity {
+                duration: Theme.motion-fast;
+                easing: cubic-bezier(0.2, 0, 0, 1);
+            }
         }
     }
 }
@@ -154,7 +157,10 @@ export component Button inherits Rectangle {
         }
     }
 
-    animate background, border-color, opacity { duration: Theme.motion-fast; }
+    animate background, border-color, opacity {
+        duration: Theme.motion-fast;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 }
 
 export component IconButton inherits Rectangle {
@@ -212,7 +218,10 @@ export component IconButton inherits Rectangle {
             : Theme.text-primary;
     }
 
-    animate background, border-color, opacity { duration: Theme.motion-fast; }
+    animate background, border-color, opacity {
+        duration: Theme.motion-fast;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 }
 
 export component Divider inherits Rectangle {
@@ -233,7 +242,10 @@ export component ProgressBar inherits Rectangle {
         height: parent.height;
         border-radius: Theme.radius-full;
         background: Theme.accent;
-        animate width { duration: Theme.motion-fast; }
+        animate width {
+            duration: Theme.motion-fast;
+            easing: cubic-bezier(0.2, 0, 0, 1);
+        }
     }
 }
 
@@ -282,7 +294,10 @@ export component Slider inherits Rectangle {
         background: Theme.text-primary;
         border-width: focus.has-focus ? Theme.focus-ring-width : 1px;
         border-color: focus.has-focus ? Theme.focus-ring : Theme.surface-canvas;
-        animate width, height, background { duration: Theme.motion-fast; }
+        animate width, height, background {
+            duration: Theme.motion-fast;
+            easing: cubic-bezier(0.2, 0, 0, 1);
+        }
     }
 
     touch := TouchArea {
@@ -357,10 +372,16 @@ export component Toggle inherits Rectangle {
         height: Theme.space-4;
         border-radius: Theme.radius-full;
         background: root.checked ? Theme.on-accent : Theme.text-secondary;
-        animate x { duration: Theme.motion-normal; easing: ease-in-out; }
+        animate x {
+            duration: Theme.motion-fast;
+            easing: cubic-bezier(0.16, 1, 0.3, 1);
+        }
     }
 
-    animate background, opacity { duration: Theme.motion-fast; }
+    animate background, opacity {
+        duration: Theme.motion-fast;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 }
 
 export component ShortcutBadge inherits Rectangle {

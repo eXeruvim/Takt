@@ -28,6 +28,9 @@ use slint::{ModelRc, SharedString, VecModel};
 
 slint::include_modules!();
 
+#[cfg(target_os = "windows")]
+const DRAWER_CLOSE_DELAY: Duration = Duration::from_millis(280);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ShortcutAction {
     PlayPause,
@@ -372,8 +375,7 @@ fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
 fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
     let video_visible = app.get_media_loaded()
         && !app.get_audio_media()
-        && !app.get_shortcut_overlay_visible()
-        && !app.get_command_palette_visible()
+        && !app.get_modal_overlay_active()
         && !app.get_error_visible()
         && !app.get_drop_target_visible();
     host.set_visible(video_visible);
@@ -680,7 +682,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 } else {
                     app.set_info_drawer_visible(false);
                     let delayed_app = app.as_weak();
-                    slint::Timer::single_shot(Duration::from_millis(200), move || {
+                    slint::Timer::single_shot(DRAWER_CLOSE_DELAY, move || {
                         if let Some(app) = delayed_app.upgrade() {
                             if !app.get_info_drawer_visible() {
                                 app.set_info_drawer_reserved(false);
@@ -727,7 +729,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 } else {
                     app.set_playlist_drawer_visible(false);
                     let delayed_app = app.as_weak();
-                    slint::Timer::single_shot(Duration::from_millis(200), move || {
+                    slint::Timer::single_shot(DRAWER_CLOSE_DELAY, move || {
                         if let Some(app) = delayed_app.upgrade() {
                             if !app.get_playlist_drawer_visible() {
                                 app.set_playlist_drawer_reserved(false);
@@ -772,7 +774,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 } else {
                     app.set_settings_drawer_visible(false);
                     let delayed_app = app.as_weak();
-                    slint::Timer::single_shot(Duration::from_millis(200), move || {
+                    slint::Timer::single_shot(DRAWER_CLOSE_DELAY, move || {
                         if let Some(app) = delayed_app.upgrade() {
                             if !app.get_settings_drawer_visible() {
                                 app.set_settings_drawer_reserved(false);

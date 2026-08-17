@@ -57,7 +57,10 @@ component CommandRow inherits Rectangle {
         ShortcutBadge { shortcut: root.entry.shortcut; }
     }
 
-    animate background, opacity { duration: Theme.motion-fast; }
+    animate background, opacity {
+        duration: Theme.motion-fast;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 }
 
 export component CommandPaletteOverlay inherits Rectangle {
@@ -70,9 +73,15 @@ export component CommandPaletteOverlay inherits Rectangle {
     callback execute(int);
     callback close();
 
-    visible: open;
+    visible: open || self.opacity > 0.01;
+    opacity: open ? 1 : 0;
     background: Theme.backdrop;
     forward-focus: search;
+
+    animate opacity {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 
     changed open => {
         if (open) {
@@ -91,7 +100,8 @@ export component CommandPaletteOverlay inherits Rectangle {
         width: min(parent.width - Theme.space-12, 640px);
         height: min(parent.height - Theme.space-12 * 2, 520px);
         x: (parent.width - self.width) / 2;
-        y: max(Theme.space-12, (parent.height - self.height) / 3);
+        y: max(Theme.space-12, (parent.height - self.height) / 3)
+            + (root.open ? 0px : -Theme.space-3);
         border-radius: Theme.radius-xlarge;
         background: Theme.surface-glass-strong;
         border-width: 1px;
@@ -100,6 +110,11 @@ export component CommandPaletteOverlay inherits Rectangle {
         drop-shadow-blur: Theme.elevation-high-blur;
         drop-shadow-offset-y: Theme.elevation-high-y;
         clip: true;
+
+        animate y {
+            duration: Theme.motion-normal;
+            easing: cubic-bezier(0.16, 1, 0.3, 1);
+        }
 
         TouchArea {
             width: parent.width;

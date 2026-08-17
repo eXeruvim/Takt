@@ -95,6 +95,8 @@ export component AppWindow inherits Window {
     in-out property <bool> drop_target_visible: false;
     in property <[string]> playlist_items;
     in-out property <int> playlist_current_index: -1;
+    out property <bool> modal_overlay_active: shortcut-overlay.visible
+        || command-palette.visible || drop-overlay.visible;
 
     callback open_file();
     callback open_folder();
@@ -125,7 +127,7 @@ export component AppWindow inherits Window {
 
     animate audio_top_inset, audio_bottom_inset {
         duration: Theme.motion-normal;
-        easing: ease-out;
+        easing: cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     changed controls_can_hide => {
@@ -442,7 +444,10 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                animate y, opacity { duration: Theme.motion-normal; easing: ease-out; }
+                animate y, opacity {
+                    duration: Theme.motion-normal;
+                    easing: cubic-bezier(0.16, 1, 0.3, 1);
+                }
             }
 
             player-controls := PlayerControls {
@@ -471,7 +476,10 @@ export component AppWindow inherits Window {
                 toggle_mute => root.toggle_mute();
                 toggle_loop => root.toggle_loop();
 
-                animate y, opacity { duration: Theme.motion-normal; easing: ease-out; }
+                animate y, opacity {
+                    duration: Theme.motion-normal;
+                    easing: cubic-bezier(0.16, 1, 0.3, 1);
+                }
             }
 
             NextVideoCard {
@@ -517,9 +525,9 @@ export component AppWindow inherits Window {
                 toggle_shuffle => root.toggle_shuffle();
             }
 
-            ShortcutOverlay { overlay_visible: root.shortcut_overlay_visible; }
+            shortcut-overlay := ShortcutOverlay { overlay_visible: root.shortcut_overlay_visible; }
 
-            CommandPaletteOverlay {
+            command-palette := CommandPaletteOverlay {
                 open: root.command_palette_visible;
                 query <=> root.command_query;
                 commands: root.command_items;
@@ -532,13 +540,19 @@ export component AppWindow inherits Window {
                 execute(action) => root.run-palette-command(action);
             }
 
-            Rectangle {
-                visible: root.drop_target_visible;
+            drop-overlay := Rectangle {
+                visible: root.drop_target_visible || self.opacity > 0.01;
+                opacity: root.drop_target_visible ? 1 : 0;
                 width: parent.width;
                 height: parent.height;
                 background: Theme.backdrop;
                 border-width: 2px;
                 border-color: Theme.accent;
+
+                animate opacity {
+                    duration: Theme.motion-normal;
+                    easing: cubic-bezier(0.2, 0, 0, 1);
+                }
 
                 VerticalLayout {
                     alignment: center;

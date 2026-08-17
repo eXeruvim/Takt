@@ -19,7 +19,10 @@ export component Drawer inherits Rectangle {
     drop-shadow-offset-y: Theme.elevation-high-y;
     clip: true;
 
-    animate x { duration: Theme.motion-slow; easing: ease-in-out; }
+    animate x {
+        duration: Theme.motion-slow;
+        easing: cubic-bezier(0.16, 1, 0.3, 1);
+    }
 
     @children
 }
@@ -27,7 +30,8 @@ export component Drawer inherits Rectangle {
 export component Popover inherits Rectangle {
     in property <bool> open: false;
 
-    visible: open;
+    visible: open || self.opacity > 0.01;
+    opacity: open ? 1 : 0;
     min-width: Theme.space-12 * 4;
     min-height: Theme.space-12;
     border-radius: Theme.radius-large;
@@ -38,6 +42,11 @@ export component Popover inherits Rectangle {
     drop-shadow-blur: Theme.elevation-high-blur;
     drop-shadow-offset-y: Theme.elevation-high-y;
 
+    animate opacity {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
+
     @children
 }
 
@@ -46,8 +55,14 @@ export component Dialog inherits Rectangle {
     in property <string> title;
     callback close();
 
-    visible: open;
+    visible: open || self.opacity > 0.01;
+    opacity: open ? 1 : 0;
     background: Theme.backdrop;
+
+    animate opacity {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 
     Rectangle {
         width: min(parent.width - Theme.space-12, Theme.space-12 * 12);
@@ -88,7 +103,8 @@ export component Toast inherits Rectangle {
     in property <bool> danger: false;
     callback dismissed();
 
-    visible: shown;
+    visible: shown || self.opacity > 0.01;
+    opacity: shown ? 1 : 0;
     width: Theme.space-12 * 8;
     height: Theme.space-12 + Theme.space-6;
     border-radius: Theme.radius-medium;
@@ -98,6 +114,11 @@ export component Toast inherits Rectangle {
     drop-shadow-color: Theme.shadow-low;
     drop-shadow-blur: Theme.elevation-low-blur;
     drop-shadow-offset-y: Theme.elevation-low-y;
+
+    animate opacity {
+        duration: Theme.motion-fast;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 
     TouchArea {
         width: parent.width;
@@ -121,12 +142,18 @@ export component ActionPanel inherits Rectangle {
     in property <bool> open: false;
     in property <string> title: "Действия";
 
-    visible: open;
+    visible: open || self.opacity > 0.01;
+    opacity: open ? 1 : 0;
     width: Theme.space-12 * 6;
     border-radius: Theme.radius-large;
     background: Theme.surface-elevated;
     border-width: 1px;
     border-color: Theme.border-default;
+
+    animate opacity {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 
     VerticalLayout {
         padding: Theme.space-3;
@@ -150,7 +177,8 @@ export component CommandPalette inherits Rectangle {
     in property <length> host-height: Theme.space-12 * 11;
     callback query-changed(string);
 
-    visible: open;
+    visible: open || self.opacity > 0.01;
+    opacity: open ? 1 : 0;
     width: min(host-width - Theme.space-12, Theme.space-12 * 14);
     height: min(host-height - Theme.space-12, Theme.space-12 * 10);
     border-radius: Theme.radius-xlarge;
@@ -160,6 +188,11 @@ export component CommandPalette inherits Rectangle {
     drop-shadow-color: Theme.shadow-high;
     drop-shadow-blur: Theme.elevation-high-blur;
     drop-shadow-offset-y: Theme.elevation-high-y;
+
+    animate opacity {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 
     VerticalLayout {
         padding: Theme.space-4;
@@ -195,7 +228,8 @@ export component CommandPalette inherits Rectangle {
 export component ContextMenu inherits Rectangle {
     in property <bool> open: false;
 
-    visible: open;
+    visible: open || self.opacity > 0.01;
+    opacity: open ? 1 : 0;
     min-width: Theme.space-12 * 4;
     border-radius: Theme.radius-medium;
     background: Theme.surface-elevated;
@@ -203,6 +237,11 @@ export component ContextMenu inherits Rectangle {
     border-color: Theme.border-default;
     drop-shadow-color: Theme.shadow-high;
     drop-shadow-blur: Theme.elevation-high-blur;
+
+    animate opacity {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 
     VerticalLayout {
         padding: Theme.space-2;
@@ -267,5 +306,8 @@ export component MediaListItem inherits Rectangle {
         UiText { text: root.subtitle; color: Theme.text-secondary; variant: TextVariant.caption; }
     }
 
-    animate background, opacity { duration: Theme.motion-fast; }
+    animate background, opacity {
+        duration: Theme.motion-fast;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 }

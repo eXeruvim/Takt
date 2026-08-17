@@ -32,10 +32,16 @@ export component SettingsDrawer inherits Rectangle {
         open when root.drawer_visible : {
             root.x: root.parent_width - root.width - Theme.space-4;
             in {
-                animate x { duration: Theme.motion-normal; easing: ease-out; }
+                animate x {
+                    duration: Theme.motion-slow;
+                    easing: cubic-bezier(0.16, 1, 0.3, 1);
+                }
             }
             out {
-                animate x { duration: Theme.motion-normal; easing: ease-out; }
+                animate x {
+                    duration: Theme.motion-normal;
+                    easing: cubic-bezier(0.4, 0, 1, 1);
+                }
             }
         }
     ]
