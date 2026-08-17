@@ -76,7 +76,6 @@ export component AppWindow inherits Window {
     in-out property <string> command_query: "";
     in property <[CommandEntry]> command_items;
     in-out property <bool> controls_visible: true;
-    in-out property <bool> controls_reserved: true;
     in-out property <bool> controls_pointer_over: false;
     out property <bool> media_presented: media_loaded
         && (player_phase == PlayerPhase.playing || player_phase == PlayerPhase.paused);
@@ -86,24 +85,17 @@ export component AppWindow inherits Window {
         && !shortcut_editor_visible && !command_palette_visible
         && !error_visible && !drop_target_visible;
     out property <length> controls_top_zone: Theme.top-bar-height + Theme.space-2;
+    out property <length> top_actions_width: Theme.space-10 * 4 + Theme.space-2 * 3;
     out property <length> controls_bottom_zone: media_presented
-        ? Theme.player-controls-height + (edge_to_edge ? Theme.space-1 : Theme.space-5)
+        ? Theme.player-controls-height
         : 0px;
-    out property <length> video_top_inset: controls_reserved
-        ? controls_top_zone
-        : edge_to_edge ? 0px : Theme.space-4;
-    out property <length> video_bottom_inset: controls_reserved
-        ? controls_bottom_zone
-        : edge_to_edge ? 0px : Theme.space-4;
-    out property <length> audio_top_inset: controls_visible
-        ? controls_top_zone
-        : edge_to_edge ? 0px : Theme.space-4;
-    out property <length> audio_bottom_inset: controls_visible
-        ? controls_bottom_zone
-        : edge_to_edge ? 0px : Theme.space-4;
+    out property <length> video_top_inset: media_presented ? Theme.top-bar-height : 0px;
+    out property <length> video_bottom_inset: media_presented ? Theme.player-controls-height : 0px;
+    out property <length> audio_top_inset: video_top_inset;
+    out property <length> audio_bottom_inset: video_bottom_inset;
     out property <length> player_controls_slide_offset: controls_visible
         ? 0px
-        : Theme.player-controls-height + (edge_to_edge ? 0px : Theme.space-4);
+        : Theme.player-controls-height;
     in-out property <bool> error_visible: false;
     in-out property <string> error_message: "";
     in-out property <bool> drop_target_visible: false;
@@ -142,11 +134,6 @@ export component AppWindow inherits Window {
     callback play_playlist_index(int);
     callback drag_window();
 
-    animate audio_top_inset, audio_bottom_inset {
-        duration: Theme.motion-normal;
-        easing: cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
     animate player_controls_slide_offset {
         duration: Theme.motion-normal;
         easing: cubic-bezier(0.16, 1, 0.3, 1);
@@ -167,27 +154,12 @@ export component AppWindow inherits Window {
         triggered => {
             if (root.controls_can_hide) {
                 root.controls_visible = false;
-                controls-layout-timer.start();
-                controls-layout-timer.restart();
                 self.stop();
             }
         }
     }
 
-    controls-layout-timer := Timer {
-        interval: Theme.motion-normal;
-        running: false;
-        triggered => {
-            if (!root.controls_visible) {
-                root.controls_reserved = false;
-            }
-            self.stop();
-        }
-    }
-
     public function reveal-controls() {
-        controls-layout-timer.stop();
-        root.controls_reserved = true;
         root.controls_visible = true;
         if (root.controls_can_hide) {
             controls-hide-timer.start();
@@ -317,21 +289,10 @@ export component AppWindow inherits Window {
                 border-radius: 0px;
                 background: Theme.surface-chrome;
                 border-width: 0px;
-                title-drag-left := TouchArea {
+                title-drag := TouchArea {
                     x: 132px;
-                    width: max(0px, (parent.width - 328px) / 2 - self.x);
-                    height: parent.height;
-                    pointer-event(event) => {
-                        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
-                            root.drag_window();
-                        }
-                    }
-                    double-clicked => { root.maximized = !root.maximized; }
-                }
-
-                title-drag-right := TouchArea {
-                    x: (parent.width + 328px) / 2;
-                    width: max(0px, parent.width - self.x - Theme.caption-button-width * 3);
+                    width: max(0px, parent.width - self.x
+                        - Theme.caption-button-width * 3 - root.top_actions_width - Theme.space-4);
                     height: parent.height;
                     pointer-event(event) => {
                         if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
@@ -363,7 +324,8 @@ export component AppWindow inherits Window {
 
                 UiText {
                     x: 140px;
-                    width: max(0px, (parent.width - 328px) / 2 - self.x - Theme.space-2);
+                    width: max(0px, parent.width - self.x
+                        - Theme.caption-button-width * 3 - root.top_actions_width - Theme.space-6);
                     height: parent.height;
                     text: root.player_phase != PlayerPhase.empty
                         ? root.file_name + "  ·  " + root.player_phase_label
@@ -375,8 +337,8 @@ export component AppWindow inherits Window {
                 }
 
                 HorizontalLayout {
-                    x: (parent.width - self.width) / 2;
-                    width: 328px;
+                    x: parent.width - Theme.caption-button-width * 3 - self.width - Theme.space-2;
+                    width: root.top_actions_width;
                     height: parent.height;
                     spacing: Theme.space-2;
                     alignment: center;
@@ -385,12 +347,6 @@ export component AppWindow inherits Window {
                         icon: @image-url("icons/file-media.svg");
                         accessible-name: "Открыть медиафайл";
                         clicked => root.open_file();
-                    }
-
-                    IconButton {
-                        icon: @image-url("icons/folder-open.svg");
-                        accessible-name: "Открыть папку";
-                        clicked => root.open_folder();
                     }
 
                     IconButton {
@@ -408,25 +364,11 @@ export component AppWindow inherits Window {
                     }
 
                     IconButton {
-                        icon: @image-url("icons/settings.svg");
-                        accessible-name: "Настройки";
-                        selected: root.settings_drawer_visible;
-                        clicked => root.toggle_settings();
+                        icon: @image-url("icons/more-horizontal.svg");
+                        accessible-name: "Больше действий";
+                        selected: root.command_palette_visible;
+                        clicked => root.toggle_command_palette();
                     }
-
-                    IconButton {
-                        icon: @image-url("icons/help.svg");
-                        accessible-name: "Горячие клавиши";
-                        selected: root.shortcut_editor_visible;
-                        clicked => root.toggle_shortcuts();
-                    }
-
-                    IconButton {
-                        icon: @image-url("icons/maximize.svg");
-                        accessible-name: "Полноэкранный режим";
-                        clicked => root.toggle_fullscreen();
-                    }
-
                 }
 
                 HorizontalLayout {
@@ -468,11 +410,9 @@ export component AppWindow inherits Window {
             }
 
             player-controls := PlayerControls {
-                x: root.edge_to_edge ? 0px : Theme.space-4;
-                y: parent.height - self.height - (root.edge_to_edge ? 0px : Theme.space-4)
-                    + root.player_controls_slide_offset;
-                width: parent.width - (root.edge_to_edge ? 0px : Theme.space-8);
-                edge_to_edge: root.edge_to_edge;
+                x: 0px;
+                y: parent.height - self.height + root.player_controls_slide_offset;
+                width: parent.width;
                 opacity: root.media_presented && root.controls_visible ? 1 : 0;
                 visible: root.media_presented && (root.controls_visible || self.opacity > 0.01);
                 media_loaded: root.media_loaded;
@@ -483,15 +423,13 @@ export component AppWindow inherits Window {
                 duration_seconds: root.duration_seconds;
                 volume: root.volume;
                 muted: root.muted;
-                loop_enabled: root.loop_enabled;
                 play_pause => root.play_pause();
-                stop => root.stop();
                 previous => root.previous_video();
                 next => root.next_video();
                 seek(value) => root.seek(value);
                 set_volume(value) => root.set_volume(value);
                 toggle_mute => root.toggle_mute();
-                toggle_loop => root.toggle_loop();
+                show_more => root.toggle_command_palette();
 
                 animate opacity {
                     duration: Theme.motion-normal;

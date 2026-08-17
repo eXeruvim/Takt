@@ -11,30 +11,28 @@ export component PlayerControls inherits Rectangle {
     in-out property <float> progress;
     in-out property <float> volume;
     in-out property <bool> muted;
-    in-out property <bool> loop_enabled;
-    in property <bool> edge_to_edge: false;
-
     callback play_pause();
-    callback stop();
     callback previous();
     callback next();
     callback seek(float);
     callback set_volume(float);
     callback toggle_mute();
-    callback toggle_loop();
+    callback show_more();
 
     height: Theme.player-controls-height;
-    border-radius: edge_to_edge ? 0px : Theme.radius-large;
+    border-radius: 0px;
     background: Theme.surface-chrome;
-    border-width: edge_to_edge ? 0px : 1px;
-    border-color: Theme.border-glass;
-    drop-shadow-color: edge_to_edge ? transparent : Theme.shadow-low;
-    drop-shadow-blur: Theme.elevation-low-blur;
-    drop-shadow-offset-y: Theme.elevation-low-y;
+    border-width: 0px;
+
+    Rectangle {
+        width: parent.width;
+        height: 1px;
+        background: Theme.border-subtle;
+    }
 
     timeline := Timeline {
         x: Theme.space-4;
-        y: Theme.space-2;
+        y: 0px;
         width: parent.width - Theme.space-8;
         value <=> root.progress;
         duration-seconds: root.duration_seconds;
@@ -43,15 +41,15 @@ export component PlayerControls inherits Rectangle {
     }
 
     Rectangle {
-        x: Theme.space-4;
-        y: Theme.space-8;
-        width: parent.width - Theme.space-8;
-        height: Theme.space-12;
+        x: Theme.space-3;
+        y: Theme.space-6;
+        width: parent.width - Theme.space-6;
+        height: Theme.space-12 - Theme.space-1;
         background: transparent;
 
         UiText {
             x: 0px;
-            width: 150px;
+            width: 144px;
             height: parent.height;
             text: timeline.preview-visible
                 ? "Перейти к " + timeline.preview-time
@@ -63,7 +61,7 @@ export component PlayerControls inherits Rectangle {
 
         HorizontalLayout {
             x: (parent.width - self.width) / 2;
-            width: Theme.space-12 * 5;
+            width: 152px;
             height: parent.height;
             spacing: Theme.space-2;
             alignment: center;
@@ -78,17 +76,8 @@ export component PlayerControls inherits Rectangle {
             }
 
             IconButton {
-                icon: @image-url("../icons/stop.svg");
-                accessible-name: "Остановить";
-                circular: true;
-                enabled: root.media_loaded;
-                capture-focus: false;
-                clicked => root.stop();
-            }
-
-            IconButton {
-                width: Theme.space-12;
-                height: Theme.space-12;
+                width: 44px;
+                height: 44px;
                 icon: root.is_playing ? @image-url("../icons/pause.svg") : @image-url("../icons/play.svg");
                 accessible-name: root.is_playing ? "Пауза" : "Воспроизведение";
                 primary: true;
@@ -107,19 +96,10 @@ export component PlayerControls inherits Rectangle {
                 clicked => root.next();
             }
 
-            IconButton {
-                icon: @image-url("../icons/repeat.svg");
-                accessible-name: root.loop_enabled ? "Выключить повтор" : "Включить повтор";
-                circular: true;
-                selected: root.loop_enabled;
-                enabled: root.media_loaded;
-                capture-focus: false;
-                clicked => root.toggle_loop();
-            }
         }
 
         Rectangle {
-            width: parent.width > 900px ? 208px : Theme.space-10;
+            width: parent.width >= 1000px ? 232px : 88px;
             height: parent.height;
             x: parent.width - self.width;
             background: transparent;
@@ -139,10 +119,18 @@ export component PlayerControls inherits Rectangle {
                     clicked => root.toggle_mute();
                 }
 
-                if parent.width > 100px : Slider {
-                    width: 152px;
+                if parent.width >= 1000px : Slider {
+                    width: 136px;
                     value <=> root.volume;
                     changed(value) => root.set_volume(value);
+                }
+
+                IconButton {
+                    icon: @image-url("../icons/more-horizontal.svg");
+                    accessible-name: "Больше действий";
+                    circular: true;
+                    capture-focus: false;
+                    clicked => root.show_more();
                 }
             }
         }
