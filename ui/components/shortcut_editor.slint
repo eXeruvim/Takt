@@ -57,7 +57,7 @@ export component ShortcutEditorOverlay inherits Rectangle {
 
     visible: open || self.opacity > 0.01;
     opacity: open ? 1 : 0;
-    background: Theme.backdrop;
+    background: transparent;
 
     animate opacity {
         duration: Theme.motion-normal;
@@ -71,10 +71,12 @@ export component ShortcutEditorOverlay inherits Rectangle {
     }
 
     Rectangle {
-        width: min(parent.width - Theme.space-12, 660px);
-        height: min(parent.height - Theme.space-12 * 2, 620px);
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2 + (root.open ? 0px : -Theme.space-3);
+        width: min(parent.width - Theme.space-8, 520px);
+        height: max(0px, parent.height - self.y
+            - Theme.player-controls-height - Theme.space-6);
+        x: parent.width - self.width - Theme.space-4
+            + (root.open ? 0px : Theme.space-8);
+        y: Theme.space-4 + Theme.top-bar-height + Theme.space-2;
         border-radius: Theme.radius-xlarge;
         background: Theme.surface-glass-strong;
         border-width: 1px;
@@ -84,7 +86,7 @@ export component ShortcutEditorOverlay inherits Rectangle {
         drop-shadow-offset-y: Theme.elevation-high-y;
         clip: true;
 
-        animate y {
+        animate x {
             duration: Theme.motion-normal;
             easing: cubic-bezier(0.16, 1, 0.3, 1);
         }

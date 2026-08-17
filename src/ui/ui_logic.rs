@@ -629,7 +629,9 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
     } else {
         16.0
     };
-    let right_inset = if app.get_settings_drawer_reserved() {
+    let right_inset = if app.get_shortcut_editor_right_inset() > 0.0 {
+        app.get_shortcut_editor_right_inset()
+    } else if app.get_settings_drawer_reserved() {
         388.0
     } else {
         16.0
@@ -1181,6 +1183,17 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_shortcut_editor_visible();
                 app.set_command_palette_visible(false);
+                if opening {
+                    if app.get_info_drawer_visible() {
+                        app.invoke_toggle_info();
+                    }
+                    if app.get_playlist_drawer_visible() {
+                        app.invoke_toggle_playlist();
+                    }
+                    if app.get_settings_drawer_visible() {
+                        app.invoke_toggle_settings();
+                    }
+                }
                 app.set_shortcut_capture_action(-1);
                 app.set_shortcut_editor_error("".into());
                 if opening {
@@ -1348,6 +1361,9 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     app.invoke_reveal_controls();
                 }
                 if VideoHost::take_primary_click() {
+                    if app.get_shortcut_editor_visible() {
+                        app.invoke_toggle_shortcuts();
+                    }
                     if app.get_info_drawer_visible() {
                         app.invoke_toggle_info();
                     }

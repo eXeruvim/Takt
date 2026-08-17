@@ -98,8 +98,10 @@ export component AppWindow inherits Window {
     in-out property <bool> drop_target_visible: false;
     in property <[string]> playlist_items;
     in-out property <int> playlist_current_index: -1;
-    out property <bool> modal_overlay_active: shortcut-editor.visible
-        || command-palette.visible || drop-overlay.visible;
+    out property <length> shortcut_editor_right_inset: shortcut-editor.visible
+        ? min(self.width - Theme.space-8, 520px) + Theme.space-6
+        : 0px;
+    out property <bool> modal_overlay_active: command-palette.visible || drop-overlay.visible;
 
     callback open_file();
     callback open_folder();
@@ -225,7 +227,9 @@ export component AppWindow inherits Window {
                 x: root.info_drawer_reserved || root.playlist_drawer_reserved ? 368px : Theme.space-4;
                 y: root.audio_top_inset;
                 width: max(0px, parent.width - self.x
-                    - (root.settings_drawer_reserved ? 388px : Theme.space-4));
+                    - (root.shortcut_editor_right_inset > 0px
+                        ? root.shortcut_editor_right_inset
+                        : root.settings_drawer_reserved ? 388px : Theme.space-4));
                 height: max(0px, parent.height - self.y - root.audio_bottom_inset);
                 shown: root.media_loaded && root.audio_media;
                 file-name: root.file_name;
