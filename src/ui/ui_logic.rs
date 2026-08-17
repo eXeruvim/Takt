@@ -723,6 +723,15 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 WindowEvent::Focused(focused) => {
                     app.set_window_active(*focused);
                 }
+                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                    // Slint normally throttles redraws to the display refresh rate. During a
+                    // native interactive resize Windows exposes the enlarged client area first,
+                    // which can leave a transparent strip visible until the next throttled frame.
+                    // Queue a native redraw now; it is delivered after Slint has processed this
+                    // resize event, so both the scene and the mpv child host use the new bounds.
+                    app.window()
+                        .with_winit_window(|window| window.request_redraw());
+                }
                 WindowEvent::MouseInput {
                     state,
                     button: MouseButton::Left,
