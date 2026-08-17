@@ -13,7 +13,7 @@ mod windows {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::{
         Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM},
-        Graphics::Gdi::{BeginPaint, EndPaint, PAINTSTRUCT},
+        Graphics::Gdi::{BeginPaint, EndPaint, GetStockObject, BLACK_BRUSH, PAINTSTRUCT},
         System::LibraryLoader::GetModuleHandleW,
         UI::WindowsAndMessaging::*,
     };
@@ -48,6 +48,7 @@ mod windows {
                     lpfnWndProc: Some(video_host_proc),
                     hInstance: instance,
                     hCursor: LoadCursorW(std::ptr::null_mut(), IDC_ARROW),
+                    hbrBackground: GetStockObject(BLACK_BRUSH) as _,
                     lpszClassName: class_name.as_ptr(),
                     ..std::mem::zeroed()
                 };
@@ -105,7 +106,17 @@ mod windows {
                 return Ok(());
             }
 
-            let moved = unsafe { MoveWindow(self.handle as HWND, x, y, width, height, 1) };
+            let moved = unsafe {
+                SetWindowPos(
+                    self.handle as HWND,
+                    std::ptr::null_mut(),
+                    x,
+                    y,
+                    width,
+                    height,
+                    SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOCOPYBITS,
+                )
+            };
             if moved == 0 {
                 return Err(anyhow!("Не удалось изменить размер поверхности видео"));
             }
