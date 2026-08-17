@@ -134,28 +134,6 @@ export component AppWindow inherits Window {
             height: parent.height;
             focus-on-click: true;
 
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(Space); activated => root.play_pause(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(K); activated => root.play_pause(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(N); activated => root.next_video(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(P); activated => root.previous_video(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(J); activated => root.seek_relative(-10.0); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(L); activated => root.seek_relative(10.0); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(LeftArrow); activated => root.seek_relative(-5.0); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(RightArrow); activated => root.seek_relative(5.0); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(UpArrow); activated => root.adjust_volume(5.0); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(DownArrow); activated => root.adjust_volume(-5.0); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(M); activated => root.toggle_mute(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(R); activated => root.toggle_loop(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(S); activated => root.stop(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(F); activated => root.toggle_fullscreen(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(I); activated => root.toggle_info(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(H); activated => root.toggle_shortcuts(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(O); activated => root.open_file(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(Control + O); activated => root.open_file(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(Control + Shift + O); activated => root.open_folder(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(Control + L); activated => root.toggle_playlist(); }
-            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(Control + K); activated => root.toggle_command_palette(); }
-
             Rectangle {
                 x: Theme.space-3;
                 y: Theme.space-3;

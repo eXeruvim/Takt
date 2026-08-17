@@ -17,10 +17,107 @@ use crate::player::playlist::{
 };
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
-use slint::winit_030::{winit::event::WindowEvent, EventResult, WinitWindowAccessor};
+use slint::winit_030::{
+    winit::{
+        event::WindowEvent,
+        keyboard::{KeyCode, ModifiersState, PhysicalKey},
+    },
+    EventResult, WinitWindowAccessor,
+};
 use slint::{ModelRc, SharedString, VecModel};
 
 slint::include_modules!();
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShortcutAction {
+    PlayPause,
+    Stop,
+    Previous,
+    Next,
+    SeekBackwardShort,
+    SeekForwardShort,
+    SeekBackwardLong,
+    SeekForwardLong,
+    VolumeDown,
+    VolumeUp,
+    ToggleMute,
+    ToggleLoop,
+    ToggleFullscreen,
+    ToggleInfo,
+    TogglePlaylist,
+    ToggleShortcuts,
+    ToggleCommandPalette,
+    OpenFile,
+    OpenFolder,
+}
+
+impl ShortcutAction {
+    fn allows_repeat(self) -> bool {
+        matches!(
+            self,
+            Self::SeekBackwardShort
+                | Self::SeekForwardShort
+                | Self::SeekBackwardLong
+                | Self::SeekForwardLong
+                | Self::VolumeDown
+                | Self::VolumeUp
+        )
+    }
+}
+
+fn shortcut_action(code: KeyCode, modifiers: ModifiersState) -> Option<ShortcutAction> {
+    use ShortcutAction as Action;
+
+    match (code, modifiers) {
+        (KeyCode::KeyK, ModifiersState::CONTROL) => Some(Action::ToggleCommandPalette),
+        (KeyCode::KeyO, mods) if mods == ModifiersState::CONTROL | ModifiersState::SHIFT => {
+            Some(Action::OpenFolder)
+        }
+        (KeyCode::KeyO, ModifiersState::CONTROL) => Some(Action::OpenFile),
+        (KeyCode::KeyL, ModifiersState::CONTROL) => Some(Action::TogglePlaylist),
+        (KeyCode::Space | KeyCode::KeyK, mods) if mods.is_empty() => Some(Action::PlayPause),
+        (KeyCode::KeyS, mods) if mods.is_empty() => Some(Action::Stop),
+        (KeyCode::KeyP, mods) if mods.is_empty() => Some(Action::Previous),
+        (KeyCode::KeyN, mods) if mods.is_empty() => Some(Action::Next),
+        (KeyCode::ArrowLeft, mods) if mods.is_empty() => Some(Action::SeekBackwardShort),
+        (KeyCode::ArrowRight, mods) if mods.is_empty() => Some(Action::SeekForwardShort),
+        (KeyCode::KeyJ, mods) if mods.is_empty() => Some(Action::SeekBackwardLong),
+        (KeyCode::KeyL, mods) if mods.is_empty() => Some(Action::SeekForwardLong),
+        (KeyCode::ArrowDown, mods) if mods.is_empty() => Some(Action::VolumeDown),
+        (KeyCode::ArrowUp, mods) if mods.is_empty() => Some(Action::VolumeUp),
+        (KeyCode::KeyM, mods) if mods.is_empty() => Some(Action::ToggleMute),
+        (KeyCode::KeyR, mods) if mods.is_empty() => Some(Action::ToggleLoop),
+        (KeyCode::KeyF, mods) if mods.is_empty() => Some(Action::ToggleFullscreen),
+        (KeyCode::KeyI, mods) if mods.is_empty() => Some(Action::ToggleInfo),
+        (KeyCode::KeyH, mods) if mods.is_empty() => Some(Action::ToggleShortcuts),
+        (KeyCode::KeyO, mods) if mods.is_empty() => Some(Action::OpenFile),
+        _ => None,
+    }
+}
+
+fn dispatch_shortcut(app: &AppWindow, action: ShortcutAction) {
+    match action {
+        ShortcutAction::PlayPause => app.invoke_play_pause(),
+        ShortcutAction::Stop => app.invoke_stop(),
+        ShortcutAction::Previous => app.invoke_previous_video(),
+        ShortcutAction::Next => app.invoke_next_video(),
+        ShortcutAction::SeekBackwardShort => app.invoke_seek_relative(-5.0),
+        ShortcutAction::SeekForwardShort => app.invoke_seek_relative(5.0),
+        ShortcutAction::SeekBackwardLong => app.invoke_seek_relative(-10.0),
+        ShortcutAction::SeekForwardLong => app.invoke_seek_relative(10.0),
+        ShortcutAction::VolumeDown => app.invoke_adjust_volume(-5.0),
+        ShortcutAction::VolumeUp => app.invoke_adjust_volume(5.0),
+        ShortcutAction::ToggleMute => app.invoke_toggle_mute(),
+        ShortcutAction::ToggleLoop => app.invoke_toggle_loop(),
+        ShortcutAction::ToggleFullscreen => app.invoke_toggle_fullscreen(),
+        ShortcutAction::ToggleInfo => app.invoke_toggle_info(),
+        ShortcutAction::TogglePlaylist => app.invoke_toggle_playlist(),
+        ShortcutAction::ToggleShortcuts => app.invoke_toggle_shortcuts(),
+        ShortcutAction::ToggleCommandPalette => app.invoke_toggle_command_palette(),
+        ShortcutAction::OpenFile => app.invoke_open_file(),
+        ShortcutAction::OpenFolder => app.invoke_open_folder(),
+    }
+}
 
 struct PaletteCommandSpec {
     action: i32,
@@ -317,6 +414,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     {
         let tx = tx.clone();
         let app_weak = app.as_weak();
+        let mut modifiers = ModifiersState::empty();
 
         app.window().on_winit_window_event(move |_, event| {
             let Some(app) = app_weak.upgrade() else {
@@ -324,6 +422,35 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
             };
 
             match event {
+                WindowEvent::ModifiersChanged(new_modifiers) => {
+                    modifiers = new_modifiers.state();
+                }
+                WindowEvent::KeyboardInput { event, .. } if event.state.is_pressed() => {
+                    let PhysicalKey::Code(code) = event.physical_key else {
+                        return EventResult::Propagate;
+                    };
+                    let Some(action) = shortcut_action(code, modifiers) else {
+                        return EventResult::Propagate;
+                    };
+
+                    if app.get_command_palette_visible()
+                        && action != ShortcutAction::ToggleCommandPalette
+                    {
+                        return EventResult::Propagate;
+                    }
+                    if app.get_shortcut_overlay_visible()
+                        && !matches!(
+                            action,
+                            ShortcutAction::ToggleShortcuts | ShortcutAction::ToggleCommandPalette
+                        )
+                    {
+                        return EventResult::PreventDefault;
+                    }
+                    if !event.repeat || action.allows_repeat() {
+                        dispatch_shortcut(&app, action);
+                    }
+                    return EventResult::PreventDefault;
+                }
                 WindowEvent::HoveredFile(path) => {
                     app.set_drop_target_visible(path.is_dir() || is_media_file(path));
                 }
@@ -965,9 +1092,10 @@ mod tests {
 
     use super::{
         command_for_dropped_path, command_palette_items, format_time, is_audio_only_media,
-        PALETTE_COMMANDS,
+        shortcut_action, ShortcutAction, PALETTE_COMMANDS,
     };
     use crate::ipc::Command;
+    use slint::winit_030::winit::keyboard::{KeyCode, ModifiersState};
 
     #[test]
     fn formats_short_and_long_durations() {
@@ -1020,6 +1148,34 @@ mod tests {
 
         let seek = command_palette_items("перемотать назад");
         assert!(seek[0].requires_media);
+    }
+
+    #[test]
+    fn shortcuts_are_resolved_from_physical_keys_and_exact_modifiers() {
+        assert_eq!(
+            shortcut_action(KeyCode::KeyK, ModifiersState::empty()),
+            Some(ShortcutAction::PlayPause)
+        );
+        assert_eq!(
+            shortcut_action(KeyCode::KeyK, ModifiersState::CONTROL),
+            Some(ShortcutAction::ToggleCommandPalette)
+        );
+        assert_eq!(
+            shortcut_action(
+                KeyCode::KeyO,
+                ModifiersState::CONTROL | ModifiersState::SHIFT
+            ),
+            Some(ShortcutAction::OpenFolder)
+        );
+        assert_eq!(shortcut_action(KeyCode::KeyK, ModifiersState::ALT), None);
+    }
+
+    #[test]
+    fn only_continuous_shortcuts_repeat_while_held() {
+        assert!(ShortcutAction::SeekForwardLong.allows_repeat());
+        assert!(ShortcutAction::VolumeUp.allows_repeat());
+        assert!(!ShortcutAction::ToggleMute.allows_repeat());
+        assert!(!ShortcutAction::ToggleCommandPalette.allows_repeat());
     }
 
     #[test]
