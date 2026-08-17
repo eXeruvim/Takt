@@ -22,6 +22,224 @@ use slint::{ModelRc, SharedString, VecModel};
 
 slint::include_modules!();
 
+struct PaletteCommandSpec {
+    action: i32,
+    title: &'static str,
+    description: &'static str,
+    shortcut: &'static str,
+    keywords: &'static str,
+    requires_media: bool,
+}
+
+const PALETTE_COMMANDS: &[PaletteCommandSpec] = &[
+    PaletteCommandSpec {
+        action: 0,
+        title: "Открыть файл",
+        description: "Выбрать видео или аудиофайл",
+        shortcut: "Ctrl O",
+        keywords: "open media video audio открыть медиа видео аудио",
+        requires_media: false,
+    },
+    PaletteCommandSpec {
+        action: 1,
+        title: "Открыть папку",
+        description: "Собрать плейлист из папки",
+        shortcut: "Ctrl Shift O",
+        keywords: "open folder directory playlist открыть каталог плейлист",
+        requires_media: false,
+    },
+    PaletteCommandSpec {
+        action: 2,
+        title: "Пауза / воспроизведение",
+        description: "Переключить состояние плеера",
+        shortcut: "Space",
+        keywords: "play pause start stop играть пауза воспроизведение",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 3,
+        title: "Предыдущий файл",
+        description: "Перейти назад по плейлисту",
+        shortcut: "P",
+        keywords: "previous back playlist предыдущий назад",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 4,
+        title: "Следующий файл",
+        description: "Перейти вперёд по плейлисту",
+        shortcut: "N",
+        keywords: "next forward playlist следующий вперед вперёд",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 13,
+        title: "Назад на 10 секунд",
+        description: "Перемотать текущий файл назад",
+        shortcut: "J",
+        keywords: "seek rewind back перемотка назад",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 14,
+        title: "Вперёд на 10 секунд",
+        description: "Перемотать текущий файл вперёд",
+        shortcut: "L",
+        keywords: "seek forward перемотка вперед вперёд",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 5,
+        title: "Выключить / включить звук",
+        description: "Переключить mute",
+        shortcut: "M",
+        keywords: "mute unmute sound audio звук без звука",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 15,
+        title: "Уменьшить громкость",
+        description: "Убавить громкость на 5%",
+        shortcut: "↓",
+        keywords: "volume down sound громкость тише убавить",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 16,
+        title: "Увеличить громкость",
+        description: "Прибавить громкость на 5%",
+        shortcut: "↑",
+        keywords: "volume up sound громкость громче прибавить",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 6,
+        title: "Повтор файла",
+        description: "Включить или выключить повтор",
+        shortcut: "R",
+        keywords: "repeat loop повтор цикл",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 7,
+        title: "Показать плейлист",
+        description: "Открыть или закрыть очередь файлов",
+        shortcut: "Ctrl L",
+        keywords: "playlist queue список очередь файлы",
+        requires_media: false,
+    },
+    PaletteCommandSpec {
+        action: 8,
+        title: "Свойства файла",
+        description: "Показать информацию о медиа",
+        shortcut: "I",
+        keywords: "info properties metadata свойства информация метаданные",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 9,
+        title: "Настройки воспроизведения",
+        description: "Скорость, повтор папки и перемешивание",
+        shortcut: "—",
+        keywords: "settings speed shuffle настройки скорость перемешивание",
+        requires_media: false,
+    },
+    PaletteCommandSpec {
+        action: 17,
+        title: "Скорость: 0.5×",
+        description: "Установить половинную скорость",
+        shortcut: "—",
+        keywords: "speed slow скорость медленно половина",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 18,
+        title: "Скорость: 1×",
+        description: "Вернуть обычную скорость",
+        shortcut: "—",
+        keywords: "speed normal reset скорость обычно сброс",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 19,
+        title: "Скорость: 1.25×",
+        description: "Установить скорость 1.25×",
+        shortcut: "—",
+        keywords: "speed скорость",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 20,
+        title: "Скорость: 1.5×",
+        description: "Установить скорость 1.5×",
+        shortcut: "—",
+        keywords: "speed fast скорость быстро",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 21,
+        title: "Скорость: 2×",
+        description: "Установить двойную скорость",
+        shortcut: "—",
+        keywords: "speed fast скорость быстро двойная",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 10,
+        title: "Горячие клавиши",
+        description: "Показать справку по управлению",
+        shortcut: "H",
+        keywords: "help shortcuts keyboard помощь клавиши управление",
+        requires_media: false,
+    },
+    PaletteCommandSpec {
+        action: 11,
+        title: "Полноэкранный режим",
+        description: "Переключить fullscreen",
+        shortcut: "F",
+        keywords: "fullscreen full screen полный экран",
+        requires_media: false,
+    },
+    PaletteCommandSpec {
+        action: 12,
+        title: "Остановить воспроизведение",
+        description: "Закрыть текущий файл",
+        shortcut: "S",
+        keywords: "stop close остановить закрыть",
+        requires_media: true,
+    },
+];
+
+fn command_palette_items(query: &str) -> Vec<CommandEntry> {
+    let words = query
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>();
+
+    PALETTE_COMMANDS
+        .iter()
+        .filter(|command| {
+            let searchable = format!(
+                "{} {} {}",
+                command.title, command.description, command.keywords
+            )
+            .to_lowercase();
+            words.iter().all(|word| searchable.contains(word))
+        })
+        .map(|command| CommandEntry {
+            action: command.action,
+            title: command.title.into(),
+            description: command.description.into(),
+            shortcut: command.shortcut.into(),
+            requires_media: command.requires_media,
+        })
+        .collect()
+}
+
+fn set_command_palette_items(app: &AppWindow, query: &str) {
+    app.set_command_items(ModelRc::new(VecModel::from(command_palette_items(query))));
+}
+
 fn format_time(seconds: f64) -> String {
     let seconds = seconds.max(0.0).round() as u64;
     let hours = seconds / 3_600;
@@ -57,6 +275,7 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
     let video_visible = app.get_media_loaded()
         && !app.get_audio_media()
         && !app.get_shortcut_overlay_visible()
+        && !app.get_command_palette_visible()
         && !app.get_error_visible()
         && !app.get_drop_target_visible();
     host.set_visible(video_visible);
@@ -76,6 +295,7 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
 
 pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     let app = AppWindow::new()?;
+    set_command_palette_items(&app, "");
     let current_duration = Arc::new(Mutex::new(0.0));
     let dialog_active = Arc::new(AtomicBool::new(false));
     #[cfg(target_os = "windows")]
@@ -427,7 +647,32 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
         app.on_toggle_shortcuts(move || {
             if let Some(app) = app_weak.upgrade() {
+                app.set_command_palette_visible(false);
                 app.set_shortcut_overlay_visible(!app.get_shortcut_overlay_visible());
+            }
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+
+        app.on_toggle_command_palette(move || {
+            if let Some(app) = app_weak.upgrade() {
+                let opening = !app.get_command_palette_visible();
+                app.set_shortcut_overlay_visible(false);
+                app.set_command_query("".into());
+                set_command_palette_items(&app, "");
+                app.set_command_palette_visible(opening);
+            }
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+
+        app.on_command_query_changed(move |query| {
+            if let Some(app) = app_weak.upgrade() {
+                set_command_palette_items(&app, query.as_str());
             }
         });
     }
@@ -718,7 +963,10 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 mod tests {
     use std::path::Path;
 
-    use super::{command_for_dropped_path, format_time, is_audio_only_media};
+    use super::{
+        command_for_dropped_path, command_palette_items, format_time, is_audio_only_media,
+        PALETTE_COMMANDS,
+    };
     use crate::ipc::Command;
 
     #[test]
@@ -744,6 +992,34 @@ mod tests {
     fn rejects_unsupported_dropped_paths() {
         assert!(command_for_dropped_path(Path::new("notes.txt")).is_err());
         assert!(command_for_dropped_path(Path::new("missing.mp4")).is_err());
+    }
+
+    #[test]
+    fn command_palette_returns_all_commands_for_an_empty_query() {
+        assert_eq!(command_palette_items("").len(), PALETTE_COMMANDS.len());
+        assert_eq!(command_palette_items("   ").len(), PALETTE_COMMANDS.len());
+    }
+
+    #[test]
+    fn command_palette_searches_titles_descriptions_and_aliases() {
+        let mute = command_palette_items("mute");
+        assert_eq!(mute.len(), 1);
+        assert_eq!(mute[0].action, 5);
+
+        let folder = command_palette_items("папку плейлист");
+        assert_eq!(folder.len(), 1);
+        assert_eq!(folder[0].action, 1);
+
+        assert!(command_palette_items("несуществующая-команда").is_empty());
+    }
+
+    #[test]
+    fn command_palette_marks_media_dependent_actions() {
+        let open_file = command_palette_items("открыть файл");
+        assert!(!open_file[0].requires_media);
+
+        let seek = command_palette_items("перемотать назад");
+        assert!(seek[0].requires_media);
     }
 
     #[test]

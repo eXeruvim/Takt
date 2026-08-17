@@ -1,0 +1,191 @@
+import { LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Divider, ShortcutBadge, UiText, TextVariant } from "../design_system/primitives.slint";
+
+export struct CommandEntry {
+    action: int,
+    title: string,
+    description: string,
+    shortcut: string,
+    requires-media: bool,
+}
+
+component CommandRow inherits Rectangle {
+    in property <CommandEntry> entry;
+    in property <bool> selected;
+    in property <bool> enabled;
+    callback activated();
+
+    height: 56px;
+    border-radius: Theme.radius-medium;
+    background: selected ? Theme.surface-selected
+        : hit.pressed ? Theme.surface-pressed
+        : hit.has-hover ? Theme.surface-hover
+        : transparent;
+    border-width: selected ? 1px : 0px;
+    border-color: Theme.accent;
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: list-item;
+    accessible-label: entry.title;
+    accessible-enabled: enabled;
+
+    hit := TouchArea {
+        enabled: root.enabled;
+        clicked => root.activated();
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-3;
+        padding-right: Theme.space-3;
+        spacing: Theme.space-3;
+        alignment: center;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: Theme.space-1;
+
+            UiText { text: root.entry.title; variant: TextVariant.label; }
+            UiText {
+                text: root.entry.description;
+                variant: TextVariant.caption;
+                color: Theme.text-secondary;
+                overflow: elide;
+            }
+        }
+
+        ShortcutBadge { shortcut: root.entry.shortcut; }
+    }
+
+    animate background, opacity { duration: Theme.motion-fast; }
+}
+
+export component CommandPaletteOverlay inherits Rectangle {
+    in property <bool> open;
+    in-out property <string> query;
+    in property <[CommandEntry]> commands;
+    in property <bool> media-loaded;
+    private property <int> selected-index: 0;
+    callback query-changed(string);
+    callback execute(int);
+    callback close();
+
+    visible: open;
+    background: Theme.backdrop;
+    forward-focus: search;
+
+    changed open => {
+        if (open) {
+            root.selected-index = 0;
+            search.focus();
+        }
+    }
+
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => root.close();
+    }
+
+    Rectangle {
+        width: min(parent.width - Theme.space-12, 640px);
+        height: min(parent.height - Theme.space-12 * 2, 520px);
+        x: (parent.width - self.width) / 2;
+        y: max(Theme.space-12, (parent.height - self.height) / 3);
+        border-radius: Theme.radius-xlarge;
+        background: Theme.surface-glass-strong;
+        border-width: 1px;
+        border-color: Theme.border-glass;
+        drop-shadow-color: Theme.shadow-high;
+        drop-shadow-blur: Theme.elevation-high-blur;
+        drop-shadow-offset-y: Theme.elevation-high-y;
+        clip: true;
+
+        TouchArea {
+            width: parent.width;
+            height: parent.height;
+        }
+
+        VerticalLayout {
+            padding: Theme.space-4;
+            spacing: Theme.space-3;
+
+            search := LineEdit {
+                height: Theme.space-10;
+                text <=> root.query;
+                placeholder-text: "Найти команду…";
+                edited(text) => {
+                    root.selected-index = 0;
+                    root.query-changed(text);
+                }
+                accepted => root.activate-selected();
+                key-pressed(event) => {
+                    if (event.text == Key.DownArrow) {
+                        root.move-selection(1);
+                        return accept;
+                    }
+                    if (event.text == Key.UpArrow) {
+                        root.move-selection(-1);
+                        return accept;
+                    }
+                    if (event.text == Key.Escape) {
+                        root.close();
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+
+            Divider { }
+
+            if root.commands.length == 0 : UiText {
+                text: "Команды не найдены";
+                color: Theme.text-muted;
+                horizontal-alignment: center;
+                vertical-stretch: 1;
+                vertical-alignment: center;
+            }
+
+            if root.commands.length > 0 : ScrollView {
+                vertical-stretch: 1;
+
+                VerticalLayout {
+                    spacing: Theme.space-1;
+
+                    for command[index] in root.commands : CommandRow {
+                        entry: command;
+                        selected: index == root.selected-index;
+                        enabled: !command.requires-media || root.media-loaded;
+                        activated => {
+                            if (!command.requires-media || root.media-loaded) {
+                                root.execute(command.action);
+                            }
+                        }
+                    }
+                }
+            }
+
+            UiText {
+                text: "↑↓ выбрать   Enter выполнить   Esc закрыть";
+                variant: TextVariant.caption;
+                color: Theme.text-muted;
+                horizontal-alignment: center;
+            }
+        }
+    }
+
+    function move-selection(delta: int) {
+        if (commands.length > 0) {
+            selected-index = Math.mod(selected-index + delta + commands.length, commands.length);
+        }
+    }
+
+    function activate-selected() {
+        if (commands.length > 0) {
+            let command = commands[selected-index];
+            if (!command.requires-media || media-loaded) {
+                execute(command.action);
+            }
+        }
+    }
+}

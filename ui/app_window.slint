@@ -1,6 +1,7 @@
 import { Theme } from "theme.slint";
 import { PlayerControls } from "components/player_controls.slint";
 import { AudioCanvas } from "components/audio_canvas.slint";
+import { CommandEntry, CommandPaletteOverlay } from "components/command_palette.slint";
 import { InfoDrawer } from "components/info_drawer.slint";
 import { PlaylistDrawer } from "components/playlist_drawer.slint";
 import { SettingsDrawer } from "components/settings_drawer.slint";
@@ -64,6 +65,9 @@ export component AppWindow inherits Window {
     in-out property <bool> playlist_drawer_reserved: false;
     in-out property <bool> settings_drawer_reserved: false;
     in-out property <bool> shortcut_overlay_visible: false;
+    in-out property <bool> command_palette_visible: false;
+    in-out property <string> command_query: "";
+    in property <[CommandEntry]> command_items;
     in-out property <bool> error_visible: false;
     in-out property <string> error_message: "";
     in-out property <bool> drop_target_visible: false;
@@ -88,6 +92,8 @@ export component AppWindow inherits Window {
     callback toggle_playlist();
     callback toggle_settings();
     callback toggle_shortcuts();
+    callback toggle_command_palette();
+    callback command_query_changed(string);
     callback seek_relative(float);
     callback adjust_volume(float);
     callback toggle_mute();
@@ -128,21 +134,27 @@ export component AppWindow inherits Window {
             height: parent.height;
             focus-on-click: true;
 
-            KeyBinding { keys: @keys(Space); activated => root.play_pause(); }
-            KeyBinding { keys: @keys(K); activated => root.play_pause(); }
-            KeyBinding { keys: @keys(N); activated => root.next_video(); }
-            KeyBinding { keys: @keys(P); activated => root.previous_video(); }
-            KeyBinding { keys: @keys(J); activated => root.seek_relative(-10.0); }
-            KeyBinding { keys: @keys(L); activated => root.seek_relative(10.0); }
-            KeyBinding { keys: @keys(LeftArrow); activated => root.seek_relative(-5.0); }
-            KeyBinding { keys: @keys(RightArrow); activated => root.seek_relative(5.0); }
-            KeyBinding { keys: @keys(UpArrow); activated => root.adjust_volume(5.0); }
-            KeyBinding { keys: @keys(DownArrow); activated => root.adjust_volume(-5.0); }
-            KeyBinding { keys: @keys(M); activated => root.toggle_mute(); }
-            KeyBinding { keys: @keys(F); activated => root.toggle_fullscreen(); }
-            KeyBinding { keys: @keys(I); activated => root.toggle_info(); }
-            KeyBinding { keys: @keys(H); activated => root.toggle_shortcuts(); }
-            KeyBinding { keys: @keys(O); activated => root.open_file(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(Space); activated => root.play_pause(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(K); activated => root.play_pause(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(N); activated => root.next_video(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(P); activated => root.previous_video(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(J); activated => root.seek_relative(-10.0); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(L); activated => root.seek_relative(10.0); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(LeftArrow); activated => root.seek_relative(-5.0); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(RightArrow); activated => root.seek_relative(5.0); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(UpArrow); activated => root.adjust_volume(5.0); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(DownArrow); activated => root.adjust_volume(-5.0); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(M); activated => root.toggle_mute(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(R); activated => root.toggle_loop(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(S); activated => root.stop(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(F); activated => root.toggle_fullscreen(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(I); activated => root.toggle_info(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(H); activated => root.toggle_shortcuts(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(O); activated => root.open_file(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(Control + O); activated => root.open_file(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(Control + Shift + O); activated => root.open_folder(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(Control + L); activated => root.toggle_playlist(); }
+            KeyBinding { enabled: !root.command_palette_visible; keys: @keys(Control + K); activated => root.toggle_command_palette(); }
 
             Rectangle {
                 x: Theme.space-3;
@@ -449,6 +461,19 @@ export component AppWindow inherits Window {
 
             ShortcutOverlay { overlay_visible: root.shortcut_overlay_visible; }
 
+            CommandPaletteOverlay {
+                open: root.command_palette_visible;
+                query <=> root.command_query;
+                commands: root.command_items;
+                media-loaded: root.media_loaded;
+                query-changed(query) => root.command_query_changed(query);
+                close => {
+                    root.command_palette_visible = false;
+                    root.command_query = "";
+                }
+                execute(action) => root.run-palette-command(action);
+            }
+
             Rectangle {
                 visible: root.drop_target_visible;
                 width: parent.width;
@@ -483,5 +508,32 @@ export component AppWindow inherits Window {
                 dismissed => { root.error_visible = false; }
             }
         }
+    }
+
+    function run-palette-command(action: int) {
+        command_palette_visible = false;
+        command_query = "";
+        if (action == 0) { open_file(); }
+        else if (action == 1) { open_folder(); }
+        else if (action == 2) { play_pause(); }
+        else if (action == 3) { previous_video(); }
+        else if (action == 4) { next_video(); }
+        else if (action == 5) { toggle_mute(); }
+        else if (action == 6) { toggle_loop(); }
+        else if (action == 7) { toggle_playlist(); }
+        else if (action == 8) { toggle_info(); }
+        else if (action == 9) { toggle_settings(); }
+        else if (action == 10) { toggle_shortcuts(); }
+        else if (action == 11) { toggle_fullscreen(); }
+        else if (action == 12) { stop(); }
+        else if (action == 13) { seek_relative(-10.0); }
+        else if (action == 14) { seek_relative(10.0); }
+        else if (action == 15) { adjust_volume(-5.0); }
+        else if (action == 16) { adjust_volume(5.0); }
+        else if (action == 17) { set_speed(0.5); }
+        else if (action == 18) { set_speed(1.0); }
+        else if (action == 19) { set_speed(1.25); }
+        else if (action == 20) { set_speed(1.5); }
+        else if (action == 21) { set_speed(2.0); }
     }
 }
