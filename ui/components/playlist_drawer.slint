@@ -10,9 +10,6 @@ export component PlaylistDrawer inherits Rectangle {
     in property <length> parent-width;
     in property <length> parent-height;
     callback play-index(int);
-    callback close();
-
-    private property <length> swipe-offset: 0px;
 
     width: min(340px, parent-width - Theme.space-8);
     height: max(0px, parent-height - self.y
@@ -30,7 +27,7 @@ export component PlaylistDrawer inherits Rectangle {
 
     states [
         open when root.drawer-visible : {
-            root.x: Theme.space-4 + root.swipe-offset;
+            root.x: Theme.space-4;
             in {
                 animate x {
                     duration: Theme.motion-slow;
@@ -91,24 +88,4 @@ export component PlaylistDrawer inherits Rectangle {
         }
     }
 
-    swipe := TouchArea {
-        width: parent.width;
-        height: Theme.top-bar-height;
-        mouse-cursor: MouseCursor.grab;
-
-        moved => {
-            if (self.pressed) {
-                root.swipe-offset = min(0px, self.mouse-x - self.pressed-x);
-            }
-        }
-
-        pointer-event(event) => {
-            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
-                if (self.mouse-x - self.pressed-x < -72px) {
-                    root.close();
-                }
-                root.swipe-offset = 0px;
-            }
-        }
-    }
 }

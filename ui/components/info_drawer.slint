@@ -35,9 +35,6 @@ export component InfoDrawer inherits Rectangle {
     in property <bool> audio_media;
     in property <length> parent_width;
     in property <length> parent_height;
-    callback close();
-
-    private property <length> swipe_offset: 0px;
 
     width: min(340px, parent_width - Theme.space-8);
     height: max(0px, parent_height - self.y
@@ -55,7 +52,7 @@ export component InfoDrawer inherits Rectangle {
 
     states [
         open when root.drawer_visible : {
-            root.x: Theme.space-4 + root.swipe_offset;
+            root.x: Theme.space-4;
             in {
                 animate x {
                     duration: Theme.motion-slow;
@@ -100,24 +97,4 @@ export component InfoDrawer inherits Rectangle {
         }
     }
 
-    swipe := TouchArea {
-        width: parent.width;
-        height: Theme.top-bar-height;
-        mouse-cursor: MouseCursor.grab;
-
-        moved => {
-            if (self.pressed) {
-                root.swipe_offset = min(0px, self.mouse-x - self.pressed-x);
-            }
-        }
-
-        pointer-event(event) => {
-            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
-                if (self.mouse-x - self.pressed-x < -72px) {
-                    root.close();
-                }
-                root.swipe_offset = 0px;
-            }
-        }
-    }
 }

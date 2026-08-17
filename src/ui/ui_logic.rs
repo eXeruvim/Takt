@@ -19,7 +19,7 @@ use crate::player::playlist::{
 use crate::render::mpv_render::VideoHost;
 use slint::winit_030::{
     winit::{
-        event::WindowEvent,
+        event::{MouseButton, WindowEvent},
         keyboard::{KeyCode, ModifiersState, PhysicalKey},
     },
     EventResult, WinitWindowAccessor,
@@ -53,6 +53,13 @@ enum ShortcutAction {
     SeekBackwardShort = 22,
     SeekForwardShort = 23,
     ToggleCommandPalette = 24,
+}
+
+#[derive(Clone, Copy)]
+enum DrawerSwipeTarget {
+    Info,
+    Playlist,
+    Settings,
 }
 
 impl ShortcutAction {
@@ -667,6 +674,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         let shortcut_registry = shortcut_registry.clone();
         let mut modifiers = ModifiersState::empty();
         let mut last_cursor_position = None::<(f64, f64)>;
+        let mut drawer_swipe = None::<(DrawerSwipeTarget, f64)>;
 
         app.window().on_winit_window_event(move |_, event| {
             let Some(app) = app_weak.upgrade() else {
@@ -687,9 +695,75 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         last_cursor_position = Some(current_position);
                         app.invoke_reveal_controls();
                     }
+                    if let Some((target, start_x)) = drawer_swipe {
+                        let delta = position.x - start_x;
+                        let threshold = 48.0 * scale;
+                        let should_close = match target {
+                            DrawerSwipeTarget::Info | DrawerSwipeTarget::Playlist => {
+                                delta < -threshold
+                            }
+                            DrawerSwipeTarget::Settings => delta > threshold,
+                        };
+                        if should_close {
+                            drawer_swipe = None;
+                            match target {
+                                DrawerSwipeTarget::Info => app.invoke_toggle_info(),
+                                DrawerSwipeTarget::Playlist => app.invoke_toggle_playlist(),
+                                DrawerSwipeTarget::Settings => app.invoke_toggle_settings(),
+                            }
+                        }
+                    }
                 }
                 WindowEvent::CursorLeft { .. } => {
                     app.set_controls_pointer_over(false);
+                }
+                WindowEvent::MouseInput {
+                    state,
+                    button: MouseButton::Left,
+                    ..
+                } => {
+                    if state.is_pressed() {
+                        let Some((pointer_x, pointer_y)) = last_cursor_position else {
+                            return EventResult::Propagate;
+                        };
+                        let scale = f64::from(app.window().scale_factor());
+                        let window_size = app.window().size();
+                        let window_width = f64::from(window_size.width);
+                        let window_height = f64::from(window_size.height);
+                        let logical_width = window_width / scale;
+                        let panel_top = f64::from(app.get_controls_top_zone()) * scale;
+                        let panel_bottom = window_height
+                            - (f64::from(app.get_controls_bottom_zone()) + 4.0) * scale;
+
+                        if pointer_y >= panel_top && pointer_y <= panel_bottom {
+                            let left_width = logical_width.min(340.0 + 32.0) - 32.0;
+                            let left_start = 16.0 * scale;
+                            let left_end = (16.0 + left_width) * scale;
+                            let settings_width = logical_width.min(360.0 + 32.0) - 32.0;
+                            let settings_start = (logical_width - settings_width - 16.0) * scale;
+                            let settings_end = (logical_width - 16.0) * scale;
+
+                            let target = if pointer_x >= left_start && pointer_x <= left_end {
+                                if app.get_info_drawer_visible() {
+                                    Some(DrawerSwipeTarget::Info)
+                                } else if app.get_playlist_drawer_visible() {
+                                    Some(DrawerSwipeTarget::Playlist)
+                                } else {
+                                    None
+                                }
+                            } else if pointer_x >= settings_start
+                                && pointer_x <= settings_end
+                                && app.get_settings_drawer_visible()
+                            {
+                                Some(DrawerSwipeTarget::Settings)
+                            } else {
+                                None
+                            };
+                            drawer_swipe = target.map(|target| (target, pointer_x));
+                        }
+                    } else {
+                        drawer_swipe = None;
+                    }
                 }
                 WindowEvent::ModifiersChanged(new_modifiers) => {
                     modifiers = new_modifiers.state();

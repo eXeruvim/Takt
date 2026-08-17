@@ -17,9 +17,6 @@ export component SettingsDrawer inherits Rectangle {
     callback toggle_folder_loop();
     callback toggle_shuffle();
     callback edit_shortcuts();
-    callback close();
-
-    private property <length> swipe_offset: 0px;
 
     width: min(360px, parent_width - Theme.space-8);
     height: max(0px, parent_height - self.y
@@ -37,7 +34,7 @@ export component SettingsDrawer inherits Rectangle {
 
     states [
         open when root.drawer_visible : {
-            root.x: root.parent_width - root.width - Theme.space-4 + root.swipe_offset;
+            root.x: root.parent_width - root.width - Theme.space-4;
             in {
                 animate x {
                     duration: Theme.motion-slow;
@@ -74,10 +71,12 @@ export component SettingsDrawer inherits Rectangle {
             vertical-stretch: 1;
 
             VerticalLayout {
+                height: 356px;
                 spacing: Theme.space-4;
 
                 UiText { text: "Скорость"; variant: TextVariant.label; }
                 HorizontalLayout {
+                    height: Theme.space-10;
                     spacing: Theme.space-2;
 
                     for value in ["0.5", "1.0", "1.25", "1.5", "2.0"] : Button {
@@ -91,6 +90,7 @@ export component SettingsDrawer inherits Rectangle {
                 Divider { }
 
                 SettingsRow {
+                    height: Theme.space-12;
                     title: "Повтор файла";
                     description: "Запускать текущий файл заново";
                     Toggle {
@@ -100,6 +100,7 @@ export component SettingsDrawer inherits Rectangle {
                 }
 
                 SettingsRow {
+                    height: Theme.space-12;
                     title: "Повтор папки";
                     description: "Возвращаться к началу списка";
                     Toggle {
@@ -109,6 +110,7 @@ export component SettingsDrawer inherits Rectangle {
                 }
 
                 SettingsRow {
+                    height: Theme.space-12;
                     title: "Случайный порядок";
                     description: "Перемешивать соседние медиафайлы";
                     Toggle {
@@ -133,24 +135,4 @@ export component SettingsDrawer inherits Rectangle {
         }
     }
 
-    swipe := TouchArea {
-        width: parent.width;
-        height: Theme.top-bar-height;
-        mouse-cursor: MouseCursor.grab;
-
-        moved => {
-            if (self.pressed) {
-                root.swipe_offset = max(0px, self.mouse-x - self.pressed-x);
-            }
-        }
-
-        pointer-event(event) => {
-            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
-                if (self.mouse-x - self.pressed-x > 72px) {
-                    root.close();
-                }
-                root.swipe_offset = 0px;
-            }
-        }
-    }
 }

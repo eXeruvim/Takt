@@ -517,7 +517,6 @@ export component AppWindow inherits Window {
                 audio_media: root.audio_media;
                 parent_width: parent.width;
                 parent_height: parent.height;
-                close => root.toggle_info();
             }
 
             PlaylistDrawer {
@@ -527,7 +526,6 @@ export component AppWindow inherits Window {
                 parent-width: parent.width;
                 parent-height: parent.height;
                 play-index(index) => root.play_playlist_index(index);
-                close => root.toggle_playlist();
             }
 
             SettingsDrawer {
@@ -543,7 +541,6 @@ export component AppWindow inherits Window {
                 toggle_folder_loop => root.toggle_folder_loop();
                 toggle_shuffle => root.toggle_shuffle();
                 edit_shortcuts => root.toggle_shortcuts();
-                close => root.toggle_settings();
             }
 
             shortcut-editor := ShortcutEditorOverlay {
