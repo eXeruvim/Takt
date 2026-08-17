@@ -15,6 +15,7 @@ export component SettingsDrawer inherits Rectangle {
     callback toggle_loop();
     callback toggle_folder_loop();
     callback toggle_shuffle();
+    callback edit_shortcuts();
 
     width: min(360px, parent_width - Theme.space-8);
     height: parent_height - self.y - Theme.space-4;
@@ -102,6 +103,13 @@ export component SettingsDrawer inherits Rectangle {
                 checked: root.shuffle_enabled;
                 toggled => root.toggle_shuffle();
             }
+        }
+
+        Divider { }
+
+        Button {
+            text: "Настроить горячие клавиши";
+            clicked => root.edit_shortcuts();
         }
 
         Rectangle { vertical-stretch: 1; background: transparent; }

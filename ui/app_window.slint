@@ -5,8 +5,8 @@ import { CommandEntry, CommandPaletteOverlay } from "components/command_palette.
 import { InfoDrawer } from "components/info_drawer.slint";
 import { PlaylistDrawer } from "components/playlist_drawer.slint";
 import { SettingsDrawer } from "components/settings_drawer.slint";
+import { ShortcutEditorOverlay, ShortcutEntry } from "components/shortcut_editor.slint";
 import { NextVideoCard } from "components/next_video_card.slint";
-import { ShortcutOverlay } from "components/shortcut_overlay.slint";
 import { Toast } from "design_system/composites.slint";
 import { EmptyState, Icon, IconButton, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
 
@@ -64,7 +64,10 @@ export component AppWindow inherits Window {
     in-out property <bool> info_drawer_reserved: false;
     in-out property <bool> playlist_drawer_reserved: false;
     in-out property <bool> settings_drawer_reserved: false;
-    in-out property <bool> shortcut_overlay_visible: false;
+    in-out property <bool> shortcut_editor_visible: false;
+    in-out property <int> shortcut_capture_action: -1;
+    in-out property <string> shortcut_editor_error: "";
+    in property <[ShortcutEntry]> shortcut_items;
     in-out property <bool> command_palette_visible: false;
     in-out property <string> command_query: "";
     in property <[CommandEntry]> command_items;
@@ -74,7 +77,7 @@ export component AppWindow inherits Window {
     out property <bool> controls_can_hide: media_loaded && is_playing
         && !controls_pointer_over
         && !info_drawer_visible && !playlist_drawer_visible && !settings_drawer_visible
-        && !shortcut_overlay_visible && !command_palette_visible
+        && !shortcut_editor_visible && !command_palette_visible
         && !error_visible && !drop_target_visible;
     out property <length> controls_top_zone: Theme.space-4 + Theme.top-bar-height + Theme.space-2;
     out property <length> controls_bottom_zone: Theme.player-controls-height + Theme.space-5;
@@ -95,7 +98,7 @@ export component AppWindow inherits Window {
     in-out property <bool> drop_target_visible: false;
     in property <[string]> playlist_items;
     in-out property <int> playlist_current_index: -1;
-    out property <bool> modal_overlay_active: shortcut-overlay.visible
+    out property <bool> modal_overlay_active: shortcut-editor.visible
         || command-palette.visible || drop-overlay.visible;
 
     callback open_file();
@@ -116,6 +119,7 @@ export component AppWindow inherits Window {
     callback toggle_playlist();
     callback toggle_settings();
     callback toggle_shortcuts();
+    callback reset_shortcuts();
     callback toggle_command_palette();
     callback command_query_changed(string);
     callback seek_relative(float);
@@ -402,7 +406,7 @@ export component AppWindow inherits Window {
                     IconButton {
                         icon: @image-url("icons/help.svg");
                         accessible-name: "Горячие клавиши";
-                        selected: root.shortcut_overlay_visible;
+                        selected: root.shortcut_editor_visible;
                         clicked => root.toggle_shortcuts();
                     }
 
@@ -523,9 +527,25 @@ export component AppWindow inherits Window {
                 toggle_loop => root.toggle_loop();
                 toggle_folder_loop => root.toggle_folder_loop();
                 toggle_shuffle => root.toggle_shuffle();
+                edit_shortcuts => root.toggle_shortcuts();
             }
 
-            shortcut-overlay := ShortcutOverlay { overlay_visible: root.shortcut_overlay_visible; }
+            shortcut-editor := ShortcutEditorOverlay {
+                open: root.shortcut_editor_visible;
+                shortcuts: root.shortcut_items;
+                capture-action: root.shortcut_capture_action;
+                error-message: root.shortcut_editor_error;
+                begin-capture(action) => {
+                    root.shortcut_capture_action = action;
+                    root.shortcut_editor_error = "";
+                }
+                reset-defaults => root.reset_shortcuts();
+                close => {
+                    root.shortcut_editor_visible = false;
+                    root.shortcut_capture_action = -1;
+                    root.shortcut_editor_error = "";
+                }
+            }
 
             command-palette := CommandPaletteOverlay {
                 open: root.command_palette_visible;
