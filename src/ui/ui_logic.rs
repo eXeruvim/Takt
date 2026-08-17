@@ -12,7 +12,9 @@ use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
 
 use crate::ipc::{Command, Event};
-use crate::player::playlist::{is_video_file, VIDEO_EXTENSIONS};
+use crate::player::playlist::{
+    is_media_file, AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS,
+};
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
 use slint::winit_030::{winit::event::WindowEvent, EventResult, WinitWindowAccessor};
@@ -36,12 +38,12 @@ fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
     if path.is_dir() {
         return Ok(Command::OpenFolder(path.to_string_lossy().into_owned()));
     }
-    if path.is_file() && is_video_file(path) {
+    if path.is_file() && is_media_file(path) {
         return Ok(Command::OpenFile(path.to_string_lossy().into_owned()));
     }
 
     Err(format!(
-        "Перетащенный объект не является поддерживаемым видео или папкой: {}",
+        "Перетащенный объект не является поддерживаемым медиафайлом или папкой: {}",
         path.display()
     ))
 }
@@ -49,6 +51,7 @@ fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
 #[cfg(target_os = "windows")]
 fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
     let video_visible = app.get_media_loaded()
+        && !app.get_audio_media()
         && !app.get_shortcut_overlay_visible()
         && !app.get_error_visible()
         && !app.get_drop_target_visible();
@@ -98,7 +101,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
             match event {
                 WindowEvent::HoveredFile(path) => {
-                    app.set_drop_target_visible(path.is_dir() || is_video_file(path));
+                    app.set_drop_target_visible(path.is_dir() || is_media_file(path));
                 }
                 WindowEvent::HoveredFileCancelled => {
                     app.set_drop_target_visible(false);
@@ -138,7 +141,9 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
             let dialog_active = dialog_active.clone();
             std::thread::spawn(move || {
                 let path = rfd::FileDialog::new()
+                    .add_filter("Медиа", MEDIA_EXTENSIONS)
                     .add_filter("Видео", VIDEO_EXTENSIONS)
+                    .add_filter("Аудио", AUDIO_EXTENSIONS)
                     .pick_file();
                 dialog_active.store(false, Ordering::Release);
 
@@ -551,8 +556,9 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 };
 
                 match event {
-                    Event::LoadStarted(name) => {
+                    Event::LoadStarted { name, audio_only } => {
                         app.set_file_name(name.into());
+                        app.set_audio_media(audio_only);
                         app.set_media_loaded(false);
                         app.set_is_playing(false);
                         app.set_player_phase(PlayerPhase::Loading);
@@ -735,19 +741,26 @@ mod tests {
     }
 
     #[test]
-    fn creates_open_file_command_for_supported_drop() {
+    fn creates_open_file_command_for_supported_media_drop() {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time must be after Unix epoch")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("oxide-drop-{unique}.mkv"));
-        std::fs::write(&path, []).expect("temporary video must be created");
+        let video_path = std::env::temp_dir().join(format!("oxide-drop-{unique}.mkv"));
+        let audio_path = std::env::temp_dir().join(format!("oxide-drop-{unique}.flac"));
+        std::fs::write(&video_path, []).expect("temporary video must be created");
+        std::fs::write(&audio_path, []).expect("temporary audio must be created");
 
         assert!(matches!(
-            command_for_dropped_path(&path),
+            command_for_dropped_path(&video_path),
+            Ok(Command::OpenFile(_))
+        ));
+        assert!(matches!(
+            command_for_dropped_path(&audio_path),
             Ok(Command::OpenFile(_))
         ));
 
-        std::fs::remove_file(path).expect("temporary video must be removed");
+        std::fs::remove_file(video_path).expect("temporary video must be removed");
+        std::fs::remove_file(audio_path).expect("temporary audio must be removed");
     }
 }

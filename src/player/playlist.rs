@@ -10,13 +10,28 @@ use anyhow::{bail, Context, Result};
 pub const VIDEO_EXTENSIONS: &[&str] = &[
     "mp4", "mkv", "webm", "mov", "avi", "m4v", "ts", "flv", "wmv", "mpg", "mpeg", "ogv",
 ];
+pub const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "wma"];
+pub const MEDIA_EXTENSIONS: &[&str] = &[
+    "mp4", "mkv", "webm", "mov", "avi", "m4v", "ts", "flv", "wmv", "mpg", "mpeg", "ogv", "mp3",
+    "flac", "wav", "m4a", "aac", "ogg", "opus", "wma",
+];
 
-pub fn is_video_file(path: &Path) -> bool {
+fn has_extension(path: &Path, extensions: &[&str]) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            VIDEO_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
-        })
+        .is_some_and(|extension| extensions.contains(&extension.to_ascii_lowercase().as_str()))
+}
+
+pub fn is_video_file(path: &Path) -> bool {
+    has_extension(path, VIDEO_EXTENSIONS)
+}
+
+pub fn is_audio_file(path: &Path) -> bool {
+    has_extension(path, AUDIO_EXTENSIONS)
+}
+
+pub fn is_media_file(path: &Path) -> bool {
+    is_video_file(path) || is_audio_file(path)
 }
 
 #[derive(Debug)]
@@ -30,12 +45,14 @@ impl DirectoryPlaylist {
         if !path.is_file() {
             bail!("Файл не найден: {}", path.display());
         }
-        if !is_video_file(path) {
-            bail!("Неподдерживаемый формат видео: {}", path.display());
+        if !is_media_file(path) {
+            bail!("Неподдерживаемый формат медиа: {}", path.display());
         }
 
-        let directory = path.parent().context("Не удалось определить папку видео")?;
-        let files = read_video_files(directory)?;
+        let directory = path
+            .parent()
+            .context("Не удалось определить папку медиафайла")?;
+        let files = read_media_files(directory)?;
 
         let current_index = files
             .iter()
@@ -53,9 +70,12 @@ impl DirectoryPlaylist {
             bail!("Папка не найдена: {}", directory.display());
         }
 
-        let files = read_video_files(directory)?;
+        let files = read_media_files(directory)?;
         if files.is_empty() {
-            bail!("В папке нет поддерживаемых видео: {}", directory.display());
+            bail!(
+                "В папке нет поддерживаемых видео или аудио: {}",
+                directory.display()
+            );
         }
 
         Ok(Self {
@@ -169,11 +189,11 @@ impl DirectoryPlaylist {
     }
 }
 
-fn read_video_files(directory: &Path) -> Result<Vec<PathBuf>> {
+fn read_media_files(directory: &Path) -> Result<Vec<PathBuf>> {
     let mut files = fs::read_dir(directory)
         .with_context(|| format!("Не удалось прочитать папку: {}", directory.display()))?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|candidate| candidate.is_file() && is_video_file(candidate))
+        .filter(|candidate| candidate.is_file() && is_media_file(candidate))
         .collect::<Vec<_>>();
 
     sort_paths_naturally(&mut files);
@@ -286,6 +306,16 @@ mod tests {
     }
 
     #[test]
+    fn detects_supported_audio_and_media_extensions_case_insensitively() {
+        assert!(is_audio_file(Path::new("track.FLAC")));
+        assert!(is_audio_file(Path::new("voice.opus")));
+        assert!(!is_audio_file(Path::new("movie.mp4")));
+        assert!(is_media_file(Path::new("movie.mp4")));
+        assert!(is_media_file(Path::new("track.mp3")));
+        assert!(!is_media_file(Path::new("cover.jpg")));
+    }
+
+    #[test]
     fn sorts_numbered_files_naturally() {
         let mut files = vec!["video10.mp4", "video2.mp4", "video1.mp4"];
         files.sort_by(|left, right| natural_cmp(left, right));
@@ -299,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn opens_directory_at_first_naturally_sorted_video() {
+    fn opens_directory_at_first_naturally_sorted_media_file() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time must be after Unix epoch")
@@ -308,7 +338,13 @@ mod tests {
             std::env::temp_dir().join(format!("oxide-playlist-{}-{unique}", std::process::id()));
 
         fs::create_dir(&directory).expect("temporary playlist directory must be created");
-        for name in ["video10.mp4", "video2.mkv", "notes.txt", "video1.webm"] {
+        for name in [
+            "video10.mp4",
+            "track3.flac",
+            "video2.mkv",
+            "notes.txt",
+            "video1.webm",
+        ] {
             fs::write(directory.join(name), []).expect("temporary file must be created");
         }
 
@@ -317,14 +353,14 @@ mod tests {
 
         assert_eq!(
             playlist.items(),
-            ["video1.webm", "video2.mkv", "video10.mp4"]
+            ["track3.flac", "video1.webm", "video2.mkv", "video10.mp4"]
         );
         assert_eq!(
             playlist
                 .current_path()
                 .and_then(|path| path.file_name())
                 .and_then(|name| name.to_str()),
-            Some("video1.webm")
+            Some("track3.flac")
         );
 
         fs::remove_dir_all(directory).expect("temporary playlist directory must be removed");

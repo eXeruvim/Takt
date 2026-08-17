@@ -42,7 +42,7 @@ export component PlaylistDrawer inherits Rectangle {
         UiText {
             text: root.items.length == 0
                 ? "Очередь пока пуста"
-                : root.items.length + (root.items.length == 1 ? " видео" : " видео в очереди");
+                : root.items.length + (root.items.length == 1 ? " файл" : " файлов в очереди");
             variant: TextVariant.caption;
             color: Theme.text-secondary;
         }
@@ -71,7 +71,7 @@ export component PlaylistDrawer inherits Rectangle {
 
         Rectangle { vertical-stretch: root.items.length == 0 ? 1 : 0; background: transparent; }
         UiText {
-            text: "Выберите видео, чтобы перейти к нему";
+            text: "Выберите файл, чтобы перейти к нему";
             variant: TextVariant.caption;
             color: Theme.text-muted;
         }

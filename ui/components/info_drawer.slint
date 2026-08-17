@@ -32,6 +32,7 @@ export component InfoDrawer inherits Rectangle {
     in-out property <string> audio_codec;
     in-out property <string> resolution;
     in-out property <string> fps;
+    in property <bool> audio_media;
     in property <length> parent_width;
     in property <length> parent_height;
 
@@ -75,10 +76,10 @@ export component InfoDrawer inherits Rectangle {
             overflow: elide;
         }
         Divider { }
-        PropertyRow { label: "Видео"; value: root.codec; }
-        PropertyRow { label: "Разрешение"; value: root.resolution; }
-        PropertyRow { label: "Частота кадров"; value: root.fps + " FPS"; }
-        Divider { }
+        if !root.audio_media : PropertyRow { label: "Видео"; value: root.codec; }
+        if !root.audio_media : PropertyRow { label: "Разрешение"; value: root.resolution; }
+        if !root.audio_media : PropertyRow { label: "Частота кадров"; value: root.fps + " FPS"; }
+        if !root.audio_media : Divider { }
         PropertyRow { label: "Аудио"; value: root.audio_codec; }
         Rectangle { vertical-stretch: 1; background: transparent; }
         UiText {

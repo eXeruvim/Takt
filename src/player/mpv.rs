@@ -1,7 +1,10 @@
 use std::{path::Path, path::PathBuf, time::Duration};
 
 use crate::ipc::{Command, Event};
-use crate::player::{media_info::MediaInfo, playlist::DirectoryPlaylist};
+use crate::player::{
+    media_info::MediaInfo,
+    playlist::{is_audio_file, DirectoryPlaylist},
+};
 use anyhow::Context;
 use crossbeam_channel::{Receiver, Sender};
 use libmpv::{
@@ -47,7 +50,7 @@ fn load_file_in_mpv(mpv: &Mpv, path: &Path) -> anyhow::Result<()> {
     let escaped_path = path.to_string_lossy().replace('\\', "\\\\");
     let quoted_path = format!("\"{escaped_path}\"");
     mpv_error(mpv.command("loadfile", &[&quoted_path, "replace"]))
-        .with_context(|| format!("Не удалось открыть видео: {}", path.display()))
+        .with_context(|| format!("Не удалось открыть медиафайл: {}", path.display()))
 }
 
 fn load_path(
@@ -88,9 +91,12 @@ fn activate_playlist(
 fn load_current(mpv: &Mpv, tx: &Sender<Event>, playlist: &DirectoryPlaylist) -> anyhow::Result<()> {
     let path = playlist
         .current_path()
-        .context("В плейлисте нет видео для воспроизведения")?;
+        .context("В плейлисте нет медиафайла для воспроизведения")?;
     if let Some(file_name) = path.file_name() {
-        let _ = tx.send(Event::LoadStarted(file_name.to_string_lossy().into_owned()));
+        let _ = tx.send(Event::LoadStarted {
+            name: file_name.to_string_lossy().into_owned(),
+            audio_only: is_audio_file(path),
+        });
     }
     load_file_in_mpv(mpv, path)?;
 
@@ -247,7 +253,7 @@ fn handle_command(
                 .as_mut()
                 .and_then(|playlist| playlist.select(index));
             if selected.is_none() {
-                anyhow::bail!("Видео с индексом {index} отсутствует в плейлисте");
+                anyhow::bail!("Медиафайл с индексом {index} отсутствует в плейлисте");
             }
             if load_selected_or_skip_missing(mpv, tx, playlist, true, false)? {
                 options.media_available = true;
@@ -402,7 +408,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                             options.media_available = false;
                             send_playback_failed(
                                 &tx,
-                                "Не удалось воспроизвести видео; очередь завершена".to_owned(),
+                                "Не удалось воспроизвести медиафайл; очередь завершена".to_owned(),
                             );
                         }
                         Err(error) => {

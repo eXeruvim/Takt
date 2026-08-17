@@ -17,7 +17,7 @@ Slint UI <- ipc::Event   <- player::mpv <- libmpv events
 
 - `src/ipc.rs` — контракт между UI и проигрывателем;
 - `src/player/mpv.rs` — жизненный цикл libmpv, команды и события;
-- `src/player/playlist.rs` — обнаружение и сортировка видео в папке;
+- `src/player/playlist.rs` — обнаружение и сортировка видео и аудио в папке;
 - `src/player/media_info.rs` — чтение свойств медиа;
 - `src/player/shortcuts.rs` — будущая модель переназначаемых клавиш;
 - `src/render/` — интеграция поверхности видео с окном приложения;

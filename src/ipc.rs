@@ -38,7 +38,10 @@ pub enum Event {
     BufferedUntil(f64),
 
     PlaybackState(bool),
-    LoadStarted(String),
+    LoadStarted {
+        name: String,
+        audio_only: bool,
+    },
     PlaybackStopped,
     PlaybackFinished,
     PlaybackFailed(String),

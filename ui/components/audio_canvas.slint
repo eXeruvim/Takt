@@ -1,0 +1,93 @@
+import { Theme } from "../theme.slint";
+import { Icon, UiText, TextVariant } from "../design_system/primitives.slint";
+
+export component AudioCanvas inherits Rectangle {
+    in property <bool> shown;
+    in property <string> file-name;
+    in property <string> audio-codec;
+    callback fullscreen();
+
+    visible: shown;
+    background: Theme.surface-media;
+    border-radius: Theme.radius-medium;
+    clip: true;
+
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        double-clicked => root.fullscreen();
+    }
+
+    Rectangle {
+        width: min(parent.width - Theme.space-8, parent.height - Theme.space-8);
+        height: self.width;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: Theme.radius-full;
+        background: Theme.accent-subtle;
+        opacity: 0.42;
+    }
+
+    Rectangle {
+        width: min(280px, max(0px, parent.width - Theme.space-12 * 2));
+        height: min(300px, max(0px, parent.height - Theme.space-8));
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: Theme.radius-xlarge;
+        background: Theme.surface-glass-strong;
+        border-width: 1px;
+        border-color: Theme.border-glass;
+        drop-shadow-color: Theme.shadow-high;
+        drop-shadow-blur: Theme.elevation-high-blur;
+        drop-shadow-offset-y: Theme.elevation-high-y;
+
+        VerticalLayout {
+            padding: Theme.space-6;
+            spacing: Theme.space-3;
+            alignment: center;
+
+            Rectangle {
+                width: 112px;
+                height: 112px;
+                border-radius: Theme.radius-full;
+                background: Theme.surface-selected;
+                border-width: 1px;
+                border-color: Theme.accent;
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    source: @image-url("../icons/oxide.svg");
+                    size: 52px;
+                    tint: Theme.accent;
+                }
+            }
+
+            UiText {
+                text: "AUDIO";
+                variant: TextVariant.caption;
+                color: Theme.accent;
+                horizontal-alignment: center;
+            }
+
+            UiText {
+                width: parent.width - Theme.space-12;
+                text: root.file-name;
+                variant: TextVariant.heading;
+                horizontal-alignment: center;
+                overflow: elide;
+            }
+
+            UiText {
+                width: parent.width - Theme.space-12;
+                text: root.audio-codec == "" || root.audio-codec == "—"
+                    ? "Аудиофайл"
+                    : root.audio-codec;
+                variant: TextVariant.caption;
+                color: Theme.text-secondary;
+                horizontal-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+}

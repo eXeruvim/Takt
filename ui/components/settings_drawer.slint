@@ -73,7 +73,7 @@ export component SettingsDrawer inherits Rectangle {
 
         SettingsRow {
             title: "Повтор файла";
-            description: "Запускать текущее видео заново";
+            description: "Запускать текущий файл заново";
             Toggle {
                 checked: root.loop_enabled;
                 toggled => root.toggle_loop();
@@ -91,7 +91,7 @@ export component SettingsDrawer inherits Rectangle {
 
         SettingsRow {
             title: "Случайный порядок";
-            description: "Перемешивать соседние видео";
+            description: "Перемешивать соседние медиафайлы";
             Toggle {
                 checked: root.shuffle_enabled;
                 toggled => root.toggle_shuffle();
