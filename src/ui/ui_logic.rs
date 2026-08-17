@@ -1273,6 +1273,17 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 if VideoHost::take_pointer_activity() {
                     app.invoke_reveal_controls();
                 }
+                if VideoHost::take_primary_click() {
+                    if app.get_info_drawer_visible() {
+                        app.invoke_toggle_info();
+                    }
+                    if app.get_playlist_drawer_visible() {
+                        app.invoke_toggle_playlist();
+                    }
+                    if app.get_settings_drawer_visible() {
+                        app.invoke_toggle_settings();
+                    }
+                }
                 let Ok(mut video_host) = timer_video_host.lock() else {
                     return;
                 };

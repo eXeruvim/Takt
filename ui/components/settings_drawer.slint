@@ -1,3 +1,4 @@
+import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { Button, Divider, Toggle, UiText, TextVariant } from "../design_system/primitives.slint";
 import { SettingsRow } from "../design_system/composites.slint";
@@ -16,9 +17,13 @@ export component SettingsDrawer inherits Rectangle {
     callback toggle_folder_loop();
     callback toggle_shuffle();
     callback edit_shortcuts();
+    callback close();
+
+    private property <length> swipe_offset: 0px;
 
     width: min(360px, parent_width - Theme.space-8);
-    height: parent_height - self.y - Theme.space-4;
+    height: max(0px, parent_height - self.y
+        - Theme.player-controls-height - Theme.space-6);
     x: parent_width + Theme.space-12;
     y: Theme.space-4 + Theme.top-bar-height + Theme.space-2;
     border-radius: Theme.radius-xlarge;
@@ -28,10 +33,11 @@ export component SettingsDrawer inherits Rectangle {
     drop-shadow-color: Theme.shadow-high;
     drop-shadow-blur: Theme.elevation-high-blur;
     drop-shadow-offset-y: Theme.elevation-high-y;
+    clip: true;
 
     states [
         open when root.drawer_visible : {
-            root.x: root.parent_width - root.width - Theme.space-4;
+            root.x: root.parent_width - root.width - Theme.space-4 + root.swipe_offset;
             in {
                 animate x {
                     duration: Theme.motion-slow;
@@ -64,59 +70,87 @@ export component SettingsDrawer inherits Rectangle {
         }
         Divider { }
 
-        UiText { text: "Скорость"; variant: TextVariant.label; }
-        HorizontalLayout {
-            spacing: Theme.space-2;
+        ScrollView {
+            vertical-stretch: 1;
 
-            for value in ["0.5", "1.0", "1.25", "1.5", "2.0"] : Button {
-                min-width: Theme.space-10;
-                text: value + "×";
-                selected: root.speed == value.to-float();
-                clicked => root.set_speed(value.to-float());
+            VerticalLayout {
+                spacing: Theme.space-4;
+
+                UiText { text: "Скорость"; variant: TextVariant.label; }
+                HorizontalLayout {
+                    spacing: Theme.space-2;
+
+                    for value in ["0.5", "1.0", "1.25", "1.5", "2.0"] : Button {
+                        min-width: Theme.space-10;
+                        text: value + "×";
+                        selected: root.speed == value.to-float();
+                        clicked => root.set_speed(value.to-float());
+                    }
+                }
+
+                Divider { }
+
+                SettingsRow {
+                    title: "Повтор файла";
+                    description: "Запускать текущий файл заново";
+                    Toggle {
+                        checked: root.loop_enabled;
+                        toggled => root.toggle_loop();
+                    }
+                }
+
+                SettingsRow {
+                    title: "Повтор папки";
+                    description: "Возвращаться к началу списка";
+                    Toggle {
+                        checked: root.folder_loop_enabled;
+                        toggled => root.toggle_folder_loop();
+                    }
+                }
+
+                SettingsRow {
+                    title: "Случайный порядок";
+                    description: "Перемешивать соседние медиафайлы";
+                    Toggle {
+                        checked: root.shuffle_enabled;
+                        toggled => root.toggle_shuffle();
+                    }
+                }
+
+                Divider { }
+
+                Button {
+                    text: "Настроить горячие клавиши";
+                    clicked => root.edit_shortcuts();
+                }
             }
         }
 
-        Divider { }
-
-        SettingsRow {
-            title: "Повтор файла";
-            description: "Запускать текущий файл заново";
-            Toggle {
-                checked: root.loop_enabled;
-                toggled => root.toggle_loop();
-            }
-        }
-
-        SettingsRow {
-            title: "Повтор папки";
-            description: "Возвращаться к началу списка";
-            Toggle {
-                checked: root.folder_loop_enabled;
-                toggled => root.toggle_folder_loop();
-            }
-        }
-
-        SettingsRow {
-            title: "Случайный порядок";
-            description: "Перемешивать соседние медиафайлы";
-            Toggle {
-                checked: root.shuffle_enabled;
-                toggled => root.toggle_shuffle();
-            }
-        }
-
-        Divider { }
-
-        Button {
-            text: "Настроить горячие клавиши";
-            clicked => root.edit_shortcuts();
-        }
-
-        Rectangle { vertical-stretch: 1; background: transparent; }
         UiText {
             text: "Все изменения применяются сразу";
             variant: TextVariant.caption;
             color: Theme.text-muted;
+        }
+    }
+
+    swipe := TouchArea {
+        width: parent.width;
+        height: Theme.top-bar-height;
+        mouse-cursor: MouseCursor.grab;
+
+        moved => {
+            if (self.pressed) {
+                root.swipe_offset = max(0px, self.mouse-x - self.pressed-x);
+            }
+        }
+
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                if (self.mouse-x - self.pressed-x > 72px) {
+                    root.close();
+                }
+                root.swipe_offset = 0px;
+            }
         }
     }
 }

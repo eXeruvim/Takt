@@ -35,9 +35,13 @@ export component InfoDrawer inherits Rectangle {
     in property <bool> audio_media;
     in property <length> parent_width;
     in property <length> parent_height;
+    callback close();
+
+    private property <length> swipe_offset: 0px;
 
     width: min(340px, parent_width - Theme.space-8);
-    height: parent_height - self.y - Theme.space-4;
+    height: max(0px, parent_height - self.y
+        - Theme.player-controls-height - Theme.space-6);
     x: -self.width - Theme.space-12;
     y: Theme.space-4 + Theme.top-bar-height + Theme.space-2;
     border-radius: Theme.radius-xlarge;
@@ -47,10 +51,11 @@ export component InfoDrawer inherits Rectangle {
     drop-shadow-color: Theme.shadow-high;
     drop-shadow-blur: Theme.elevation-high-blur;
     drop-shadow-offset-y: Theme.elevation-high-y;
+    clip: true;
 
     states [
         open when root.drawer_visible : {
-            root.x: Theme.space-4;
+            root.x: Theme.space-4 + root.swipe_offset;
             in {
                 animate x {
                     duration: Theme.motion-slow;
@@ -92,6 +97,27 @@ export component InfoDrawer inherits Rectangle {
             text: "I — скрыть панель";
             variant: TextVariant.caption;
             color: Theme.text-muted;
+        }
+    }
+
+    swipe := TouchArea {
+        width: parent.width;
+        height: Theme.top-bar-height;
+        mouse-cursor: MouseCursor.grab;
+
+        moved => {
+            if (self.pressed) {
+                root.swipe_offset = min(0px, self.mouse-x - self.pressed-x);
+            }
+        }
+
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                if (self.mouse-x - self.pressed-x < -72px) {
+                    root.close();
+                }
+                root.swipe_offset = 0px;
+            }
         }
     }
 }

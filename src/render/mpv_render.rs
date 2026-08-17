@@ -21,6 +21,7 @@ mod windows {
     static VIDEO_WINDOW_CLASS: OnceLock<Vec<u16>> = OnceLock::new();
     static FULLSCREEN_REQUESTED: AtomicBool = AtomicBool::new(false);
     static POINTER_ACTIVITY_REQUESTED: AtomicBool = AtomicBool::new(false);
+    static PRIMARY_CLICK_REQUESTED: AtomicBool = AtomicBool::new(false);
     static LAST_POINTER_SCREEN_POSITION: AtomicU64 = AtomicU64::new(u64::MAX);
 
     pub struct VideoHost {
@@ -138,6 +139,10 @@ mod windows {
         pub fn take_pointer_activity() -> bool {
             POINTER_ACTIVITY_REQUESTED.swap(false, Ordering::AcqRel)
         }
+
+        pub fn take_primary_click() -> bool {
+            PRIMARY_CLICK_REQUESTED.swap(false, Ordering::AcqRel)
+        }
     }
 
     impl Drop for VideoHost {
@@ -185,7 +190,12 @@ mod windows {
                 record_pointer_activity(false);
                 DefWindowProcW(window, message, wparam, lparam)
             }
-            WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_MOUSEWHEEL => {
+            WM_LBUTTONDOWN => {
+                record_pointer_activity(true);
+                PRIMARY_CLICK_REQUESTED.store(true, Ordering::Release);
+                DefWindowProcW(window, message, wparam, lparam)
+            }
+            WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_MOUSEWHEEL => {
                 record_pointer_activity(true);
                 DefWindowProcW(window, message, wparam, lparam)
             }

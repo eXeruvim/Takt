@@ -233,6 +233,19 @@ export component AppWindow inherits Window {
                 fullscreen => root.toggle_fullscreen();
             }
 
+            outside-drawer-dismiss := TouchArea {
+                enabled: root.info_drawer_visible
+                    || root.playlist_drawer_visible
+                    || root.settings_drawer_visible;
+                width: parent.width;
+                height: parent.height;
+                clicked => {
+                    if (root.info_drawer_visible) { root.toggle_info(); }
+                    if (root.playlist_drawer_visible) { root.toggle_playlist(); }
+                    if (root.settings_drawer_visible) { root.toggle_settings(); }
+                }
+            }
+
             if root.player_phase == PlayerPhase.empty : EmptyState {
                 x: (parent.width - self.width) / 2;
                 y: Theme.space-12 * 2;
@@ -504,6 +517,7 @@ export component AppWindow inherits Window {
                 audio_media: root.audio_media;
                 parent_width: parent.width;
                 parent_height: parent.height;
+                close => root.toggle_info();
             }
 
             PlaylistDrawer {
@@ -513,6 +527,7 @@ export component AppWindow inherits Window {
                 parent-width: parent.width;
                 parent-height: parent.height;
                 play-index(index) => root.play_playlist_index(index);
+                close => root.toggle_playlist();
             }
 
             SettingsDrawer {
@@ -528,6 +543,7 @@ export component AppWindow inherits Window {
                 toggle_folder_loop => root.toggle_folder_loop();
                 toggle_shuffle => root.toggle_shuffle();
                 edit_shortcuts => root.toggle_shortcuts();
+                close => root.toggle_settings();
             }
 
             shortcut-editor := ShortcutEditorOverlay {
