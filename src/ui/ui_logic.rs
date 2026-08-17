@@ -619,6 +619,22 @@ fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
 
 #[cfg(target_os = "windows")]
 fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
+    let size = app.window().size();
+    sync_video_host_at_size(
+        host,
+        app,
+        (size.width, size.height),
+        app.window().scale_factor(),
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn sync_video_host_at_size(
+    host: &mut VideoHost,
+    app: &AppWindow,
+    physical_size: (u32, u32),
+    scale: f32,
+) -> Result<()> {
     let video_visible = app.get_media_presented()
         && !app.get_audio_media()
         && !app.get_modal_overlay_active()
@@ -627,11 +643,14 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
     host.set_visible(video_visible);
 
     host.resize(
-        app.window(),
-        app.get_video_left_panel_inset(),
-        app.get_video_right_panel_inset(),
-        app.get_video_top_inset(),
-        app.get_video_bottom_inset(),
+        physical_size,
+        scale,
+        (
+            app.get_video_left_panel_inset(),
+            app.get_video_right_panel_inset(),
+            app.get_video_top_inset(),
+            app.get_video_bottom_inset(),
+        ),
         app.get_edge_to_edge(),
     )
 }
@@ -696,7 +715,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         let mut last_cursor_position = None::<(f64, f64)>;
         let mut drawer_swipe = None::<(DrawerSwipeTarget, f64)>;
 
-        app.window().on_winit_window_event(move |_, event| {
+        app.window().on_winit_window_event(move |window, event| {
             let Some(app) = app_weak.upgrade() else {
                 return EventResult::Propagate;
             };
@@ -740,14 +759,41 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 WindowEvent::Focused(focused) => {
                     app.set_window_active(*focused);
                 }
-                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                WindowEvent::Resized(size) => {
                     // Resize the native video child in the same window event. Waiting for the
                     // next throttled Slint frame exposes the enlarged parent before the child,
                     // which appears as a short-lived empty strip during interactive resize.
                     #[cfg(target_os = "windows")]
                     if let Ok(mut video_host) = resize_video_host.lock() {
                         if let Some(host) = video_host.as_mut() {
-                            if let Err(error) = sync_video_host(host, &app) {
+                            if let Err(error) = sync_video_host_at_size(
+                                host,
+                                &app,
+                                (size.width, size.height),
+                                window.scale_factor(),
+                            ) {
+                                app.set_error_message(error.to_string().into());
+                                app.set_error_visible(true);
+                            }
+                        }
+                    }
+                    app.window()
+                        .with_winit_window(|window| window.request_redraw());
+                }
+                WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                    #[cfg(target_os = "windows")]
+                    if let Ok(mut video_host) = resize_video_host.lock() {
+                        if let Some(host) = video_host.as_mut() {
+                            let current_size = window.size();
+                            let size = window
+                                .with_winit_window(|window| {
+                                    let size = window.inner_size();
+                                    (size.width, size.height)
+                                })
+                                .unwrap_or((current_size.width, current_size.height));
+                            if let Err(error) =
+                                sync_video_host_at_size(host, &app, size, *scale_factor as f32)
+                            {
                                 app.set_error_message(error.to_string().into());
                                 app.set_error_visible(true);
                             }

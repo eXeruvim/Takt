@@ -27,6 +27,7 @@ mod windows {
     pub struct VideoHost {
         handle: usize,
         last_bounds: Option<(i32, i32, i32, i32)>,
+        last_visible: Option<bool>,
     }
 
     impl VideoHost {
@@ -78,6 +79,7 @@ mod windows {
             Ok(Self {
                 handle: child as usize,
                 last_bounds: None,
+                last_visible: None,
             })
         }
 
@@ -87,21 +89,18 @@ mod windows {
 
         pub fn resize(
             &mut self,
-            window: &slint::Window,
-            left_inset: f32,
-            right_inset: f32,
-            top_inset: f32,
-            bottom_inset: f32,
+            physical_size: (u32, u32),
+            scale: f32,
+            insets: (f32, f32, f32, f32),
             preserve_frame: bool,
         ) -> Result<()> {
-            let size = window.size();
-            let scale = window.scale_factor();
+            let (left_inset, right_inset, top_inset, bottom_inset) = insets;
             let x = (left_inset * scale).round() as i32;
             let y = (top_inset * scale).round() as i32;
             let right = (right_inset * scale).round() as i32;
             let bottom = (bottom_inset * scale).round() as i32;
-            let width = (size.width as i32 - x - right).max(1);
-            let height = (size.height as i32 - y - bottom).max(1);
+            let width = (physical_size.0 as i32 - x - right).max(1);
+            let height = (physical_size.1 as i32 - y - bottom).max(1);
             let bounds = (x, y, width, height);
 
             if self.last_bounds == Some(bounds) {
@@ -131,10 +130,14 @@ mod windows {
             Ok(())
         }
 
-        pub fn set_visible(&self, visible: bool) {
+        pub fn set_visible(&mut self, visible: bool) {
+            if self.last_visible == Some(visible) {
+                return;
+            }
             unsafe {
                 ShowWindow(self.handle as HWND, if visible { SW_SHOW } else { SW_HIDE });
             }
+            self.last_visible = Some(visible);
         }
 
         pub fn take_fullscreen_request() -> bool {
