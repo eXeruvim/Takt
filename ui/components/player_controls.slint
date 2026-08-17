@@ -1,5 +1,5 @@
 import { Theme } from "../theme.slint";
-import { IconButton, Slider, UiText, TextVariant } from "../design_system/primitives.slint";
+import { IconButton, Slider, Tooltip, UiText, TextVariant } from "../design_system/primitives.slint";
 import { Timeline } from "timeline.slint";
 
 export component PlayerControls inherits Rectangle {
@@ -18,11 +18,12 @@ export component PlayerControls inherits Rectangle {
     in property <bool> info_open;
     in property <bool> settings_open;
     in property <bool> command_palette_open;
+    in property <string> next_file;
     private property <bool> show_remaining_time: true;
     out property <bool> show-volume-slider: self.width >= 1080px;
     out property <bool> show-secondary-actions: self.width >= 900px;
     out property <length> group-spacing: self.width >= 1800px
-        ? Theme.space-4
+        ? Theme.space-5
         : self.width >= 1100px ? Theme.space-3 : Theme.space-2;
     out property <length> left-actions-width: show-secondary-actions
         ? 160px + group-spacing * 3
@@ -209,7 +210,7 @@ export component PlayerControls inherits Rectangle {
             transport-actions := Rectangle {
                 x: (parent.width - self.width) / 2;
                 y: 0px;
-                width: 152px;
+                width: 124px + root.group-spacing * 2;
                 height: parent.height;
                 background: transparent;
 
@@ -242,14 +243,23 @@ export component PlayerControls inherits Rectangle {
                         clicked => root.play_pause();
                     }
 
-                    IconButton {
+                    next-button := IconButton {
                         icon: @image-url("../icons/skip-forward.svg");
-                        accessible-name: "Следующий файл";
+                        accessible-name: root.next_file == ""
+                            ? "Следующий файл"
+                            : "Следующий файл: " + root.next_file;
                         circular: true;
                         enabled: root.media_loaded;
                         capture-focus: false;
                         clicked => root.next();
                     }
+                }
+
+                Tooltip {
+                    x: next-button.x + (next-button.width - self.width) / 2;
+                    y: -self.height;
+                    text: "Следующий: " + root.next_file;
+                    shown: next-button.has-hover && root.next_file != "";
                 }
             }
 
@@ -265,7 +275,7 @@ export component PlayerControls inherits Rectangle {
                     y: 0px;
                     width: parent.width;
                     height: parent.height;
-                    spacing: Theme.space-2;
+                    spacing: root.group-spacing;
                     alignment: center;
 
                     IconButton {

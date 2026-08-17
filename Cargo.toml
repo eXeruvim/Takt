@@ -16,7 +16,7 @@ raw-window-handle = "0.6.0"
 rfd = "0.17.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_Com", "Win32_System_LibraryLoader"] }
 
 [build-dependencies]
 slint-build = { version = "1.17.1" }

@@ -7,10 +7,16 @@ export component AudioCanvas inherits Rectangle {
     in property <string> audio-codec;
     callback fullscreen();
 
-    visible: shown;
+    visible: shown || self.opacity > 0.01;
+    opacity: shown ? 1 : 0;
     background: Theme.surface-media-glass;
     border-radius: Theme.radius-medium;
     clip: true;
+
+    animate opacity {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
 
     TouchArea {
         width: parent.width;

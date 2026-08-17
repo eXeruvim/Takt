@@ -619,11 +619,7 @@ fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
 
 #[cfg(target_os = "windows")]
 fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
-    let video_visible = app.get_media_loaded()
-        && matches!(
-            app.get_player_phase(),
-            PlayerPhase::Playing | PlayerPhase::Paused
-        )
+    let video_visible = app.get_media_presented()
         && !app.get_audio_media()
         && !app.get_modal_overlay_active()
         && !app.get_error_visible()
@@ -636,13 +632,16 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
         app.get_video_right_panel_inset(),
         app.get_video_top_inset(),
         app.get_video_bottom_inset(),
+        app.get_edge_to_edge(),
     )
 }
 
 #[cfg(target_os = "windows")]
 fn toggle_native_fullscreen(app: &AppWindow, native_fullscreen: &Arc<Mutex<NativeFullscreen>>) {
     let fullscreen = !app.get_fullscreen_mode();
-    app.set_fullscreen_mode(fullscreen);
+    if fullscreen {
+        app.set_fullscreen_mode(true);
+    }
 
     let result = native_fullscreen
         .lock()
@@ -650,9 +649,13 @@ fn toggle_native_fullscreen(app: &AppWindow, native_fullscreen: &Arc<Mutex<Nativ
         .and_then(|mut native_fullscreen| native_fullscreen.set(app.window(), fullscreen));
 
     if let Err(error) = result {
-        app.set_fullscreen_mode(!fullscreen);
+        if fullscreen {
+            app.set_fullscreen_mode(false);
+        }
         app.set_error_message(error.to_string().into());
         app.set_error_visible(true);
+    } else if !fullscreen {
+        app.set_fullscreen_mode(false);
     }
 }
 
@@ -736,13 +739,6 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 }
                 WindowEvent::Focused(focused) => {
                     app.set_window_active(*focused);
-                    #[cfg(target_os = "windows")]
-                    if app.get_fullscreen_mode() {
-                        if let Err(error) = NativeFullscreen::set_active(app.window(), *focused) {
-                            app.set_error_message(error.to_string().into());
-                            app.set_error_visible(true);
-                        }
-                    }
                 }
                 WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
                     // Resize the native video child in the same window event. Waiting for the
@@ -1338,14 +1334,6 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     {
         let tx = tx.clone();
 
-        app.on_play_next(move || {
-            let _ = tx.send(Command::NextVideo);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
         app.on_play_playlist_index(move |index| {
             if let Ok(index) = usize::try_from(index) {
                 let _ = tx.send(Command::PlayIndex(index));
@@ -1458,11 +1446,15 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
                 match event {
                     Event::LoadStarted(name) => {
+                        let preserve_media_surface = app.get_media_presented();
                         app.set_file_name(name.into());
-                        app.set_audio_media(false);
-                        app.set_media_loaded(false);
+                        app.set_media_transitioning(preserve_media_surface);
                         app.set_is_playing(false);
-                        app.set_player_phase(PlayerPhase::Loading);
+                        if !preserve_media_surface {
+                            app.set_audio_media(false);
+                            app.set_media_loaded(false);
+                            app.set_player_phase(PlayerPhase::Loading);
+                        }
                         app.set_error_visible(false);
                         app.set_error_message("".into());
                     }
@@ -1481,6 +1473,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
                     Event::MediaAvailable(available) => {
                         app.set_media_loaded(available);
+                        app.set_media_transitioning(false);
                         if !available {
                             app.set_is_playing(false);
                         }
@@ -1498,14 +1491,17 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     }
 
                     Event::PlaybackStopped => {
+                        app.set_media_transitioning(false);
                         app.set_player_phase(PlayerPhase::Empty);
                     }
 
                     Event::PlaybackFinished => {
+                        app.set_media_transitioning(false);
                         app.set_player_phase(PlayerPhase::Finished);
                     }
 
                     Event::PlaybackFailed(message) => {
+                        app.set_media_transitioning(false);
                         app.set_media_loaded(false);
                         app.set_is_playing(false);
                         app.set_player_phase(PlayerPhase::Error);

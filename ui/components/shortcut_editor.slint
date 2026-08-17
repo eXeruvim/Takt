@@ -34,10 +34,11 @@ component ShortcutEditRow inherits Rectangle {
             variant: TextVariant.label;
             horizontal-stretch: 1;
             vertical-alignment: center;
+            overflow: elide;
         }
 
         Button {
-            min-width: 156px;
+            width: 176px;
             text: root.capturing ? "Нажмите сочетание…" : root.entry.shortcut;
             selected: root.capturing;
             clicked => root.capture();
@@ -116,9 +117,11 @@ export component ShortcutEditorOverlay inherits Rectangle {
                 vertical-stretch: 1;
 
                 VerticalLayout {
+                    width: max(0px, parent.width - Theme.space-2);
                     spacing: Theme.space-1;
 
                     for shortcut in root.shortcuts : ShortcutEditRow {
+                        width: parent.width;
                         entry: shortcut;
                         capturing: shortcut.action == root.capture-action;
                         capture => root.begin-capture(shortcut.action);

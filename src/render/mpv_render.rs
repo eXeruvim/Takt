@@ -92,6 +92,7 @@ mod windows {
             right_inset: f32,
             top_inset: f32,
             bottom_inset: f32,
+            preserve_frame: bool,
         ) -> Result<()> {
             let size = window.size();
             let scale = window.scale_factor();
@@ -107,6 +108,10 @@ mod windows {
                 return Ok(());
             }
 
+            let mut flags = SWP_NOACTIVATE | SWP_NOZORDER;
+            if !preserve_frame {
+                flags |= SWP_NOCOPYBITS;
+            }
             let moved = unsafe {
                 SetWindowPos(
                     self.handle as HWND,
@@ -115,7 +120,7 @@ mod windows {
                     y,
                     width,
                     height,
-                    SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOCOPYBITS,
+                    flags,
                 )
             };
             if moved == 0 {

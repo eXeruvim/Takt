@@ -174,6 +174,7 @@ export component IconButton inherits Rectangle {
     in property <bool> loading: false;
     in property <bool> danger: false;
     in property <bool> capture-focus: true;
+    out property <bool> has-hover: interaction.has-hover;
     callback clicked();
 
     width: Theme.space-10;
@@ -349,6 +350,12 @@ export component Slider inherits Rectangle {
 
     touch := TouchArea {
         enabled: root.enabled;
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left
+                && event.kind == PointerEventKind.down) {
+                root.update-value(self.mouse-x);
+            }
+        }
         clicked => root.update-value(self.mouse-x);
         moved => root.update-value(self.mouse-x);
     }
@@ -435,6 +442,11 @@ export component ShortcutBadge inherits Rectangle {
     in property <string> shortcut;
 
     min-width: Theme.space-8;
+    preferred-width: max(
+        Theme.space-8,
+        root.shortcut.character-count * 8px + Theme.space-4
+    );
+    max-width: 160px;
     min-height: Theme.space-6;
     vertical-stretch: 1;
     background: transparent;
@@ -466,6 +478,7 @@ export component Tooltip inherits Rectangle {
 
     visible: shown;
     min-width: Theme.space-12;
+    max-width: 360px;
     height: Theme.space-8;
     border-radius: Theme.radius-small;
     background: Theme.surface-popover;

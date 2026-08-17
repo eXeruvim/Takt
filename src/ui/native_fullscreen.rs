@@ -3,14 +3,51 @@ use std::{ffi::c_void, mem};
 use anyhow::{anyhow, Result};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::WinitWindowAccessor;
-use windows_sys::Win32::{
-    Foundation::HWND,
-    Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST},
-    UI::WindowsAndMessaging::{
-        GetWindowPlacement, SetWindowPlacement, SetWindowPos, HWND_NOTOPMOST, HWND_TOPMOST,
-        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_SHOWWINDOW, WINDOWPLACEMENT,
+use windows_sys::{
+    core::{IUnknown_Vtbl, BOOL, GUID, HRESULT},
+    Win32::{
+        Foundation::HWND,
+        Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        },
+        System::Com::{
+            CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+        },
+        UI::WindowsAndMessaging::{
+            GetWindowPlacement, SetWindowPlacement, SetWindowPos, SWP_NOOWNERZORDER,
+            SWP_SHOWWINDOW, WINDOWPLACEMENT,
+        },
     },
 };
+
+#[repr(C)]
+struct TaskbarListVtable {
+    parent: IUnknown_Vtbl,
+    hr_init: unsafe extern "system" fn(*mut TaskbarList) -> HRESULT,
+    add_tab: unsafe extern "system" fn(*mut TaskbarList, HWND) -> HRESULT,
+    delete_tab: unsafe extern "system" fn(*mut TaskbarList, HWND) -> HRESULT,
+    activate_tab: unsafe extern "system" fn(*mut TaskbarList, HWND) -> HRESULT,
+    set_active_alt: unsafe extern "system" fn(*mut TaskbarList, HWND) -> HRESULT,
+}
+
+#[repr(C)]
+struct TaskbarList {
+    vtable: *const TaskbarListVtable,
+}
+
+#[repr(C)]
+struct TaskbarList2Vtable {
+    parent: TaskbarListVtable,
+    mark_fullscreen_window: unsafe extern "system" fn(*mut TaskbarList2, HWND, BOOL) -> HRESULT,
+}
+
+#[repr(C)]
+struct TaskbarList2 {
+    vtable: *const TaskbarList2Vtable,
+}
+
+const CLSID_TASKBAR_LIST: GUID = GUID::from_u128(0x56fdf344_fd6d_11d0_958a_006097c9a090);
+const IID_TASKBAR_LIST_2: GUID = GUID::from_u128(0x602d4995_b13a_429b_a66e_1935e44f4317);
 
 /// Keeps fullscreen transitions frameless on Windows.
 ///
@@ -35,27 +72,6 @@ impl NativeFullscreen {
         }
 
         window.with_winit_window(|window| window.request_redraw());
-        Ok(())
-    }
-
-    pub fn set_active(window: &slint::Window, active: bool) -> Result<()> {
-        let hwnd = window_handle(window)?;
-        let insert_after = if active { HWND_TOPMOST } else { HWND_NOTOPMOST };
-        let updated = unsafe {
-            SetWindowPos(
-                hwnd,
-                insert_after,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
-            )
-        };
-        if updated == 0 {
-            return Err(anyhow!("Не удалось обновить положение полноэкранного окна"));
-        }
-
         Ok(())
     }
 
@@ -88,10 +104,11 @@ impl NativeFullscreen {
         }
 
         let bounds = monitor_info.rcMonitor;
+        taskbar_mark_fullscreen(hwnd, true);
         let updated = unsafe {
             SetWindowPos(
                 hwnd,
-                HWND_TOPMOST,
+                std::ptr::null_mut(),
                 bounds.left,
                 bounds.top,
                 bounds.right - bounds.left,
@@ -100,6 +117,7 @@ impl NativeFullscreen {
             )
         };
         if updated == 0 {
+            taskbar_mark_fullscreen(hwnd, false);
             return Err(anyhow!("Не удалось включить полноэкранный режим"));
         }
 
@@ -112,24 +130,41 @@ impl NativeFullscreen {
             return Ok(());
         };
 
+        taskbar_mark_fullscreen(hwnd, false);
         let restored = unsafe { SetWindowPlacement(hwnd, &placement) };
-        let z_order_restored = unsafe {
-            SetWindowPos(
-                hwnd,
-                HWND_NOTOPMOST,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
-            )
-        };
-        if restored == 0 || z_order_restored == 0 {
+        if restored == 0 {
             self.saved_placement = Some(placement);
             return Err(anyhow!("Не удалось восстановить положение окна"));
         }
 
         Ok(())
+    }
+}
+
+fn taskbar_mark_fullscreen(hwnd: HWND, fullscreen: bool) {
+    unsafe {
+        let initialize_result = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
+        let should_uninitialize = initialize_result >= 0;
+        let mut taskbar = std::ptr::null_mut::<TaskbarList2>();
+        let create_result = CoCreateInstance(
+            &CLSID_TASKBAR_LIST,
+            std::ptr::null_mut(),
+            CLSCTX_ALL,
+            &IID_TASKBAR_LIST_2,
+            &mut taskbar as *mut _ as *mut _,
+        );
+
+        if create_result >= 0 && !taskbar.is_null() {
+            let vtable = &*(*taskbar).vtable;
+            if (vtable.parent.hr_init)(taskbar.cast()) >= 0 {
+                (vtable.mark_fullscreen_window)(taskbar, hwnd, fullscreen.into());
+            }
+            (vtable.parent.parent.Release)(taskbar.cast());
+        }
+
+        if should_uninitialize {
+            CoUninitialize();
+        }
     }
 }
 
