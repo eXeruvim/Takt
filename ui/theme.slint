@@ -7,6 +7,7 @@ export global Theme {
 
     // Semantic surfaces.
     out property <color> surface-canvas: is-dark ? #0d0d0feb : #f7f7f8eb;
+    out property <color> surface-canvas-opaque: is-dark ? #0d0d0f : #f7f7f8;
     out property <color> surface-panel: is-dark ? #151518 : #ffffff;
     out property <color> surface-elevated: is-dark ? #1c1c20 : #ffffff;
     out property <color> surface-hover: is-dark ? #25252a : #f1f1f3;
@@ -92,8 +93,9 @@ export global Theme {
     out property <duration> motion-slow: 320ms;
 
     // Player layout.
-    out property <length> top-bar-height: 52px;
+    out property <length> top-bar-height: 48px;
     out property <length> player-controls-height: 96px;
+    out property <length> caption-button-width: 46px;
 
     // Compatibility aliases for components migrated in later slices.
     out property <color> bg-primary: surface-canvas;

@@ -8,7 +8,7 @@ import { SettingsDrawer } from "components/settings_drawer.slint";
 import { ShortcutEditorOverlay, ShortcutEntry } from "components/shortcut_editor.slint";
 import { NextVideoCard } from "components/next_video_card.slint";
 import { Toast } from "design_system/composites.slint";
-import { EmptyState, Icon, IconButton, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
+import { CaptionButton, EmptyState, Icon, IconButton, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
 
 export enum PlayerPhase {
     empty,
@@ -27,7 +27,7 @@ export component AppWindow inherits Window {
     min-height: 520px;
     background: transparent;
     no-frame: true;
-    resize-border-width: 6px;
+    resize-border-width: self.edge_to_edge ? 0px : 6px;
     title: "Oxide";
     icon: @image-url("icons/oxide.svg");
 
@@ -65,6 +65,9 @@ export component AppWindow inherits Window {
     in-out property <bool> playlist_drawer_reserved: false;
     in-out property <bool> settings_drawer_reserved: false;
     in-out property <bool> shortcut_editor_visible: false;
+    in-out property <bool> fullscreen_mode: false;
+    in-out property <bool> window_active: true;
+    out property <bool> edge_to_edge: self.maximized || self.fullscreen_mode;
     in-out property <int> shortcut_capture_action: -1;
     in-out property <string> shortcut_editor_error: "";
     in property <[ShortcutEntry]> shortcut_items;
@@ -79,20 +82,21 @@ export component AppWindow inherits Window {
         && !info_drawer_visible && !playlist_drawer_visible && !settings_drawer_visible
         && !shortcut_editor_visible && !command_palette_visible
         && !error_visible && !drop_target_visible;
-    out property <length> controls_top_zone: Theme.space-4 + Theme.top-bar-height + Theme.space-2;
-    out property <length> controls_bottom_zone: Theme.player-controls-height + Theme.space-5;
+    out property <length> controls_top_zone: Theme.top-bar-height + Theme.space-2;
+    out property <length> controls_bottom_zone: Theme.player-controls-height
+        + (edge_to_edge ? Theme.space-1 : Theme.space-5);
     out property <length> video_top_inset: controls_reserved
         ? controls_top_zone
-        : Theme.space-4;
+        : edge_to_edge ? 0px : Theme.space-4;
     out property <length> video_bottom_inset: controls_reserved
         ? controls_bottom_zone
-        : Theme.space-4;
+        : edge_to_edge ? 0px : Theme.space-4;
     out property <length> audio_top_inset: controls_visible
         ? controls_top_zone
-        : Theme.space-4;
+        : edge_to_edge ? 0px : Theme.space-4;
     out property <length> audio_bottom_inset: controls_visible
         ? controls_bottom_zone
-        : Theme.space-4;
+        : edge_to_edge ? 0px : Theme.space-4;
     in-out property <bool> error_visible: false;
     in-out property <string> error_message: "";
     in-out property <bool> drop_target_visible: false;
@@ -182,9 +186,10 @@ export component AppWindow inherits Window {
     Rectangle {
         width: parent.width;
         height: parent.height;
-        background: Theme.surface-canvas;
-        border-radius: 0px;
-        border-width: 0px;
+        background: root.edge_to_edge ? Theme.surface-canvas-opaque : Theme.surface-canvas;
+        border-radius: root.edge_to_edge ? 0px : Theme.radius-large;
+        border-width: root.edge_to_edge ? 0px : 1px;
+        border-color: Theme.border-default;
         clip: true;
 
         Rectangle {
@@ -213,23 +218,22 @@ export component AppWindow inherits Window {
             focus-on-click: true;
 
             Rectangle {
-                x: Theme.space-3;
-                y: Theme.space-3;
-                width: parent.width - Theme.space-6;
-                height: parent.height - Theme.space-6;
-                border-radius: Theme.radius-xlarge;
+                width: parent.width;
+                height: parent.height;
                 background: root.media_loaded && !root.audio_media ? Theme.surface-media : transparent;
-                border-width: 1px;
-                border-color: Theme.border-subtle;
             }
 
             AudioCanvas {
-                x: root.info_drawer_reserved || root.playlist_drawer_reserved ? 368px : Theme.space-4;
+                x: root.info_drawer_reserved || root.playlist_drawer_reserved
+                    ? 368px
+                    : root.edge_to_edge ? 0px : Theme.space-4;
                 y: root.audio_top_inset;
                 width: max(0px, parent.width - self.x
                     - (root.shortcut_editor_right_inset > 0px
                         ? root.shortcut_editor_right_inset
-                        : root.settings_drawer_reserved ? 388px : Theme.space-4));
+                        : root.settings_drawer_reserved
+                            ? 388px
+                            : root.edge_to_edge ? 0px : Theme.space-4));
                 height: max(0px, parent.height - self.y - root.audio_bottom_inset);
                 shown: root.media_loaded && root.audio_media;
                 file-name: root.file_name;
@@ -310,19 +314,15 @@ export component AppWindow inherits Window {
             }
 
             top-bar := Rectangle {
-                x: Theme.space-4;
-                y: root.controls_visible ? Theme.space-4 : -self.height - Theme.space-4;
-                width: parent.width - Theme.space-8;
+                x: 0px;
+                y: root.controls_visible ? 0px : -self.height;
+                width: parent.width;
                 height: Theme.top-bar-height;
                 opacity: root.controls_visible ? 1 : 0;
                 visible: root.controls_visible || self.opacity > 0.01;
-                border-radius: Theme.radius-large;
+                border-radius: 0px;
                 background: Theme.surface-glass;
-                border-width: 1px;
-                border-color: Theme.border-glass;
-                drop-shadow-color: Theme.shadow-low;
-                drop-shadow-blur: Theme.elevation-low-blur;
-                drop-shadow-offset-y: Theme.elevation-low-y;
+                border-width: 0px;
                 title-drag-left := TouchArea {
                     x: 132px;
                     width: max(0px, (parent.width - 328px) / 2 - self.x);
@@ -337,7 +337,7 @@ export component AppWindow inherits Window {
 
                 title-drag-right := TouchArea {
                     x: (parent.width + 328px) / 2;
-                    width: max(0px, parent.width - self.x - 128px);
+                    width: max(0px, parent.width - self.x - Theme.caption-button-width * 3);
                     height: parent.height;
                     pointer-event(event) => {
                         if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
@@ -348,15 +348,15 @@ export component AppWindow inherits Window {
                 }
 
                 HorizontalLayout {
-                    x: Theme.space-3;
-                    width: 112px;
+                    x: Theme.space-4;
+                    width: 116px;
                     height: parent.height;
                     spacing: Theme.space-2;
                     alignment: center;
 
                     Icon {
                         source: @image-url("icons/oxide.svg");
-                        size: Theme.icon-large;
+                        size: Theme.icon-small;
                         tint: Theme.accent;
                     }
 
@@ -368,7 +368,7 @@ export component AppWindow inherits Window {
                 }
 
                 UiText {
-                    x: 108px;
+                    x: 140px;
                     width: max(0px, (parent.width - 328px) / 2 - self.x - Theme.space-2);
                     height: parent.height;
                     text: root.player_phase != PlayerPhase.empty
@@ -436,31 +436,33 @@ export component AppWindow inherits Window {
                 }
 
                 HorizontalLayout {
-                    x: parent.width - self.width - Theme.space-2;
-                    width: Theme.space-10 * 3;
+                    x: parent.width - self.width;
+                    width: Theme.caption-button-width * 3;
                     height: parent.height;
-                    spacing: Theme.space-0;
+                    spacing: 0px;
                     alignment: center;
 
-                    IconButton {
+                    CaptionButton {
                         icon: @image-url("icons/window-minimize.svg");
                         accessible-name: "Свернуть окно";
-                        capture-focus: false;
+                        window-active: root.window_active;
                         clicked => { root.minimized = true; }
                     }
 
-                    IconButton {
-                        icon: @image-url("icons/window-maximize.svg");
+                    CaptionButton {
+                        icon: root.maximized
+                            ? @image-url("icons/window-restore.svg")
+                            : @image-url("icons/window-maximize.svg");
                         accessible-name: root.maximized ? "Восстановить окно" : "Развернуть окно";
-                        capture-focus: false;
+                        window-active: root.window_active;
                         clicked => { root.maximized = !root.maximized; }
                     }
 
-                    IconButton {
+                    CaptionButton {
                         icon: @image-url("icons/window-close.svg");
                         accessible-name: "Закрыть окно";
                         danger: true;
-                        capture-focus: false;
+                        window-active: root.window_active;
                         clicked => { root.close(); }
                     }
                 }
@@ -472,11 +474,12 @@ export component AppWindow inherits Window {
             }
 
             player-controls := PlayerControls {
-                x: Theme.space-4;
+                x: root.edge_to_edge ? 0px : Theme.space-4;
                 y: root.controls_visible
-                    ? parent.height - self.height - Theme.space-4
-                    : parent.height + Theme.space-4;
-                width: parent.width - Theme.space-8;
+                    ? parent.height - self.height - (root.edge_to_edge ? 0px : Theme.space-4)
+                    : parent.height + (root.edge_to_edge ? 0px : Theme.space-4);
+                width: parent.width - (root.edge_to_edge ? 0px : Theme.space-8);
+                edge_to_edge: root.edge_to_edge;
                 opacity: root.controls_visible ? 1 : 0;
                 visible: root.controls_visible || self.opacity > 0.01;
                 media_loaded: root.media_loaded;

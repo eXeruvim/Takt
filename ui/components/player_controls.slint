@@ -12,6 +12,7 @@ export component PlayerControls inherits Rectangle {
     in-out property <float> volume;
     in-out property <bool> muted;
     in-out property <bool> loop_enabled;
+    in property <bool> edge_to_edge: false;
 
     callback play_pause();
     callback stop();
@@ -23,11 +24,11 @@ export component PlayerControls inherits Rectangle {
     callback toggle_loop();
 
     height: Theme.player-controls-height;
-    border-radius: Theme.radius-large;
+    border-radius: edge_to_edge ? 0px : Theme.radius-large;
     background: Theme.surface-glass-strong;
-    border-width: 1px;
+    border-width: edge_to_edge ? 0px : 1px;
     border-color: Theme.border-glass;
-    drop-shadow-color: Theme.shadow-high;
+    drop-shadow-color: edge_to_edge ? transparent : Theme.shadow-high;
     drop-shadow-blur: Theme.elevation-high-blur;
     drop-shadow-offset-y: Theme.elevation-high-y;
 

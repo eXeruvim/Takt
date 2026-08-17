@@ -624,17 +624,18 @@ fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
         && !app.get_drop_target_visible();
     host.set_visible(video_visible);
 
+    let window_inset = if app.get_edge_to_edge() { 0.0 } else { 16.0 };
     let left_inset = if app.get_info_drawer_reserved() || app.get_playlist_drawer_reserved() {
         368.0
     } else {
-        16.0
+        window_inset
     };
     let right_inset = if app.get_shortcut_editor_right_inset() > 0.0 {
         app.get_shortcut_editor_right_inset()
     } else if app.get_settings_drawer_reserved() {
         388.0
     } else {
-        16.0
+        window_inset
     };
     host.resize(
         app.window(),
@@ -718,6 +719,9 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 }
                 WindowEvent::CursorLeft { .. } => {
                     app.set_controls_pointer_over(false);
+                }
+                WindowEvent::Focused(focused) => {
+                    app.set_window_active(*focused);
                 }
                 WindowEvent::MouseInput {
                     state,
@@ -1035,7 +1039,9 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
         app.on_toggle_fullscreen(move || {
             if let Some(app) = app_weak.upgrade() {
-                app.window().set_fullscreen(!app.window().is_fullscreen());
+                let fullscreen = !app.window().is_fullscreen();
+                app.set_fullscreen_mode(fullscreen);
+                app.window().set_fullscreen(fullscreen);
             }
         });
     }
@@ -1355,7 +1361,9 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     return;
                 };
                 if VideoHost::take_fullscreen_request() {
-                    app.window().set_fullscreen(!app.window().is_fullscreen());
+                    let fullscreen = !app.window().is_fullscreen();
+                    app.set_fullscreen_mode(fullscreen);
+                    app.window().set_fullscreen(fullscreen);
                 }
                 if VideoHost::take_pointer_activity() {
                     app.invoke_reveal_controls();

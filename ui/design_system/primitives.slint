@@ -224,6 +224,44 @@ export component IconButton inherits Rectangle {
     }
 }
 
+export component CaptionButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> accessible-name;
+    in property <bool> danger: false;
+    in property <bool> window-active: true;
+    callback clicked();
+
+    width: Theme.caption-button-width;
+    height: Theme.top-bar-height;
+    background: hit.pressed
+        ? (danger ? Theme.danger : Theme.surface-pressed)
+        : hit.has-hover
+            ? (danger ? Theme.danger : Theme.surface-hover)
+            : transparent;
+    accessible-role: button;
+    accessible-label: accessible-name;
+    accessible-action-default => root.clicked();
+
+    hit := TouchArea {
+        clicked => root.clicked();
+    }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        source: root.icon;
+        size: Theme.icon-small;
+        tint: root.danger && (hit.has-hover || hit.pressed)
+            ? Theme.on-accent
+            : root.window-active ? Theme.text-primary : Theme.text-muted;
+    }
+
+    animate background {
+        duration: Theme.motion-fast;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
+}
+
 export component Divider inherits Rectangle {
     height: 1px;
     horizontal-stretch: 1;
