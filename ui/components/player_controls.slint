@@ -11,6 +11,8 @@ export component PlayerControls inherits Rectangle {
     in-out property <float> progress;
     in-out property <float> volume;
     in-out property <bool> muted;
+    in property <bool> loop_enabled;
+    in property <bool> settings_open;
     out property <bool> show-volume-slider: self.width >= 1000px;
     callback play_pause();
     callback previous();
@@ -18,18 +20,13 @@ export component PlayerControls inherits Rectangle {
     callback seek(float);
     callback set_volume(float);
     callback toggle_mute();
-    callback show_more();
+    callback toggle_loop();
+    callback toggle_settings();
 
     height: Theme.player-controls-height;
     border-radius: 0px;
     background: Theme.surface-chrome;
     border-width: 0px;
-
-    Rectangle {
-        width: parent.width;
-        height: 1px;
-        background: Theme.border-subtle;
-    }
 
     timeline := Timeline {
         x: Theme.space-4;
@@ -100,7 +97,7 @@ export component PlayerControls inherits Rectangle {
         }
 
         Rectangle {
-            width: root.show-volume-slider ? 232px : 88px;
+            width: root.show-volume-slider ? 280px : 136px;
             height: parent.height;
             x: parent.width - self.width;
             background: transparent;
@@ -127,11 +124,21 @@ export component PlayerControls inherits Rectangle {
                 }
 
                 IconButton {
-                    icon: @image-url("../icons/more-horizontal.svg");
-                    accessible-name: "Больше действий";
+                    icon: @image-url("../icons/repeat.svg");
+                    accessible-name: root.loop_enabled ? "Выключить повтор" : "Включить повтор";
                     circular: true;
+                    selected: root.loop_enabled;
                     capture-focus: false;
-                    clicked => root.show_more();
+                    clicked => root.toggle_loop();
+                }
+
+                IconButton {
+                    icon: @image-url("../icons/settings.svg");
+                    accessible-name: "Настройки воспроизведения";
+                    circular: true;
+                    selected: root.settings_open;
+                    capture-focus: false;
+                    clicked => root.toggle_settings();
                 }
             }
         }

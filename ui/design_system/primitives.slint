@@ -434,6 +434,8 @@ export component ShortcutBadge inherits Rectangle {
     border-color: Theme.border-default;
 
     UiText {
+        width: parent.width;
+        height: parent.height;
         text: root.shortcut;
         variant: TextVariant.label;
         color: Theme.text-secondary;

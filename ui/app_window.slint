@@ -423,13 +423,16 @@ export component AppWindow inherits Window {
                 duration_seconds: root.duration_seconds;
                 volume: root.volume;
                 muted: root.muted;
+                loop_enabled: root.loop_enabled;
+                settings_open: root.settings_drawer_visible;
                 play_pause => root.play_pause();
                 previous => root.previous_video();
                 next => root.next_video();
                 seek(value) => root.seek(value);
                 set_volume(value) => root.set_volume(value);
                 toggle_mute => root.toggle_mute();
-                show_more => root.toggle_command_palette();
+                toggle_loop => root.toggle_loop();
+                toggle_settings => root.toggle_settings();
 
                 animate opacity {
                     duration: Theme.motion-normal;
