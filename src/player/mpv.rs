@@ -6,7 +6,7 @@ use anyhow::Context;
 use crossbeam_channel::{Receiver, Sender};
 use libmpv::{
     events::{Event as MpvEvent, PropertyData},
-    mpv_end_file_reason, FileState, Format, Mpv,
+    mpv_end_file_reason, Format, Mpv,
 };
 
 #[derive(Default)]
@@ -40,8 +40,9 @@ fn send_media_info(mpv: &Mpv, tx: &Sender<Event>) {
 }
 
 fn load_file_in_mpv(mpv: &Mpv, path: &Path) -> anyhow::Result<()> {
-    let path_text = path.to_string_lossy();
-    mpv_error(mpv.playlist_load_files(&[(path_text.as_ref(), FileState::Replace, None)]))
+    let escaped_path = path.to_string_lossy().replace('\\', "\\\\");
+    let quoted_path = format!("\"{escaped_path}\"");
+    mpv_error(mpv.command("loadfile", &[&quoted_path, "replace"]))
         .with_context(|| format!("Не удалось открыть видео: {}", path.display()))
 }
 
