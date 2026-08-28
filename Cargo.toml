@@ -1,22 +1,32 @@
 [package]
 name = "oxide"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 build = "build.rs"
 
 [dependencies]
-slint = { version = "1.17.1", features = ["raw-window-handle-06", "unstable-winit-030"] }
-libmpv = {
-    git = "https://github.com/ParadoxSpiral/libmpv-rs.git",
-    default-features = false
-}
-crossbeam-channel = "0.5.16"
+slint = { version = "1.17.1", default-features = false, features = [
+    "raw-window-handle-06",
+    "unstable-winit-030",
+    "renderer-femtovg",
+    "compat-1-2"
+] }
+libmpv = { git = "https://github.com/ParadoxSpiral/libmpv-rs.git", default-features = false }
+libmpv-sys = { git = "https://github.com/ParadoxSpiral/libmpv-rs.git" }
+crossbeam-channel = { version = "0.5.16", default-features = false }
 anyhow = "1.0.104"
-raw-window-handle = "0.6.0"
-rfd = "0.17.2"
+raw-window-handle = {version = "0.6.2", default-features = false }
+rfd = { version = "0.17.2", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_Com", "Win32_System_LibraryLoader"] }
+windows-sys = { version = "0.61.2", default-features = false, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+] }
 
 [build-dependencies]
 slint-build = { version = "1.17.1" }

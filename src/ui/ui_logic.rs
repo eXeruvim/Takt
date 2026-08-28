@@ -2,36 +2,59 @@
 use std::time::Duration;
 use std::{
     path::Path,
+    rc::Rc,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
 use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
+#[cfg(target_os = "windows")]
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::ipc::{Command, Event};
 use crate::player::playlist::{
-    is_media_file, AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS,
+    AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, is_media_file,
 };
+#[cfg(target_os = "windows")]
+use crate::render::mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource};
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
 #[cfg(target_os = "windows")]
 use crate::ui::native_fullscreen::NativeFullscreen;
 use slint::winit_030::{
+    EventResult, WinitWindowAccessor,
     winit::{
+        dpi::PhysicalPosition,
         event::{MouseButton, WindowEvent},
         keyboard::{KeyCode, ModifiersState, PhysicalKey},
     },
-    EventResult, WinitWindowAccessor,
 };
 use slint::{ModelRc, SharedString, VecModel};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::{
+    Foundation::{HWND, POINT},
+    Graphics::Gdi::{RDW_INTERNALPAINT, RedrawWindow},
+    UI::{
+        Input::KeyboardAndMouse::{ReleaseCapture, SetCapture},
+        WindowsAndMessaging::{GetCursorPos, GetWindowPlacement, WINDOWPLACEMENT},
+    },
+};
 
 slint::include_modules!();
 
 #[cfg(target_os = "windows")]
 const DRAWER_CLOSE_DELAY: Duration = Duration::from_millis(280);
+
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Default)]
+struct WindowDragState {
+    active: bool,
+    cursor_origin: (i32, i32),
+    window_origin: (i32, i32),
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(i32)]
@@ -240,13 +263,13 @@ impl ShortcutRegistry {
         action: ShortcutAction,
         binding: ShortcutBinding,
     ) -> Result<(), ShortcutConflict> {
-        if let Some(conflicting_action) = self.action_for(binding) {
-            if conflicting_action != action {
-                return Err(ShortcutConflict {
-                    action: conflicting_action,
-                    binding,
-                });
-            }
+        if let Some(conflicting_action) = self.action_for(binding)
+            && conflicting_action != action
+        {
+            return Err(ShortcutConflict {
+                action: conflicting_action,
+                binding,
+            });
         }
 
         if let Some((_, bindings)) = self
@@ -569,10 +592,12 @@ fn command_palette_items(query: &str) -> Vec<CommandEntry> {
     command_palette_items_with_registry(query, &ShortcutRegistry::default())
 }
 
-fn set_command_palette_items(app: &AppWindow, query: &str, shortcuts: &ShortcutRegistry) {
-    app.set_command_items(ModelRc::new(VecModel::from(
-        command_palette_items_with_registry(query, shortcuts),
-    )));
+fn set_command_palette_items(
+    model: &VecModel<CommandEntry>,
+    query: &str,
+    shortcuts: &ShortcutRegistry,
+) {
+    model.set_vec(command_palette_items_with_registry(query, shortcuts));
 }
 
 fn set_shortcut_items(app: &AppWindow, shortcuts: &ShortcutRegistry) {
@@ -651,8 +676,162 @@ fn sync_video_host_at_size(
             app.get_video_top_inset(),
             app.get_video_bottom_inset(),
         ),
-        app.get_edge_to_edge(),
     )
+}
+
+#[cfg(target_os = "windows")]
+fn native_window_handle(window: &slint::Window) -> Option<HWND> {
+    let window_handle = window.window_handle();
+    let handle = window_handle.window_handle().ok()?;
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        return None;
+    };
+    Some(handle.hwnd.get() as HWND)
+}
+
+#[cfg(target_os = "windows")]
+fn request_native_redraw(target: usize) {
+    unsafe {
+        RedrawWindow(
+            target as HWND,
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            RDW_INTERNALPAINT,
+        );
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn cursor_screen_position() -> Option<(i32, i32)> {
+    let mut point = POINT { x: 0, y: 0 };
+    if unsafe { GetCursorPos(&mut point) } == 0 {
+        return None;
+    }
+    Some((point.x, point.y))
+}
+
+#[cfg(target_os = "windows")]
+fn restored_window_size(hwnd: HWND) -> Option<(i32, i32)> {
+    let mut placement = WINDOWPLACEMENT {
+        length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+        flags: 0,
+        showCmd: 0,
+        ptMinPosition: POINT { x: 0, y: 0 },
+        ptMaxPosition: POINT { x: 0, y: 0 },
+        rcNormalPosition: Default::default(),
+    };
+    if unsafe { GetWindowPlacement(hwnd, &mut placement) } == 0 {
+        return None;
+    }
+    let rect = placement.rcNormalPosition;
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+#[cfg(target_os = "windows")]
+fn begin_manual_window_drag(window: &slint::Window, state: &Arc<Mutex<WindowDragState>>) -> bool {
+    let Some(cursor_origin) = cursor_screen_position() else {
+        return false;
+    };
+    let Some(hwnd) = native_window_handle(window) else {
+        return false;
+    };
+    let Some(window_origin) = window
+        .with_winit_window(|window| {
+            let current_origin = window.outer_position().ok()?;
+            if !window.is_maximized() {
+                return Some(current_origin);
+            }
+
+            let current_size = window.outer_size();
+            let restored_size = restored_window_size(hwnd)
+                .unwrap_or((current_size.width as i32, current_size.height as i32));
+            let anchor_x = ((cursor_origin.0 - current_origin.x) as f64
+                / f64::from(current_size.width.max(1)))
+            .clamp(0.05, 0.95);
+            let title_height = (48.0 * window.scale_factor()).round() as i32;
+            let anchor_y = (cursor_origin.1 - current_origin.y).clamp(0, title_height);
+            let restored_origin = PhysicalPosition::new(
+                cursor_origin.0 - (f64::from(restored_size.0) * anchor_x).round() as i32,
+                cursor_origin.1 - anchor_y,
+            );
+
+            window.set_maximized(false);
+            window.set_outer_position(restored_origin);
+            Some(restored_origin)
+        })
+        .flatten()
+    else {
+        return false;
+    };
+
+    if let Ok(mut state) = state.lock() {
+        *state = WindowDragState {
+            active: true,
+            cursor_origin,
+            window_origin: (window_origin.x, window_origin.y),
+        };
+        unsafe {
+            SetCapture(hwnd);
+        }
+        true
+    } else {
+        false
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn update_manual_window_drag(window: &slint::Window, state: &Arc<Mutex<WindowDragState>>) {
+    let drag = state
+        .lock()
+        .ok()
+        .and_then(|state| state.active.then_some(*state));
+    let (Some(drag), Some(cursor)) = (drag, cursor_screen_position()) else {
+        return;
+    };
+
+    window.with_winit_window(|window| {
+        window.set_outer_position(PhysicalPosition::new(
+            drag.window_origin.0 + cursor.0 - drag.cursor_origin.0,
+            drag.window_origin.1 + cursor.1 - drag.cursor_origin.1,
+        ));
+    });
+}
+
+#[cfg(target_os = "windows")]
+fn finish_manual_window_drag(state: &Arc<Mutex<WindowDragState>>) -> bool {
+    let active = state
+        .lock()
+        .map(|mut state| std::mem::take(&mut state.active))
+        .unwrap_or(false);
+    if active {
+        unsafe {
+            ReleaseCapture();
+        }
+    }
+    active
+}
+
+#[cfg(target_os = "windows")]
+fn sync_native_window_resizable(window: &slint::Window, fullscreen: bool) {
+    window.with_winit_window(|window| {
+        window.set_resizable(!fullscreen);
+    });
+}
+
+#[cfg(target_os = "windows")]
+fn activate_hwnd_video_fallback(
+    slot: &mut Option<VideoHost>,
+    app: &AppWindow,
+    tx: &Sender<Command>,
+) -> Result<()> {
+    let mut host = VideoHost::create(app.window())?;
+    sync_video_host(&mut host, app)?;
+    let _ = tx.send(Command::SetVideoWindow(host.handle()));
+    *slot = Some(host);
+    app.set_integrated_video_renderer(false);
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -676,13 +855,16 @@ fn toggle_native_fullscreen(app: &AppWindow, native_fullscreen: &Arc<Mutex<Nativ
     } else if !fullscreen {
         app.set_fullscreen_mode(false);
     }
+    sync_native_window_resizable(app.window(), app.get_fullscreen_mode());
 }
 
 pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     let app = AppWindow::new()?;
     let shortcut_registry = Arc::new(Mutex::new(ShortcutRegistry::default()));
+    let command_items = Rc::new(VecModel::default());
+    app.set_command_items(ModelRc::from(command_items.clone()));
     if let Ok(shortcuts) = shortcut_registry.lock() {
-        set_command_palette_items(&app, "", &shortcuts);
+        set_command_palette_items(&command_items, "", &shortcuts);
         set_shortcut_items(&app, &shortcuts);
     }
     let current_duration = Arc::new(Mutex::new(0.0));
@@ -690,10 +872,34 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     #[cfg(target_os = "windows")]
     let video_host = Arc::new(Mutex::new(None::<VideoHost>));
     #[cfg(target_os = "windows")]
+    let render_source = Arc::new(Mutex::new(None::<MpvRenderSource>));
+    #[cfg(target_os = "windows")]
     let native_fullscreen = Arc::new(Mutex::new(NativeFullscreen::default()));
     #[cfg(target_os = "windows")]
     let video_resize_timer = slint::Timer::default();
+    #[cfg(target_os = "windows")]
+    let window_drag_state = Arc::new(Mutex::new(WindowDragState::default()));
 
+    #[cfg(target_os = "windows")]
+    {
+        let app_weak = app.as_weak();
+        let window_drag_state = window_drag_state.clone();
+        app.on_drag_window(move || {
+            if let Some(app) = app_weak.upgrade() {
+                let window = app.window();
+                if app.get_fullscreen_mode() {
+                    return;
+                }
+                if !begin_manual_window_drag(window, &window_drag_state) {
+                    window.with_winit_window(|window| {
+                        let _ = window.drag_window();
+                    });
+                }
+            }
+        });
+    }
+
+    #[cfg(not(target_os = "windows"))]
     {
         let app_weak = app.as_weak();
         app.on_drag_window(move || {
@@ -709,8 +915,9 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         let tx = tx.clone();
         let app_weak = app.as_weak();
         let shortcut_registry = shortcut_registry.clone();
+        let event_command_items = command_items.clone();
         #[cfg(target_os = "windows")]
-        let resize_video_host = video_host.clone();
+        let event_window_drag_state = window_drag_state.clone();
         let mut modifiers = ModifiersState::empty();
         let mut last_cursor_position = None::<(f64, f64)>;
         let mut drawer_swipe = None::<(DrawerSwipeTarget, f64)>;
@@ -722,6 +929,9 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
             match event {
                 WindowEvent::CursorMoved { position, .. } => {
+                    #[cfg(target_os = "windows")]
+                    update_manual_window_drag(window, &event_window_drag_state);
+
                     let scale = f64::from(app.window().scale_factor());
                     let window_height = f64::from(app.window().size().height);
                     let top_zone = f64::from(app.get_controls_top_zone()) * scale;
@@ -737,12 +947,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     if let Some((target, start_x)) = drawer_swipe {
                         let delta = position.x - start_x;
                         let threshold = 48.0 * scale;
-                        let should_close = match target {
-                            DrawerSwipeTarget::Info | DrawerSwipeTarget::Playlist => {
-                                delta < -threshold
-                            }
-                            DrawerSwipeTarget::Settings => delta > threshold,
-                        };
+                        let should_close = delta > threshold;
                         if should_close {
                             drawer_swipe = None;
                             match target {
@@ -758,49 +963,21 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 }
                 WindowEvent::Focused(focused) => {
                     app.set_window_active(*focused);
-                }
-                WindowEvent::Resized(size) => {
-                    // Resize the native video child in the same window event. Waiting for the
-                    // next throttled Slint frame exposes the enlarged parent before the child,
-                    // which appears as a short-lived empty strip during interactive resize.
                     #[cfg(target_os = "windows")]
-                    if let Ok(mut video_host) = resize_video_host.lock() {
-                        if let Some(host) = video_host.as_mut() {
-                            if let Err(error) = sync_video_host_at_size(
-                                host,
-                                &app,
-                                (size.width, size.height),
-                                window.scale_factor(),
-                            ) {
-                                app.set_error_message(error.to_string().into());
-                                app.set_error_visible(true);
-                            }
-                        }
+                    if !focused {
+                        finish_manual_window_drag(&event_window_drag_state);
                     }
-                    app.window()
-                        .with_winit_window(|window| window.request_redraw());
                 }
-                WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                    // Keep Slint and the native mpv child on the same frame. Resizing the child
+                    // here makes video geometry lead the FemtoVG control deck by one paint.
+                    // The AfterRendering notifier commits both dimensions together.
                     #[cfg(target_os = "windows")]
-                    if let Ok(mut video_host) = resize_video_host.lock() {
-                        if let Some(host) = video_host.as_mut() {
-                            let current_size = window.size();
-                            let size = window
-                                .with_winit_window(|window| {
-                                    let size = window.inner_size();
-                                    (size.width, size.height)
-                                })
-                                .unwrap_or((current_size.width, current_size.height));
-                            if let Err(error) =
-                                sync_video_host_at_size(host, &app, size, *scale_factor as f32)
-                            {
-                                app.set_error_message(error.to_string().into());
-                                app.set_error_visible(true);
-                            }
-                        }
-                    }
-                    app.window()
-                        .with_winit_window(|window| window.request_redraw());
+                    sync_native_window_resizable(window, app.get_fullscreen_mode());
+                    window.request_redraw();
+                }
+                WindowEvent::Moved(_) => {
+                    window.request_redraw();
                 }
                 WindowEvent::MouseInput {
                     state,
@@ -821,33 +998,30 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                             - (f64::from(app.get_controls_bottom_zone()) + 4.0) * scale;
 
                         if pointer_y >= panel_top && pointer_y <= panel_bottom {
-                            let left_width = logical_width.min(340.0 + 32.0) - 32.0;
-                            let left_start = 16.0 * scale;
-                            let left_end = (16.0 + left_width) * scale;
-                            let settings_width = logical_width.min(360.0 + 32.0) - 32.0;
-                            let settings_start = (logical_width - settings_width - 16.0) * scale;
-                            let settings_end = (logical_width - 16.0) * scale;
+                            let inspector_width = logical_width.min(392.0 + 32.0) - 32.0;
+                            let inspector_start = (logical_width - inspector_width - 16.0) * scale;
+                            let inspector_end = (logical_width - 16.0) * scale;
 
-                            let target = if pointer_x >= left_start && pointer_x <= left_end {
-                                if app.get_info_drawer_visible() {
-                                    Some(DrawerSwipeTarget::Info)
-                                } else if app.get_playlist_drawer_visible() {
-                                    Some(DrawerSwipeTarget::Playlist)
+                            let target =
+                                if pointer_x >= inspector_start && pointer_x <= inspector_end {
+                                    if app.get_playlist_drawer_visible() {
+                                        Some(DrawerSwipeTarget::Playlist)
+                                    } else if app.get_info_drawer_visible() {
+                                        Some(DrawerSwipeTarget::Info)
+                                    } else if app.get_settings_drawer_visible() {
+                                        Some(DrawerSwipeTarget::Settings)
+                                    } else {
+                                        None
+                                    }
                                 } else {
                                     None
-                                }
-                            } else if pointer_x >= settings_start
-                                && pointer_x <= settings_end
-                                && app.get_settings_drawer_visible()
-                            {
-                                Some(DrawerSwipeTarget::Settings)
-                            } else {
-                                None
-                            };
+                                };
                             drawer_swipe = target.map(|target| (target, pointer_x));
                         }
                     } else {
                         drawer_swipe = None;
+                        #[cfg(target_os = "windows")]
+                        finish_manual_window_drag(&event_window_drag_state);
                     }
                 }
                 WindowEvent::ModifiersChanged(new_modifiers) => {
@@ -857,6 +1031,13 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     let PhysicalKey::Code(code) = event.physical_key else {
                         return EventResult::Propagate;
                     };
+
+                    #[cfg(target_os = "windows")]
+                    if code == KeyCode::Escape
+                        && finish_manual_window_drag(&event_window_drag_state)
+                    {
+                        return EventResult::PreventDefault;
+                    }
 
                     if app.get_shortcut_editor_visible() {
                         if code == KeyCode::Escape {
@@ -884,7 +1065,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                                     Ok(()) => {
                                         set_shortcut_items(&app, &shortcuts);
                                         set_command_palette_items(
-                                            &app,
+                                            &event_command_items,
                                             app.get_command_query().as_str(),
                                             &shortcuts,
                                         );
@@ -919,6 +1100,17 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                             return EventResult::PreventDefault;
                         }
                         return EventResult::Propagate;
+                    }
+
+                    if code == KeyCode::Escape && app.get_inspector_visible() {
+                        if app.get_playlist_drawer_visible() {
+                            app.invoke_toggle_playlist();
+                        } else if app.get_info_drawer_visible() {
+                            app.invoke_toggle_info();
+                        } else if app.get_settings_drawer_visible() {
+                            app.invoke_toggle_settings();
+                        }
+                        return EventResult::PreventDefault;
                     }
 
                     let binding = ShortcutBinding::new(code, modifiers);
@@ -1147,23 +1339,23 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_info_drawer_visible();
                 if opening {
-                    app.set_info_drawer_reserved(true);
-                    app.set_playlist_drawer_visible(false);
-                    app.set_playlist_drawer_reserved(false);
-                    if let Ok(mut video_host) = panel_video_host.lock() {
-                        if let Some(host) = video_host.as_mut() {
-                            let _ = sync_video_host(host, &app);
-                        }
-                    }
+                    app.set_inspector_reserved(true);
                     app.set_info_drawer_visible(true);
+                    app.set_playlist_drawer_visible(false);
+                    app.set_settings_drawer_visible(false);
+                    if let Ok(mut video_host) = panel_video_host.lock()
+                        && let Some(host) = video_host.as_mut()
+                    {
+                        let _ = sync_video_host(host, &app);
+                    }
                 } else {
                     app.set_info_drawer_visible(false);
                     let delayed_app = app.as_weak();
                     slint::Timer::single_shot(DRAWER_CLOSE_DELAY, move || {
-                        if let Some(app) = delayed_app.upgrade() {
-                            if !app.get_info_drawer_visible() {
-                                app.set_info_drawer_reserved(false);
-                            }
+                        if let Some(app) = delayed_app.upgrade()
+                            && !app.get_inspector_visible()
+                        {
+                            app.set_inspector_reserved(false);
                         }
                     });
                 }
@@ -1178,9 +1370,12 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_info_drawer_visible();
                 if opening {
+                    app.set_info_drawer_visible(true);
                     app.set_playlist_drawer_visible(false);
+                    app.set_settings_drawer_visible(false);
+                } else {
+                    app.set_info_drawer_visible(false);
                 }
-                app.set_info_drawer_visible(opening);
             }
         });
     }
@@ -1194,23 +1389,23 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_playlist_drawer_visible();
                 if opening {
-                    app.set_playlist_drawer_reserved(true);
-                    app.set_info_drawer_visible(false);
-                    app.set_info_drawer_reserved(false);
-                    if let Ok(mut video_host) = panel_video_host.lock() {
-                        if let Some(host) = video_host.as_mut() {
-                            let _ = sync_video_host(host, &app);
-                        }
-                    }
+                    app.set_inspector_reserved(true);
                     app.set_playlist_drawer_visible(true);
+                    app.set_info_drawer_visible(false);
+                    app.set_settings_drawer_visible(false);
+                    if let Ok(mut video_host) = panel_video_host.lock()
+                        && let Some(host) = video_host.as_mut()
+                    {
+                        let _ = sync_video_host(host, &app);
+                    }
                 } else {
                     app.set_playlist_drawer_visible(false);
                     let delayed_app = app.as_weak();
                     slint::Timer::single_shot(DRAWER_CLOSE_DELAY, move || {
-                        if let Some(app) = delayed_app.upgrade() {
-                            if !app.get_playlist_drawer_visible() {
-                                app.set_playlist_drawer_reserved(false);
-                            }
+                        if let Some(app) = delayed_app.upgrade()
+                            && !app.get_inspector_visible()
+                        {
+                            app.set_inspector_reserved(false);
                         }
                     });
                 }
@@ -1225,9 +1420,12 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_playlist_drawer_visible();
                 if opening {
+                    app.set_playlist_drawer_visible(true);
                     app.set_info_drawer_visible(false);
+                    app.set_settings_drawer_visible(false);
+                } else {
+                    app.set_playlist_drawer_visible(false);
                 }
-                app.set_playlist_drawer_visible(opening);
             }
         });
     }
@@ -1241,21 +1439,23 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_settings_drawer_visible();
                 if opening {
-                    app.set_settings_drawer_reserved(true);
-                    if let Ok(mut video_host) = panel_video_host.lock() {
-                        if let Some(host) = video_host.as_mut() {
-                            let _ = sync_video_host(host, &app);
-                        }
-                    }
+                    app.set_inspector_reserved(true);
                     app.set_settings_drawer_visible(true);
+                    app.set_info_drawer_visible(false);
+                    app.set_playlist_drawer_visible(false);
+                    if let Ok(mut video_host) = panel_video_host.lock()
+                        && let Some(host) = video_host.as_mut()
+                    {
+                        let _ = sync_video_host(host, &app);
+                    }
                 } else {
                     app.set_settings_drawer_visible(false);
                     let delayed_app = app.as_weak();
                     slint::Timer::single_shot(DRAWER_CLOSE_DELAY, move || {
-                        if let Some(app) = delayed_app.upgrade() {
-                            if !app.get_settings_drawer_visible() {
-                                app.set_settings_drawer_reserved(false);
-                            }
+                        if let Some(app) = delayed_app.upgrade()
+                            && !app.get_inspector_visible()
+                        {
+                            app.set_inspector_reserved(false);
                         }
                     });
                 }
@@ -1268,45 +1468,40 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         let app_weak = app.as_weak();
         app.on_toggle_settings(move || {
             if let Some(app) = app_weak.upgrade() {
-                app.set_settings_drawer_visible(!app.get_settings_drawer_visible());
+                let opening = !app.get_settings_drawer_visible();
+                if opening {
+                    app.set_settings_drawer_visible(true);
+                    app.set_info_drawer_visible(false);
+                    app.set_playlist_drawer_visible(false);
+                } else {
+                    app.set_settings_drawer_visible(false);
+                }
             }
         });
     }
 
     {
         let app_weak = app.as_weak();
-        let shortcut_registry = shortcut_registry.clone();
 
         app.on_toggle_shortcuts(move || {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_shortcut_editor_visible();
                 app.set_command_palette_visible(false);
-                if opening {
-                    if app.get_info_drawer_visible() {
-                        app.invoke_toggle_info();
-                    }
-                    if app.get_playlist_drawer_visible() {
-                        app.invoke_toggle_playlist();
-                    }
-                    if app.get_settings_drawer_visible() {
-                        app.invoke_toggle_settings();
-                    }
-                }
                 app.set_shortcut_capture_action(-1);
                 app.set_shortcut_editor_error("".into());
-                if opening {
-                    if let Ok(shortcuts) = shortcut_registry.lock() {
-                        set_shortcut_items(&app, &shortcuts);
-                    }
-                }
                 app.set_shortcut_editor_visible(opening);
+                if opening {
+                    app.set_info_drawer_visible(false);
+                    app.set_playlist_drawer_visible(false);
+                    app.set_settings_drawer_visible(false);
+                    app.set_inspector_reserved(false);
+                }
             }
         });
     }
 
     {
         let app_weak = app.as_weak();
-        let shortcut_registry = shortcut_registry.clone();
 
         app.on_toggle_command_palette(move || {
             if let Some(app) = app_weak.upgrade() {
@@ -1315,8 +1510,8 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 app.set_shortcut_capture_action(-1);
                 app.set_shortcut_editor_error("".into());
                 app.set_command_query("".into());
-                if let Ok(shortcuts) = shortcut_registry.lock() {
-                    set_command_palette_items(&app, "", &shortcuts);
+                if !opening {
+                    app.invoke_command_query_changed("".into());
                 }
                 app.set_command_palette_visible(opening);
             }
@@ -1326,12 +1521,13 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     {
         let app_weak = app.as_weak();
         let shortcut_registry = shortcut_registry.clone();
+        let command_items = command_items.clone();
 
         app.on_command_query_changed(move |query| {
-            if let Some(app) = app_weak.upgrade() {
-                if let Ok(shortcuts) = shortcut_registry.lock() {
-                    set_command_palette_items(&app, query.as_str(), &shortcuts);
-                }
+            if app_weak.upgrade().is_some()
+                && let Ok(shortcuts) = shortcut_registry.lock()
+            {
+                set_command_palette_items(&command_items, query.as_str(), &shortcuts);
             }
         });
     }
@@ -1339,13 +1535,18 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     {
         let app_weak = app.as_weak();
         let shortcut_registry = shortcut_registry.clone();
+        let command_items = command_items.clone();
 
         app.on_reset_shortcuts(move || {
             if let Some(app) = app_weak.upgrade() {
                 if let Ok(mut shortcuts) = shortcut_registry.lock() {
                     shortcuts.reset();
                     set_shortcut_items(&app, &shortcuts);
-                    set_command_palette_items(&app, app.get_command_query().as_str(), &shortcuts);
+                    set_command_palette_items(
+                        &command_items,
+                        app.get_command_query().as_str(),
+                        &shortcuts,
+                    );
                 }
                 app.set_shortcut_capture_action(-1);
                 app.set_shortcut_editor_error("".into());
@@ -1392,9 +1593,12 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         let app_weak = app.as_weak();
         let tx_handle = tx.clone();
         let notifier_video_host = video_host.clone();
+        let notifier_render_source = render_source.clone();
+        let mut gl_renderer = None::<MpvOpenGlRenderer>;
+        let mut render_api_failed = false;
 
         app.window()
-            .set_rendering_notifier(move |state, _| {
+            .set_rendering_notifier(move |state, graphics_api| {
                 let Some(app) = app_weak.upgrade() else {
                     return;
                 };
@@ -1403,31 +1607,99 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 };
 
                 match state {
-                    slint::RenderingState::RenderingSetup => {
-                        match VideoHost::create(app.window()) {
-                            Ok(mut host) => {
-                                if let Err(error) = sync_video_host(&mut host, &app) {
-                                    app.set_error_message(error.to_string().into());
-                                    app.set_error_visible(true);
+                    slint::RenderingState::BeforeRendering => {
+                        if gl_renderer.is_none() && video_host.is_none() && !render_api_failed {
+                            let source = notifier_render_source
+                                .lock()
+                                .ok()
+                                .and_then(|source| source.clone());
+
+                            if let Some(source) = source {
+                                let renderer = match graphics_api {
+                                    slint::GraphicsAPI::NativeOpenGL { get_proc_address } => {
+                                        let wake_app = app.as_weak();
+                                        let native_redraw_hwnd =
+                                            native_window_handle(app.window()).map(|hwnd| hwnd as usize);
+                                        let redraw_pending = Arc::new(AtomicBool::new(false));
+                                        let wake_pending = Arc::clone(&redraw_pending);
+                                        MpvOpenGlRenderer::create(
+                                            source,
+                                            *get_proc_address,
+                                            move || {
+                                                if let Some(target) = native_redraw_hwnd {
+                                                    request_native_redraw(target);
+                                                }
+                                                if wake_pending.swap(true, Ordering::AcqRel) {
+                                                    return;
+                                                }
+                                                let event_pending = Arc::clone(&wake_pending);
+                                                if wake_app
+                                                    .upgrade_in_event_loop(move |app| {
+                                                        event_pending.store(false, Ordering::Release);
+                                                        app.window().request_redraw();
+                                                    })
+                                                    .is_err()
+                                                {
+                                                    wake_pending.store(false, Ordering::Release);
+                                                }
+                                            },
+                                        )
+                                    }
+                                    _ => Err(anyhow::anyhow!(
+                                        "FemtoVG did not expose a native OpenGL context"
+                                    )),
+                                };
+
+                                match renderer {
+                                    Ok(renderer) => {
+                                        gl_renderer = Some(renderer);
+                                        app.set_integrated_video_renderer(true);
+                                        let _ = tx_handle.send(Command::RenderApiReady);
+                                    }
+                                    Err(error) => {
+                                        eprintln!(
+                                            "OpenGL video renderer unavailable, using HWND fallback: {error:#}"
+                                        );
+                                        render_api_failed = true;
+                                        if let Err(error) = activate_hwnd_video_fallback(
+                                            &mut video_host,
+                                            &app,
+                                            &tx_handle,
+                                        ) {
+                                            app.set_error_message(error.to_string().into());
+                                            app.set_error_visible(true);
+                                        }
+                                    }
                                 }
-                                let _ = tx_handle.send(Command::SetVideoWindow(host.handle()));
-                                *video_host = Some(host);
                             }
-                            Err(error) => {
-                                app.set_error_message(error.to_string().into());
+                        }
+
+                        if let Some(renderer) = gl_renderer.as_mut() {
+                            let size = app.window().size();
+                            if let Err(error) = renderer.render((size.width, size.height)) {
+                                eprintln!("OpenGL video render failed: {error:#}");
+                                gl_renderer = None;
+                                render_api_failed = true;
+                                app.set_integrated_video_renderer(false);
+                                app.set_error_message(
+                                    "Не удалось продолжить встроенный вывод видео".into(),
+                                );
                                 app.set_error_visible(true);
                             }
                         }
                     }
-                    slint::RenderingState::BeforeRendering => {
-                        if let Some(host) = video_host.as_mut() {
-                            if let Err(error) = sync_video_host(host, &app) {
-                                app.set_error_message(error.to_string().into());
-                                app.set_error_visible(true);
-                            }
+                    slint::RenderingState::AfterRendering => {
+                        if let Some(renderer) = gl_renderer.as_ref() {
+                            renderer.report_swap();
+                        } else if let Some(host) = video_host.as_mut()
+                            && let Err(error) = sync_video_host(host, &app)
+                        {
+                            app.set_error_message(error.to_string().into());
+                            app.set_error_visible(true);
                         }
                     }
                     slint::RenderingState::RenderingTeardown => {
+                        gl_renderer = None;
                         *video_host = None;
                     }
                     _ => {}
@@ -1436,7 +1708,6 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
             .ok();
 
         let timer_app = app.as_weak();
-        let timer_video_host = video_host.clone();
         let timer_native_fullscreen = native_fullscreen.clone();
         video_resize_timer.start(
             slint::TimerMode::Repeated,
@@ -1465,25 +1736,20 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         app.invoke_toggle_settings();
                     }
                 }
-                let Ok(mut video_host) = timer_video_host.lock() else {
-                    return;
-                };
-                if let Some(host) = video_host.as_mut() {
-                    if let Err(error) = sync_video_host(host, &app) {
-                        app.set_error_message(error.to_string().into());
-                        app.set_error_visible(true);
-                    }
-                }
             },
         );
     }
 
     let weak = app.as_weak();
+    #[cfg(target_os = "windows")]
+    let event_render_source = render_source.clone();
 
     std::thread::spawn(move || {
         while let Ok(event) = rx.recv() {
             let weak = weak.clone();
             let current_duration = current_duration.clone();
+            #[cfg(target_os = "windows")]
+            let render_source = event_render_source.clone();
 
             slint::invoke_from_event_loop(move || {
                 let Some(app) = weak.upgrade() else {
@@ -1491,9 +1757,21 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 };
 
                 match event {
+                    #[cfg(target_os = "windows")]
+                    Event::RenderSource(source) => {
+                        if let Ok(mut target) = render_source.lock() {
+                            *target = Some(source);
+                        }
+                        app.window().request_redraw();
+                    }
+
+                    #[cfg(not(target_os = "windows"))]
+                    Event::RenderSource(_) => {}
+
                     Event::LoadStarted(name) => {
                         let preserve_media_surface = app.get_media_presented();
                         app.set_file_name(name.into());
+                        app.set_waiting_for_video_surface(false);
                         app.set_media_transitioning(preserve_media_surface);
                         app.set_is_playing(false);
                         if !preserve_media_surface {
@@ -1519,8 +1797,11 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
                     Event::MediaAvailable(available) => {
                         app.set_media_loaded(available);
-                        app.set_media_transitioning(false);
+                        app.set_media_transitioning(
+                            available && app.get_waiting_for_video_surface(),
+                        );
                         if !available {
+                            app.set_waiting_for_video_surface(false);
                             app.set_is_playing(false);
                         }
                     }
@@ -1548,6 +1829,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
                     Event::PlaybackFailed(message) => {
                         app.set_media_transitioning(false);
+                        app.set_waiting_for_video_surface(false);
                         app.set_media_loaded(false);
                         app.set_is_playing(false);
                         app.set_player_phase(PlayerPhase::Error);
@@ -1614,16 +1896,25 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         codec,
                         audio_codec,
                     } => {
-                        app.set_audio_media(is_audio_only_media(
-                            width,
-                            height,
-                            &codec,
-                            &audio_codec,
-                        ));
+                        let audio_media = is_audio_only_media(width, height, &codec, &audio_codec);
+                        let wait_for_video =
+                            app.get_media_transitioning() && app.get_audio_media() && !audio_media;
+                        app.set_waiting_for_video_surface(wait_for_video);
+                        if !wait_for_video {
+                            app.set_audio_media(audio_media);
+                        }
                         app.set_resolution(format!("{}x{}", width, height).into());
                         app.set_fps(format!("{:.2}", fps).into());
                         app.set_codec(codec.into());
                         app.set_audio_codec(audio_codec.into());
+                    }
+
+                    Event::VideoOutputReady => {
+                        if app.get_waiting_for_video_surface() {
+                            app.set_audio_media(false);
+                            app.set_waiting_for_video_surface(false);
+                            app.set_media_transitioning(false);
+                        }
                     }
 
                     Event::LoopEnabled(enabled) => {
@@ -1658,8 +1949,8 @@ mod tests {
     use std::path::Path;
 
     use super::{
+        PALETTE_COMMANDS, ShortcutAction, ShortcutBinding, ShortcutRegistry,
         command_for_dropped_path, command_palette_items, format_time, is_audio_only_media,
-        ShortcutAction, ShortcutBinding, ShortcutRegistry, PALETTE_COMMANDS,
     };
     use crate::ipc::Command;
     use slint::winit_030::winit::keyboard::{KeyCode, ModifiersState};

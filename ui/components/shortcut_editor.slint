@@ -1,4 +1,4 @@
-import { ScrollView } from "std-widgets.slint";
+import { ListView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { Button, Divider, UiText, TextVariant } from "../design_system/primitives.slint";
 
@@ -52,6 +52,7 @@ component ShortcutEditRow inherits Rectangle {
 }
 
 export component ShortcutEditorOverlay inherits Rectangle {
+    private property <bool> prewarming: true;
     in property <bool> open;
     in property <[ShortcutEntry]> shortcuts;
     in property <int> capture-action: -1;
@@ -60,23 +61,30 @@ export component ShortcutEditorOverlay inherits Rectangle {
     callback reset-defaults();
     callback close();
 
-    visible: open || self.opacity > 0.01;
-    opacity: open ? 1 : 0;
+    opacity: open ? 1 : prewarming ? 0.001 : 0;
     background: transparent;
 
     animate opacity {
-        duration: Theme.motion-normal;
+        duration: Theme.motion-slow;
         easing: cubic-bezier(0.2, 0, 0, 1);
     }
 
+    prewarm-timer := Timer {
+        interval: 120ms;
+        running: root.prewarming;
+        triggered => { root.prewarming = false; }
+    }
+
     TouchArea {
+        enabled: root.open;
         width: parent.width;
         height: parent.height;
         clicked => root.close();
     }
 
     Rectangle {
-        property <length> slide-offset: root.open ? 0px : Theme.space-8;
+        property <length> slide-offset: root.open || root.prewarming
+            ? 0px : self.width + Theme.space-5;
 
         width: min(parent.width - Theme.space-8, 520px);
         height: max(0px, parent.height - self.y
@@ -88,12 +96,12 @@ export component ShortcutEditorOverlay inherits Rectangle {
         border-width: 1px;
         border-color: Theme.border-glass;
         drop-shadow-color: Theme.shadow-high;
-        drop-shadow-blur: Theme.elevation-high-blur;
+        drop-shadow-blur: Theme.space-1;
         drop-shadow-offset-y: Theme.elevation-high-y;
         clip: true;
 
         animate slide-offset {
-            duration: Theme.motion-normal;
+            duration: Theme.motion-slow;
             easing: cubic-bezier(0.16, 1, 0.3, 1);
         }
 
@@ -113,14 +121,15 @@ export component ShortcutEditorOverlay inherits Rectangle {
 
             Divider { }
 
-            ScrollView {
+            ListView {
                 vertical-stretch: 1;
 
-                VerticalLayout {
-                    width: max(0px, parent.width - Theme.space-2);
-                    spacing: Theme.space-1;
+                for shortcut in root.shortcuts : Rectangle {
+                    width: parent.width;
+                    height: 56px;
+                    background: transparent;
 
-                    for shortcut in root.shortcuts : ShortcutEditRow {
+                    ShortcutEditRow {
                         width: parent.width;
                         entry: shortcut;
                         capturing: shortcut.action == root.capture-action;

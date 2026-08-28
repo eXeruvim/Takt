@@ -1,23 +1,23 @@
 use std::{ffi::c_void, mem};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::WinitWindowAccessor;
 use windows_sys::{
-    core::{IUnknown_Vtbl, BOOL, GUID, HRESULT},
     Win32::{
         Foundation::HWND,
         Graphics::Gdi::{
-            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+            GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
         },
         System::Com::{
-            CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+            CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
         },
         UI::WindowsAndMessaging::{
-            GetWindowPlacement, SetWindowPlacement, SetWindowPos, SWP_NOOWNERZORDER,
-            SWP_SHOWWINDOW, WINDOWPLACEMENT,
+            GetWindowPlacement, SWP_NOOWNERZORDER, SWP_SHOWWINDOW, SetWindowPlacement,
+            SetWindowPos, WINDOWPLACEMENT,
         },
     },
+    core::{BOOL, GUID, HRESULT, IUnknown_Vtbl},
 };
 
 #[repr(C)]

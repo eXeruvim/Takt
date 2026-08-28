@@ -1,3 +1,5 @@
+use crate::render::mpv_opengl::MpvRenderSource;
+
 #[derive(Debug)]
 pub enum Command {
     OpenFile(String),
@@ -24,6 +26,7 @@ pub enum Command {
     AdjustVolume(f64),
     ToggleMute,
 
+    RenderApiReady,
     SetVideoWindow(usize),
 
     RequestMediaInfo,
@@ -33,6 +36,7 @@ pub enum Command {
 
 #[derive(Debug)]
 pub enum Event {
+    RenderSource(MpvRenderSource),
     TimePos(f64),
     Duration(f64),
 
@@ -48,6 +52,7 @@ pub enum Event {
 
     FileLoaded(String),
     MediaAvailable(bool),
+    VideoOutputReady,
 
     Playlist {
         items: Vec<String>,

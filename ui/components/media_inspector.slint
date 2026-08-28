@@ -1,0 +1,316 @@
+import { ListView, ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Button, Divider, IconButton, Toggle, UiText, TextVariant } from "../design_system/primitives.slint";
+import { MediaListItem, SettingsRow } from "../design_system/composites.slint";
+
+component PropertyRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+
+    height: Theme.space-12;
+    background: transparent;
+
+    VerticalLayout {
+        alignment: center;
+        spacing: Theme.space-1;
+
+        UiText {
+            text: root.label;
+            variant: TextVariant.caption;
+            color: Theme.text-muted;
+        }
+        UiText {
+            text: root.value;
+            variant: TextVariant.label;
+            overflow: elide;
+        }
+    }
+}
+
+export component MediaInspector inherits Rectangle {
+    private property <bool> prewarming: true;
+    in property <bool> open;
+    in property <bool> playlist-open;
+    in property <bool> info-open;
+    in property <bool> playback-open;
+    in property <[string]> items;
+    in property <int> current-index: -1;
+    in property <string> file-name;
+    in property <string> codec;
+    in property <string> audio-codec;
+    in property <string> resolution;
+    in property <string> fps;
+    in property <bool> audio-media;
+    in-out property <float> speed;
+    in-out property <bool> loop-enabled;
+    in-out property <bool> folder-loop-enabled;
+    in-out property <bool> shuffle-enabled;
+    in property <length> parent-width;
+    in property <length> parent-height;
+    out property <length> slide-offset: open || prewarming
+        ? 0px : self.width + Theme.space-5;
+    callback show-playlist();
+    callback show-info();
+    callback show-playback();
+    callback close();
+    callback play-index(int);
+    callback set-speed(float);
+    callback toggle-loop();
+    callback toggle-folder-loop();
+    callback toggle-shuffle();
+    callback edit-shortcuts();
+
+    width: min(392px, parent-width - Theme.space-8);
+    height: max(0px, parent-height - self.y
+        - Theme.player-controls-height - Theme.space-6);
+    x: parent-width - self.width - Theme.space-4 + slide-offset;
+    y: Theme.top-bar-height + Theme.space-2;
+    opacity: open ? 1 : prewarming ? 0.001 : 0;
+    border-radius: Theme.radius-large;
+    background: Theme.surface-inspector;
+    border-width: 1px;
+    border-color: Theme.border-glass;
+    drop-shadow-color: Theme.shadow-low;
+    drop-shadow-blur: Theme.space-1;
+    drop-shadow-offset-y: Theme.elevation-low-y;
+    clip: true;
+
+    animate opacity {
+        duration: Theme.motion-slow;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    animate slide-offset {
+        duration: Theme.motion-slow;
+        easing: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    prewarm-timer := Timer {
+        interval: 120ms;
+        running: root.prewarming;
+        triggered => { root.prewarming = false; }
+    }
+
+    TouchArea {
+        enabled: root.open;
+        width: parent.width;
+        height: parent.height;
+    }
+
+    VerticalLayout {
+        padding: Theme.space-5;
+        spacing: Theme.space-3;
+
+        HorizontalLayout {
+            height: Theme.space-10;
+            alignment: center;
+
+            UiText {
+                text: "Inspector";
+                variant: TextVariant.title;
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+            }
+
+            IconButton {
+                icon: @image-url("../icons/window-close.svg");
+                accessible-name: "Закрыть Inspector";
+                circular: true;
+                capture-focus: false;
+                clicked => root.close();
+            }
+        }
+
+        HorizontalLayout {
+            height: Theme.space-10;
+            spacing: Theme.space-2;
+
+            Button {
+                horizontal-stretch: 1;
+                text: "Плейлист";
+                selected: root.playlist-open;
+                clicked => {
+                    if (!root.playlist-open) { root.show-playlist(); }
+                }
+            }
+            Button {
+                horizontal-stretch: 1;
+                text: "Информация";
+                selected: root.info-open;
+                clicked => {
+                    if (!root.info-open) { root.show-info(); }
+                }
+            }
+            Button {
+                horizontal-stretch: 1;
+                text: "Настройки";
+                selected: root.playback-open;
+                clicked => {
+                    if (!root.playback-open) { root.show-playback(); }
+                }
+            }
+        }
+
+        Divider { }
+
+        content-host := Rectangle {
+            vertical-stretch: 1;
+            background: transparent;
+            clip: true;
+
+            VerticalLayout {
+                x: root.playlist-open || root.prewarming
+                    ? 0px : parent.width + Theme.space-1;
+                width: parent.width;
+                height: parent.height;
+                spacing: Theme.space-3;
+
+            UiText {
+                text: root.items.length == 0
+                    ? "Очередь пока пуста"
+                    : root.items.length + (root.items.length == 1
+                        ? " файл" : " файлов в очереди");
+                variant: TextVariant.caption;
+                color: Theme.text-secondary;
+            }
+
+            if root.items.length == 0 : UiText {
+                text: "Откройте файл или папку, чтобы сформировать очередь";
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+
+            if root.items.length > 0 : ListView {
+                vertical-stretch: 1;
+
+                for item[index] in root.items : Rectangle {
+                    width: parent.width;
+                    height: Theme.space-12 + Theme.space-1;
+                    background: transparent;
+
+                    MediaListItem {
+                        width: parent.width;
+                        title: item;
+                        subtitle: index == root.current-index
+                            ? "Сейчас воспроизводится" : "Открыть";
+                        selected: index == root.current-index;
+                        activated => root.play-index(index);
+                    }
+                }
+            }
+
+            Rectangle {
+                vertical-stretch: root.items.length == 0 ? 1 : 0;
+                background: transparent;
+            }
+            UiText {
+                text: "Выберите файл, чтобы перейти к нему";
+                variant: TextVariant.caption;
+                color: Theme.text-muted;
+            }
+        }
+
+            VerticalLayout {
+                x: root.info-open || root.prewarming
+                    ? 0px : parent.width + Theme.space-1;
+                width: parent.width;
+                height: parent.height;
+                spacing: Theme.space-3;
+
+            UiText {
+                text: root.file-name;
+                color: Theme.text-secondary;
+                overflow: elide;
+            }
+            if !root.audio-media : PropertyRow { label: "Видео"; value: root.codec; }
+            if !root.audio-media : PropertyRow { label: "Разрешение"; value: root.resolution; }
+            if !root.audio-media : PropertyRow {
+                label: "Частота кадров";
+                value: root.fps + " FPS";
+            }
+            if !root.audio-media : Divider { }
+            PropertyRow { label: "Аудио"; value: root.audio-codec; }
+            Rectangle { vertical-stretch: 1; background: transparent; }
+            UiText {
+                text: "I — открыть или закрыть Inspector";
+                variant: TextVariant.caption;
+                color: Theme.text-muted;
+            }
+        }
+
+            ScrollView {
+                x: root.playback-open || root.prewarming
+                    ? 0px : parent.width + Theme.space-1;
+                width: parent.width;
+                height: parent.height;
+                viewport-height: max(self.visible-height, 392px);
+
+                VerticalLayout {
+                    width: parent.width;
+                    height: 392px;
+                    y: 0px;
+                    spacing: Theme.space-4;
+
+                UiText {
+                    text: "Настройки воспроизведения";
+                    variant: TextVariant.caption;
+                    color: Theme.text-muted;
+                }
+
+                UiText { text: "Скорость"; variant: TextVariant.label; }
+                HorizontalLayout {
+                    height: Theme.space-10;
+                    spacing: Theme.space-2;
+
+                    for value in ["0.5", "1.0", "1.25", "1.5", "2.0"] : Button {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        text: value + "×";
+                        selected: root.speed == value.to-float();
+                        clicked => root.set-speed(value.to-float());
+                    }
+                }
+
+                Divider { }
+
+                SettingsRow {
+                    height: Theme.space-12;
+                    title: "Повтор файла";
+                    description: "Запускать текущий файл заново";
+                    Toggle {
+                        checked: root.loop-enabled;
+                        toggled => root.toggle-loop();
+                    }
+                }
+
+                SettingsRow {
+                    height: Theme.space-12;
+                    title: "Повтор папки";
+                    description: "Возвращаться к началу списка";
+                    Toggle {
+                        checked: root.folder-loop-enabled;
+                        toggled => root.toggle-folder-loop();
+                    }
+                }
+
+                SettingsRow {
+                    height: Theme.space-12;
+                    title: "Случайный порядок";
+                    description: "Перемешивать соседние медиафайлы";
+                    Toggle {
+                        checked: root.shuffle-enabled;
+                        toggled => root.toggle-shuffle();
+                    }
+                }
+
+                Divider { }
+
+                    Button {
+                        text: "Настроить горячие клавиши";
+                        clicked => root.edit-shortcuts();
+                    }
+                }
+            }
+        }
+    }
+}

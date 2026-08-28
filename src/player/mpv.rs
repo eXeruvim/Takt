@@ -1,13 +1,22 @@
-use std::{path::Path, path::PathBuf, time::Duration};
+use std::{
+    collections::VecDeque,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 use crate::ipc::{Command, Event};
 use crate::player::{media_info::MediaInfo, playlist::DirectoryPlaylist};
+use crate::render::mpv_opengl::MpvRenderSource;
 use anyhow::Context;
 use crossbeam_channel::{Receiver, Sender};
 use libmpv::{
+    Format, Mpv,
     events::{Event as MpvEvent, PropertyData},
-    mpv_end_file_reason, Format, Mpv,
+    mpv_end_file_reason,
 };
+
+const PREVIOUS_RESTART_THRESHOLD_SECONDS: f64 = 3.0;
 
 #[derive(Default)]
 struct PlaybackOptions {
@@ -22,6 +31,10 @@ fn mpv_error<T>(result: Result<T, libmpv::Error>) -> anyhow::Result<T> {
 
 fn loop_value_is_enabled(value: &str) -> bool {
     !matches!(value, "" | "no" | "0" | "false")
+}
+
+fn should_restart_current(position: f64) -> bool {
+    position.is_finite() && position > PREVIOUS_RESTART_THRESHOLD_SECONDS
 }
 
 fn send_playlist(tx: &Sender<Event>, playlist: &DirectoryPlaylist) {
@@ -245,7 +258,11 @@ fn handle_command(
             }
         }
         Command::PreviousVideo => {
-            if load_adjacent(mpv, tx, playlist, false, options.repeat_folder)? {
+            let position = mpv.get_property::<f64>("time-pos").unwrap_or_default();
+            if should_restart_current(position) {
+                mpv_error(mpv.set_property("time-pos", 0.0))?;
+                let _ = tx.send(Event::TimePos(0.0));
+            } else if load_adjacent(mpv, tx, playlist, false, options.repeat_folder)? {
                 options.media_available = true;
             }
         }
@@ -306,6 +323,7 @@ fn handle_command(
             let muted = mpv.get_property::<bool>("mute").unwrap_or(false);
             mpv_error(mpv.set_property("mute", !muted))?;
         }
+        Command::RenderApiReady => {}
         Command::RequestMediaInfo => {
             if options.media_available {
                 send_media_info(mpv, tx);
@@ -336,10 +354,25 @@ fn send_property_change(tx: &Sender<Event>, name: &str, change: PropertyData<'_>
 }
 
 pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
-    let mpv = Mpv::new().map_err(|e| anyhow::anyhow!("{:?}", e))?;
+    let mpv = Arc::new(
+        Mpv::with_initializer(|initializer| {
+            #[cfg(target_os = "windows")]
+            {
+                initializer.set_property("vo", "libmpv".to_owned())?;
+                initializer.set_property("background", "color".to_owned())?;
+                initializer.set_property("background-color", "0.035/0.035/0.05/0.72".to_owned())?;
+            }
+            Ok(())
+        })
+        .map_err(|e| anyhow::anyhow!("{:?}", e))?,
+    );
     let mut playlist: Option<DirectoryPlaylist> = None;
     let mut options = PlaybackOptions::default();
     let mut events = mpv.create_event_context();
+    let mut output_ready = !cfg!(target_os = "windows");
+    let mut pending_media_commands = VecDeque::new();
+
+    let _ = tx.send(Event::RenderSource(MpvRenderSource::new(Arc::clone(&mpv))));
 
     mpv_error(events.disable_deprecated_events())?;
     for (id, name, format) in [
@@ -355,7 +388,12 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
     }
 
     loop {
+        let mut commands = VecDeque::new();
         while let Ok(command) = rx.try_recv() {
+            commands.push_back(command);
+        }
+
+        while let Some(command) = commands.pop_front() {
             let changes_media = matches!(
                 &command,
                 Command::OpenFile(_)
@@ -364,8 +402,24 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                     | Command::PreviousVideo
                     | Command::PlayIndex(_)
             );
+            if changes_media && !output_ready {
+                pending_media_commands.push_back(command);
+                continue;
+            }
+
+            let makes_output_ready = matches!(
+                &command,
+                Command::RenderApiReady | Command::SetVideoWindow(_)
+            );
             match handle_command(command, &mpv, &tx, &mut playlist, &mut options) {
-                Ok(true) => {}
+                Ok(true) => {
+                    if makes_output_ready && !output_ready {
+                        output_ready = true;
+                        while let Some(command) = pending_media_commands.pop_back() {
+                            commands.push_front(command);
+                        }
+                    }
+                }
                 Ok(false) => return Ok(()),
                 Err(error) => {
                     eprintln!("Ошибка команды mpv: {error:#}");
@@ -413,9 +467,11 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                         }
                     }
                 }
-                Ok(MpvEvent::VideoReconfig | MpvEvent::AudioReconfig)
-                    if options.media_available =>
-                {
+                Ok(MpvEvent::VideoReconfig) if options.media_available => {
+                    send_media_ready(&mpv, &tx);
+                    let _ = tx.send(Event::VideoOutputReady);
+                }
+                Ok(MpvEvent::AudioReconfig) if options.media_available => {
                     send_media_ready(&mpv, &tx);
                 }
                 Ok(MpvEvent::PropertyChange { name, change, .. }) => {
@@ -437,7 +493,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::loop_value_is_enabled;
+    use super::{loop_value_is_enabled, should_restart_current};
 
     #[test]
     fn recognizes_normalized_mpv_loop_values() {
@@ -445,5 +501,13 @@ mod tests {
         assert!(loop_value_is_enabled("yes"));
         assert!(!loop_value_is_enabled("no"));
         assert!(!loop_value_is_enabled("0"));
+    }
+
+    #[test]
+    fn previous_restarts_only_after_the_opening_threshold() {
+        assert!(!should_restart_current(0.0));
+        assert!(!should_restart_current(3.0));
+        assert!(should_restart_current(3.01));
+        assert!(!should_restart_current(f64::NAN));
     }
 }

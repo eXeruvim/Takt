@@ -257,6 +257,8 @@ export component SettingsRow inherits Rectangle {
     in property <string> description;
 
     min-height: Theme.space-12;
+    min-width: 0px;
+    horizontal-stretch: 1;
     background: transparent;
 
     HorizontalLayout {
@@ -264,11 +266,21 @@ export component SettingsRow inherits Rectangle {
         alignment: center;
 
         VerticalLayout {
+            min-width: 0px;
+            horizontal-stretch: 1;
             vertical-stretch: 1;
             spacing: Theme.space-1;
 
-            UiText { text: root.title; variant: TextVariant.label; }
-            UiText { text: root.description; color: Theme.text-secondary; }
+            UiText {
+                text: root.title;
+                variant: TextVariant.label;
+                overflow: elide;
+            }
+            UiText {
+                text: root.description;
+                color: Theme.text-secondary;
+                overflow: elide;
+            }
         }
 
         @children
@@ -283,6 +295,8 @@ export component MediaListItem inherits Rectangle {
     callback activated();
 
     height: Theme.space-12;
+    min-width: 0px;
+    horizontal-stretch: 1;
     border-radius: Theme.radius-medium;
     background: selected ? Theme.surface-selected
         : hit.pressed ? Theme.surface-pressed
@@ -294,18 +308,54 @@ export component MediaListItem inherits Rectangle {
     accessible-role: list-item;
     accessible-label: title;
 
+    private property <length> estimated-title-width:
+        max(title-viewport.width, title.character-count * 7.2px);
+    private property <bool> title-overflows:
+        estimated-title-width > title-viewport.width + Theme.space-1;
+
     hit := TouchArea {
         enabled: root.enabled;
         clicked => root.activated();
     }
 
-    VerticalLayout {
-        padding-left: Theme.space-3;
-        padding-right: Theme.space-3;
-        alignment: center;
+    title-viewport := Rectangle {
+        x: Theme.space-3;
+        y: Theme.space-1;
+        width: max(0px, root.width - Theme.space-6);
+        height: Theme.space-5;
+        background: transparent;
+        clip: true;
 
-        UiText { text: root.title; variant: TextVariant.label; }
-        UiText { text: root.subtitle; color: Theme.text-secondary; variant: TextVariant.caption; }
+        title-text := UiText {
+            x: root.title-overflows && hit.has-hover
+                ? parent.width - root.estimated-title-width
+                : 0px;
+            width: root.title-overflows && hit.has-hover
+                ? root.estimated-title-width
+                : parent.width;
+            height: parent.height;
+            text: root.title;
+            variant: TextVariant.label;
+            overflow: elide;
+            vertical-alignment: center;
+
+            animate x {
+                duration: 2200ms;
+                easing: linear;
+            }
+        }
+    }
+
+    UiText {
+        x: Theme.space-3;
+        y: Theme.space-6;
+        width: max(0px, root.width - Theme.space-6);
+        height: Theme.space-4;
+        text: root.subtitle;
+        color: Theme.text-secondary;
+        variant: TextVariant.caption;
+        overflow: elide;
+        vertical-alignment: center;
     }
 
     animate background, opacity {

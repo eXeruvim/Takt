@@ -1,19 +1,19 @@
 #[cfg(target_os = "windows")]
 mod windows {
     use std::{
-        ffi::{c_void, OsStr},
+        ffi::{OsStr, c_void},
         os::windows::ffi::OsStrExt,
         sync::{
-            atomic::{AtomicBool, AtomicU64, Ordering},
             OnceLock,
+            atomic::{AtomicBool, AtomicU64, Ordering},
         },
     };
 
-    use anyhow::{anyhow, Result};
+    use anyhow::{Result, anyhow};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::{
         Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM},
-        Graphics::Gdi::{BeginPaint, EndPaint, GetStockObject, BLACK_BRUSH, PAINTSTRUCT},
+        Graphics::Gdi::{BLACK_BRUSH, BeginPaint, EndPaint, GetStockObject, PAINTSTRUCT},
         System::LibraryLoader::GetModuleHandleW,
         UI::WindowsAndMessaging::*,
     };
@@ -92,7 +92,6 @@ mod windows {
             physical_size: (u32, u32),
             scale: f32,
             insets: (f32, f32, f32, f32),
-            preserve_frame: bool,
         ) -> Result<()> {
             let (left_inset, right_inset, top_inset, bottom_inset) = insets;
             let x = (left_inset * scale).round() as i32;
@@ -107,10 +106,6 @@ mod windows {
                 return Ok(());
             }
 
-            let mut flags = SWP_NOACTIVATE | SWP_NOZORDER;
-            if !preserve_frame {
-                flags |= SWP_NOCOPYBITS;
-            }
             let moved = unsafe {
                 SetWindowPos(
                     self.handle as HWND,
@@ -119,7 +114,7 @@ mod windows {
                     y,
                     width,
                     height,
-                    flags,
+                    SWP_NOACTIVATE | SWP_NOZORDER,
                 )
             };
             if moved == 0 {
@@ -193,32 +188,34 @@ mod windows {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> LRESULT {
-        match message {
-            WM_MOUSEMOVE => {
-                record_pointer_activity(false);
-                DefWindowProcW(window, message, wparam, lparam)
+        unsafe {
+            match message {
+                WM_MOUSEMOVE => {
+                    record_pointer_activity(false);
+                    DefWindowProcW(window, message, wparam, lparam)
+                }
+                WM_LBUTTONDOWN => {
+                    record_pointer_activity(true);
+                    PRIMARY_CLICK_REQUESTED.store(true, Ordering::Release);
+                    DefWindowProcW(window, message, wparam, lparam)
+                }
+                WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_MOUSEWHEEL => {
+                    record_pointer_activity(true);
+                    DefWindowProcW(window, message, wparam, lparam)
+                }
+                WM_LBUTTONDBLCLK => {
+                    record_pointer_activity(true);
+                    FULLSCREEN_REQUESTED.store(true, Ordering::Release);
+                    0
+                }
+                WM_PAINT => {
+                    let mut paint = std::mem::zeroed::<PAINTSTRUCT>();
+                    BeginPaint(window, &mut paint);
+                    EndPaint(window, &paint);
+                    0
+                }
+                _ => DefWindowProcW(window, message, wparam, lparam),
             }
-            WM_LBUTTONDOWN => {
-                record_pointer_activity(true);
-                PRIMARY_CLICK_REQUESTED.store(true, Ordering::Release);
-                DefWindowProcW(window, message, wparam, lparam)
-            }
-            WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_MOUSEWHEEL => {
-                record_pointer_activity(true);
-                DefWindowProcW(window, message, wparam, lparam)
-            }
-            WM_LBUTTONDBLCLK => {
-                record_pointer_activity(true);
-                FULLSCREEN_REQUESTED.store(true, Ordering::Release);
-                0
-            }
-            WM_PAINT => {
-                let mut paint = std::mem::zeroed::<PAINTSTRUCT>();
-                BeginPaint(window, &mut paint);
-                EndPaint(window, &paint);
-                0
-            }
-            _ => DefWindowProcW(window, message, wparam, lparam),
         }
     }
 

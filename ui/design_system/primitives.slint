@@ -353,6 +353,7 @@ export component Slider inherits Rectangle {
         pointer-event(event) => {
             if (event.button == PointerEventButton.left
                 && event.kind == PointerEventKind.down) {
+                focus.focus();
                 root.update-value(self.mouse-x);
             }
         }
@@ -361,8 +362,10 @@ export component Slider inherits Rectangle {
     }
 
     focus := FocusScope {
+        width: 0px;
+        height: 0px;
         enabled: root.enabled;
-        focus-on-click: true;
+        focus-on-click: false;
         key-pressed(event) => {
             if (event.text == Key.LeftArrow || event.text == Key.DownArrow) {
                 root.set-value(root.value - (root.maximum - root.minimum) / 20);

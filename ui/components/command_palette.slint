@@ -101,25 +101,18 @@ export component CommandPaletteOverlay inherits Rectangle {
     }
 
     Rectangle {
-        property <length> slide-offset: root.open ? 0px : -Theme.space-3;
-
         width: min(parent.width - Theme.space-12, 640px);
         height: min(parent.height - Theme.space-12 * 2, 520px);
         x: (parent.width - self.width) / 2;
-        y: max(Theme.space-12, (parent.height - self.height) / 3) + self.slide-offset;
+        y: max(Theme.space-12, (parent.height - self.height) / 3);
         border-radius: Theme.radius-xlarge;
         background: Theme.surface-modal;
         border-width: 1px;
         border-color: Theme.border-glass;
         drop-shadow-color: Theme.shadow-high;
-        drop-shadow-blur: Theme.elevation-high-blur;
+        drop-shadow-blur: Theme.space-1;
         drop-shadow-offset-y: Theme.elevation-high-y;
         clip: true;
-
-        animate slide-offset {
-            duration: Theme.motion-normal;
-            easing: cubic-bezier(0.16, 1, 0.3, 1);
-        }
 
         TouchArea {
             width: parent.width;
