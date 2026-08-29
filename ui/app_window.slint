@@ -38,6 +38,8 @@ export component AppWindow inherits Window {
     in property <[AudioTrackEntry]> audio_tracks;
     in property <[SubtitleTrackEntry]> subtitle_tracks;
     in-out property <bool> subtitles_enabled: false;
+    in-out property <float> audio_delay: 0;
+    in-out property <float> subtitle_delay: 0;
     in-out property <image> album_art;
     in-out property <bool> album_art_available: false;
     in-out property <bool> audio_visualization_enabled: true;
@@ -143,6 +145,10 @@ export component AppWindow inherits Window {
     callback select_audio_track(int);
     callback select_subtitle_track(int);
     callback load_subtitle();
+    callback adjust_audio_delay(float);
+    callback adjust_subtitle_delay(float);
+    callback reset_audio_delay();
+    callback reset_subtitle_delay();
     callback toggle_loop();
     callback toggle_folder_loop();
     callback toggle_shuffle();
@@ -499,6 +505,8 @@ export component AppWindow inherits Window {
                 audio-tracks: root.audio_tracks;
                 subtitle-tracks: root.subtitle_tracks;
                 subtitles-enabled: root.subtitles_enabled;
+                audio-delay: root.audio_delay;
+                subtitle-delay: root.subtitle_delay;
                 speed: root.speed;
                 folder-loop-enabled: root.folder_loop_enabled;
                 shuffle-enabled: root.shuffle_enabled;
@@ -518,6 +526,10 @@ export component AppWindow inherits Window {
                 select-audio-track(id) => root.select_audio_track(id);
                 select-subtitle-track(id) => root.select_subtitle_track(id);
                 load-subtitle => root.load_subtitle();
+                adjust-audio-delay(delta) => root.adjust_audio_delay(delta);
+                adjust-subtitle-delay(delta) => root.adjust_subtitle_delay(delta);
+                reset-audio-delay => root.reset_audio_delay();
+                reset-subtitle-delay => root.reset_subtitle_delay();
                 toggle-folder-loop => root.toggle_folder_loop();
                 toggle-shuffle => root.toggle_shuffle();
                 toggle-audio-visualization => {

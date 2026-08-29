@@ -16,6 +16,10 @@ pub enum Command {
     SelectAudioTrack(i64),
     SelectSubtitleTrack(Option<i64>),
     LoadSubtitle(String),
+    AdjustAudioDelay(f64),
+    AdjustSubtitleDelay(f64),
+    ResetAudioDelay,
+    ResetSubtitleDelay,
     SetDarkTheme(bool),
 
     NextVideo,
@@ -67,6 +71,8 @@ pub enum Event {
     Volume(f64),
     Muted(bool),
     Speed(f64),
+    AudioDelay(f64),
+    SubtitleDelay(f64),
 
     FileLoaded(String),
     MediaAvailable(bool),

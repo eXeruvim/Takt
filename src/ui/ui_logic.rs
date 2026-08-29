@@ -1283,6 +1283,34 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
     {
         let tx = tx.clone();
+        app.on_adjust_audio_delay(move |delta| {
+            let _ = tx.send(Command::AdjustAudioDelay(f64::from(delta)));
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        app.on_adjust_subtitle_delay(move |delta| {
+            let _ = tx.send(Command::AdjustSubtitleDelay(f64::from(delta)));
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        app.on_reset_audio_delay(move || {
+            let _ = tx.send(Command::ResetAudioDelay);
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        app.on_reset_subtitle_delay(move || {
+            let _ = tx.send(Command::ResetSubtitleDelay);
+        });
+    }
+
+    {
+        let tx = tx.clone();
 
         app.on_next_video(move || {
             let _ = tx.send(Command::NextVideo);
@@ -1808,6 +1836,8 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         >::new(
                         ))));
                         app.set_subtitles_enabled(false);
+                        app.set_audio_delay(0.0);
+                        app.set_subtitle_delay(0.0);
                         app.set_waiting_for_video_surface(false);
                         app.set_media_transitioning(preserve_media_surface);
                         app.set_is_playing(false);
@@ -1884,6 +1914,14 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
                     Event::Speed(v) => {
                         app.set_speed(v as f32);
+                    }
+
+                    Event::AudioDelay(value) => {
+                        app.set_audio_delay(value as f32);
+                    }
+
+                    Event::SubtitleDelay(value) => {
+                        app.set_subtitle_delay(value as f32);
                     }
 
                     Event::TimePos(position) => {

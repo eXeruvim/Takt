@@ -21,6 +21,7 @@ use libmpv::{
 };
 
 const PREVIOUS_RESTART_THRESHOLD_SECONDS: f64 = 3.0;
+const MAX_SYNC_DELAY_SECONDS: f64 = 30.0;
 
 #[derive(Default)]
 struct PlaybackOptions {
@@ -47,6 +48,10 @@ fn video_background_color(dark_theme: bool) -> &'static str {
 
 fn should_restart_current(position: f64) -> bool {
     position.is_finite() && position > PREVIOUS_RESTART_THRESHOLD_SECONDS
+}
+
+fn adjusted_delay(current: f64, delta: f64) -> f64 {
+    ((current + delta).clamp(-MAX_SYNC_DELAY_SECONDS, MAX_SYNC_DELAY_SECONDS) * 10.0).round() / 10.0
 }
 
 fn send_playlist(tx: &Sender<Event>, playlist: &DirectoryPlaylist) {
@@ -318,6 +323,28 @@ fn handle_command(
                 .with_context(|| format!("Не удалось загрузить субтитры: {path}"))?;
             let _ = tx.send(Event::SubtitleTracks(read_subtitle_tracks(mpv)));
         }
+        Command::AdjustAudioDelay(delta) => {
+            if options.media_available {
+                let current = mpv.get_property::<f64>("audio-delay").unwrap_or_default();
+                mpv_error(mpv.set_property("audio-delay", adjusted_delay(current, delta)))?;
+            }
+        }
+        Command::AdjustSubtitleDelay(delta) => {
+            if options.media_available {
+                let current = mpv.get_property::<f64>("sub-delay").unwrap_or_default();
+                mpv_error(mpv.set_property("sub-delay", adjusted_delay(current, delta)))?;
+            }
+        }
+        Command::ResetAudioDelay => {
+            if options.media_available {
+                mpv_error(mpv.set_property("audio-delay", 0.0))?;
+            }
+        }
+        Command::ResetSubtitleDelay => {
+            if options.media_available {
+                mpv_error(mpv.set_property("sub-delay", 0.0))?;
+            }
+        }
         Command::SetDarkTheme(dark_theme) => {
             mpv_error(mpv.set_property(
                 "background-color",
@@ -417,6 +444,8 @@ fn send_property_change(tx: &Sender<Event>, name: &str, change: PropertyData<'_>
         ("loop-file", PropertyData::Str(value)) => {
             Some(Event::LoopEnabled(loop_value_is_enabled(value)))
         }
+        ("audio-delay", PropertyData::Double(value)) => Some(Event::AudioDelay(value)),
+        ("sub-delay", PropertyData::Double(value)) => Some(Event::SubtitleDelay(value)),
         _ => None,
     };
 
@@ -434,6 +463,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
             // Keep the audio device open for compatible consecutive tracks without
             // forcing unlike files into the first track's output format.
             initializer.set_property("gapless-audio", "weak".to_owned())?;
+            initializer.set_property("reset-on-next-file", "audio-delay,sub-delay".to_owned())?;
             #[cfg(target_os = "windows")]
             {
                 initializer.set_property("vo", "libmpv".to_owned())?;
@@ -462,6 +492,8 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
         (5, "speed", Format::Double),
         (6, "mute", Format::Flag),
         (7, "loop-file", Format::String),
+        (8, "audio-delay", Format::Double),
+        (9, "sub-delay", Format::Double),
     ] {
         mpv_error(events.observe_property(name, format, id))?;
     }
@@ -573,7 +605,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        loop_value_is_enabled, quote_mpv_command_arg, should_restart_current,
+        adjusted_delay, loop_value_is_enabled, quote_mpv_command_arg, should_restart_current,
         video_background_color,
     };
 
@@ -605,5 +637,13 @@ mod tests {
             quote_mpv_command_arg(r#"Z:\Media\Director's "cut"\captions.srt"#),
             r#""Z:\\Media\\Director's \"cut\"\\captions.srt""#
         );
+    }
+
+    #[test]
+    fn adjusts_sync_delay_in_tenths_and_clamps_extremes() {
+        assert_eq!(adjusted_delay(0.0, 0.1), 0.1);
+        assert_eq!(adjusted_delay(0.3, -0.1), 0.2);
+        assert_eq!(adjusted_delay(29.9, 1.0), 30.0);
+        assert_eq!(adjusted_delay(-29.9, -1.0), -30.0);
     }
 }

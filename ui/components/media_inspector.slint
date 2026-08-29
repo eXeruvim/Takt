@@ -39,6 +39,45 @@ component PropertyRow inherits Rectangle {
     }
 }
 
+component DelayControl inherits Rectangle {
+    in property <float> value;
+    callback adjust(float);
+    callback reset();
+
+    height: Theme.space-10;
+    background: transparent;
+
+    HorizontalLayout {
+        spacing: Theme.space-2;
+        alignment: center;
+
+        Button {
+            width: 76px;
+            text: "−0,1 с";
+            clicked => root.adjust(-0.1);
+        }
+        UiText {
+            horizontal-stretch: 1;
+            text: Math.round(root.value * 10) / 10 + " с";
+            variant: TextVariant.label;
+            color: root.value == 0 ? Theme.text-secondary : Theme.accent;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        Button {
+            width: 76px;
+            text: "+0,1 с";
+            clicked => root.adjust(0.1);
+        }
+        Button {
+            width: 72px;
+            text: "Сброс";
+            enabled: root.value != 0;
+            clicked => root.reset();
+        }
+    }
+}
+
 export component MediaInspector inherits Rectangle {
     private property <bool> prewarming: true;
     in property <bool> open;
@@ -57,6 +96,8 @@ export component MediaInspector inherits Rectangle {
     in property <[AudioTrackEntry]> audio-tracks;
     in property <[SubtitleTrackEntry]> subtitle-tracks;
     in property <bool> subtitles-enabled;
+    in property <float> audio-delay;
+    in property <float> subtitle-delay;
     in-out property <float> speed;
     in-out property <bool> folder-loop-enabled;
     in-out property <bool> shuffle-enabled;
@@ -68,7 +109,9 @@ export component MediaInspector inherits Rectangle {
     private property <length> playback-content-height: 392px
         + (audio-tracks.length > 0 ? 88px : 0px)
         + max(0, audio-tracks.length - 1) * 44px
-        + (media-loaded ? 132px + subtitle-tracks.length * 44px : 0px);
+        + (media-loaded ? 168px + subtitle-tracks.length * 48px : 0px)
+        + (media-loaded && !audio-media ? 144px : 0px)
+        + (subtitle-tracks.length > 0 ? 144px : 0px);
     callback show-playlist();
     callback show-info();
     callback show-playback();
@@ -78,6 +121,10 @@ export component MediaInspector inherits Rectangle {
     callback select-audio-track(int);
     callback select-subtitle-track(int);
     callback load-subtitle();
+    callback adjust-audio-delay(float);
+    callback adjust-subtitle-delay(float);
+    callback reset-audio-delay();
+    callback reset-subtitle-delay();
     callback toggle-folder-loop();
     callback toggle-shuffle();
     callback toggle-audio-visualization();
@@ -350,6 +397,43 @@ export component MediaInspector inherits Rectangle {
                 }
 
                 if root.media-loaded : Divider { }
+
+                if root.media-loaded && !root.audio-media : UiText {
+                    text: "Синхронизация звука";
+                    variant: TextVariant.label;
+                }
+
+                if root.media-loaded && !root.audio-media : UiText {
+                    text: "− раньше  ·  + позже";
+                    variant: TextVariant.caption;
+                    color: Theme.text-muted;
+                }
+
+                if root.media-loaded && !root.audio-media : DelayControl {
+                    value: root.audio-delay;
+                    adjust(delta) => root.adjust-audio-delay(delta);
+                    reset => root.reset-audio-delay();
+                }
+
+                if root.subtitle-tracks.length > 0 : UiText {
+                    text: "Синхронизация субтитров";
+                    variant: TextVariant.label;
+                }
+
+                if root.subtitle-tracks.length > 0 : UiText {
+                    text: "− раньше  ·  + позже";
+                    variant: TextVariant.caption;
+                    color: Theme.text-muted;
+                }
+
+                if root.subtitle-tracks.length > 0 : DelayControl {
+                    value: root.subtitle-delay;
+                    adjust(delta) => root.adjust-subtitle-delay(delta);
+                    reset => root.reset-subtitle-delay();
+                }
+
+                if (root.media-loaded && !root.audio-media)
+                    || (root.subtitle-tracks.length > 0) : Divider { }
 
                 SettingsRow {
                     height: Theme.space-12;
