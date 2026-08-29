@@ -67,6 +67,14 @@ pub enum Event {
         codec: String,
         audio_codec: String,
     },
+    AudioMetadata {
+        title: String,
+        artist: String,
+        album: String,
+        artwork_rgba: Vec<u8>,
+        artwork_width: u32,
+        artwork_height: u32,
+    },
 
     LoopEnabled(bool),
     FolderLoopEnabled(bool),

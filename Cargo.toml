@@ -15,6 +15,8 @@ libmpv = { git = "https://github.com/ParadoxSpiral/libmpv-rs.git", default-featu
 libmpv-sys = { git = "https://github.com/ParadoxSpiral/libmpv-rs.git" }
 crossbeam-channel = { version = "0.5.16", default-features = false }
 anyhow = "1.0.104"
+image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png"] }
+lofty = "0.25.1"
 raw-window-handle = {version = "0.6.2", default-features = false }
 rfd = { version = "0.17.2", default-features = false }
 

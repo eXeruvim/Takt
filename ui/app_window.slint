@@ -32,6 +32,9 @@ export component AppWindow inherits Window {
     in-out property <string> file_name: "Не выбран файл";
     in-out property <string> codec: "—";
     in-out property <string> audio_codec: "—";
+    in-out property <string> track_title: "";
+    in-out property <string> track_artist: "";
+    in-out property <string> album_title: "";
     in-out property <image> album_art;
     in-out property <bool> album_art_available: false;
     in-out property <bool> audio_visualization_enabled: true;
@@ -252,6 +255,9 @@ export component AppWindow inherits Window {
                 visualization-enabled: root.audio_visualization_enabled;
                 file-name: root.file_name;
                 audio-codec: root.audio_codec;
+                track-title: root.track_title;
+                track-artist: root.track_artist;
+                album-title: root.album_title;
                 album-art: root.album_art;
                 album-art-available: root.album_art_available;
                 is-playing: root.is_playing;

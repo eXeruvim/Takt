@@ -6,7 +6,9 @@ use std::{
 };
 
 use crate::ipc::{Command, Event};
-use crate::player::{media_info::MediaInfo, playlist::DirectoryPlaylist};
+use crate::player::{
+    audio_metadata::AudioMetadata, media_info::MediaInfo, playlist::DirectoryPlaylist,
+};
 use crate::render::mpv_opengl::MpvRenderSource;
 use anyhow::Context;
 use crossbeam_channel::{Receiver, Sender};
@@ -71,6 +73,23 @@ fn send_media_ready(mpv: &Mpv, tx: &Sender<Event>) {
     let _ = tx.send(Event::PlaybackState(!paused));
 }
 
+fn send_audio_metadata(path: &Path, tx: &Sender<Event>) {
+    let metadata = AudioMetadata::read(path);
+    let (artwork_rgba, artwork_width, artwork_height) = metadata
+        .artwork
+        .map(|artwork| (artwork.rgba, artwork.width, artwork.height))
+        .unwrap_or_default();
+
+    let _ = tx.send(Event::AudioMetadata {
+        title: metadata.title,
+        artist: metadata.artist,
+        album: metadata.album,
+        artwork_rgba,
+        artwork_width,
+        artwork_height,
+    });
+}
+
 fn load_file_in_mpv(mpv: &Mpv, path: &Path) -> anyhow::Result<()> {
     let escaped_path = path.to_string_lossy().replace('\\', "\\\\");
     let quoted_path = format!("\"{escaped_path}\"");
@@ -121,6 +140,7 @@ fn load_current(mpv: &Mpv, tx: &Sender<Event>, playlist: &DirectoryPlaylist) -> 
         let _ = tx.send(Event::LoadStarted(file_name.to_string_lossy().into_owned()));
     }
     load_file_in_mpv(mpv, path)?;
+    send_audio_metadata(path, tx);
 
     if let Some(file_name) = path.file_name() {
         let _ = tx.send(Event::FileLoaded(file_name.to_string_lossy().into_owned()));
@@ -370,6 +390,9 @@ fn send_property_change(tx: &Sender<Event>, name: &str, change: PropertyData<'_>
 pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
     let mpv = Arc::new(
         Mpv::with_initializer(|initializer| {
+            // Oxide renders embedded artwork inside its own audio scene. Prevent mpv
+            // from promoting the attached picture to the native video surface.
+            initializer.set_property("audio-display", "no".to_owned())?;
             #[cfg(target_os = "windows")]
             {
                 initializer.set_property("vo", "libmpv".to_owned())?;

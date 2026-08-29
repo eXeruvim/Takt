@@ -169,6 +169,9 @@ export component AudioCanvas inherits Rectangle {
     in property <bool> visualization-enabled: true;
     in property <string> file-name;
     in property <string> audio-codec;
+    in property <string> track-title;
+    in property <string> track-artist;
+    in property <string> album-title;
     in property <image> album-art;
     in property <bool> album-art-available: false;
     private property <float> record-rotation: 0;
@@ -186,6 +189,15 @@ export component AudioCanvas inherits Rectangle {
     );
     private property <length> visual-offset-y: controls-visible
         ? 0px : Theme.player-controls-height / 2;
+    private property <string> display-title: track-title == "" ? file-name : track-title;
+    private property <string> metadata-line: track-artist != "" && album-title != ""
+        ? track-artist + "  ·  " + album-title
+        : track-artist != "" ? track-artist
+        : album-title;
+    private property <string> display-subtitle: metadata-line != ""
+        ? metadata-line
+        : (is-playing ? "Сейчас играет" : "Пауза") + "  ·  "
+            + (audio-codec == "" || audio-codec == "—" ? "Аудиофайл" : audio-codec);
     callback fullscreen();
 
     visible: shown || self.opacity > 0.01;
@@ -275,7 +287,7 @@ export component AudioCanvas inherits Rectangle {
                 UiText {
                     width: parent.width;
                     height: 36px;
-                    text: root.file-name;
+                    text: root.display-title;
                     variant: TextVariant.heading;
                     horizontal-alignment: center;
                     vertical-alignment: center;
@@ -285,12 +297,10 @@ export component AudioCanvas inherits Rectangle {
                 UiText {
                     width: parent.width;
                     height: 28px;
-                    text: (root.is-playing ? "Сейчас играет" : "Пауза") + "  ·  "
-                        + (root.audio-codec == "" || root.audio-codec == "—"
-                            ? "Аудиофайл"
-                            : root.audio-codec);
+                    text: root.display-subtitle;
                     variant: TextVariant.caption;
-                    color: root.is-playing ? Theme.accent : Theme.text-secondary;
+                    color: root.metadata-line == "" && root.is-playing
+                        ? Theme.accent : Theme.text-secondary;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     overflow: elide;

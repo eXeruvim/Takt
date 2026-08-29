@@ -33,7 +33,7 @@ use slint::winit_030::{
         window::Theme as WinitTheme,
     },
 };
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::{
     Foundation::{HWND, POINT},
@@ -1749,6 +1749,11 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     Event::LoadStarted(name) => {
                         let preserve_media_surface = app.get_media_presented();
                         app.set_file_name(name.into());
+                        app.set_track_title("".into());
+                        app.set_track_artist("".into());
+                        app.set_album_title("".into());
+                        app.set_album_art(Image::default());
+                        app.set_album_art_available(false);
                         app.set_waiting_for_video_surface(false);
                         app.set_media_transitioning(preserve_media_surface);
                         app.set_is_playing(false);
@@ -1885,6 +1890,40 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         app.set_fps(format!("{:.2}", fps).into());
                         app.set_codec(codec.into());
                         app.set_audio_codec(audio_codec.into());
+                    }
+
+                    Event::AudioMetadata {
+                        title,
+                        artist,
+                        album,
+                        artwork_rgba,
+                        artwork_width,
+                        artwork_height,
+                    } => {
+                        app.set_track_title(title.into());
+                        app.set_track_artist(artist.into());
+                        app.set_album_title(album.into());
+
+                        let expected_len = usize::try_from(artwork_width)
+                            .ok()
+                            .and_then(|width| {
+                                usize::try_from(artwork_height)
+                                    .ok()
+                                    .and_then(|height| width.checked_mul(height))
+                            })
+                            .and_then(|pixels| pixels.checked_mul(4));
+                        if expected_len == Some(artwork_rgba.len()) && !artwork_rgba.is_empty() {
+                            let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+                                &artwork_rgba,
+                                artwork_width,
+                                artwork_height,
+                            );
+                            app.set_album_art(Image::from_rgba8(buffer));
+                            app.set_album_art_available(true);
+                        } else {
+                            app.set_album_art(Image::default());
+                            app.set_album_art_available(false);
+                        }
                     }
 
                     Event::VideoOutputReady => {
