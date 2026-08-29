@@ -1238,6 +1238,14 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     {
         let tx = tx.clone();
 
+        app.on_select_audio_track(move |id| {
+            let _ = tx.send(Command::SelectAudioTrack(i64::from(id)));
+        });
+    }
+
+    {
+        let tx = tx.clone();
+
         app.on_next_video(move || {
             let _ = tx.send(Command::NextVideo);
         });
@@ -1754,6 +1762,9 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         app.set_album_title("".into());
                         app.set_album_art(Image::default());
                         app.set_album_art_available(false);
+                        app.set_audio_tracks(ModelRc::new(VecModel::from(
+                            Vec::<AudioTrackEntry>::new(),
+                        )));
                         app.set_waiting_for_video_surface(false);
                         app.set_media_transitioning(preserve_media_surface);
                         app.set_is_playing(false);
@@ -1924,6 +1935,20 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                             app.set_album_art(Image::default());
                             app.set_album_art_available(false);
                         }
+                    }
+
+                    Event::AudioTracks(tracks) => {
+                        let tracks = tracks
+                            .into_iter()
+                            .filter_map(|track| {
+                                Some(AudioTrackEntry {
+                                    id: i32::try_from(track.id).ok()?,
+                                    label: track.label.into(),
+                                    selected: track.selected,
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        app.set_audio_tracks(ModelRc::new(VecModel::from(tracks)));
                     }
 
                     Event::VideoOutputReady => {

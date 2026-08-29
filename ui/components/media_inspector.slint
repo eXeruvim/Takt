@@ -3,6 +3,12 @@ import { Theme } from "../theme.slint";
 import { Button, Divider, IconButton, Toggle, UiText, TextVariant } from "../design_system/primitives.slint";
 import { MediaListItem, SettingsRow } from "../design_system/composites.slint";
 
+export struct AudioTrackEntry {
+    id: int,
+    label: string,
+    selected: bool,
+}
+
 component PropertyRow inherits Rectangle {
     in property <string> label;
     in property <string> value;
@@ -41,6 +47,7 @@ export component MediaInspector inherits Rectangle {
     in property <string> resolution;
     in property <string> fps;
     in property <bool> audio-media;
+    in property <[AudioTrackEntry]> audio-tracks;
     in-out property <float> speed;
     in-out property <bool> folder-loop-enabled;
     in-out property <bool> shuffle-enabled;
@@ -49,12 +56,16 @@ export component MediaInspector inherits Rectangle {
     in property <length> parent-height;
     out property <length> slide-offset: open || prewarming
         ? 0px : self.width + Theme.space-5;
+    private property <length> playback-content-height: 392px
+        + (audio-tracks.length > 0 ? 88px : 0px)
+        + max(0, audio-tracks.length - 1) * 44px;
     callback show-playlist();
     callback show-info();
     callback show-playback();
     callback close();
     callback play-index(int);
     callback set-speed(float);
+    callback select-audio-track(int);
     callback toggle-folder-loop();
     callback toggle-shuffle();
     callback toggle-audio-visualization();
@@ -243,11 +254,11 @@ export component MediaInspector inherits Rectangle {
                     ? 0px : parent.width + Theme.space-1;
                 width: parent.width;
                 height: parent.height;
-                viewport-height: max(self.visible-height, 392px);
+                viewport-height: max(self.visible-height, root.playback-content-height);
 
                 VerticalLayout {
                     width: parent.width;
-                    height: 392px;
+                    height: root.playback-content-height;
                     y: 0px;
                     spacing: Theme.space-4;
 
@@ -272,6 +283,30 @@ export component MediaInspector inherits Rectangle {
                 }
 
                 Divider { }
+
+                if root.audio-tracks.length > 0 : UiText {
+                    text: "Аудиодорожка";
+                    variant: TextVariant.label;
+                }
+
+                if root.audio-tracks.length == 1 : UiText {
+                    text: root.audio-tracks[0].label;
+                    color: Theme.text-secondary;
+                    overflow: elide;
+                }
+
+                if root.audio-tracks.length > 1 : VerticalLayout {
+                    spacing: Theme.space-2;
+
+                    for track in root.audio-tracks : Button {
+                        height: Theme.space-10;
+                        text: track.label;
+                        selected: track.selected;
+                        clicked => root.select-audio-track(track.id);
+                    }
+                }
+
+                if root.audio-tracks.length > 0 : Divider { }
 
                 SettingsRow {
                     height: Theme.space-12;

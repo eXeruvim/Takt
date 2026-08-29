@@ -13,6 +13,7 @@ pub enum Command {
 
     SetVolume(f64),
     SetSpeed(f64),
+    SelectAudioTrack(i64),
     SetDarkTheme(bool),
 
     NextVideo,
@@ -33,6 +34,13 @@ pub enum Command {
     RequestMediaInfo,
 
     Quit,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AudioTrackInfo {
+    pub id: i64,
+    pub label: String,
+    pub selected: bool,
 }
 
 #[derive(Debug)]
@@ -75,6 +83,7 @@ pub enum Event {
         artwork_width: u32,
         artwork_height: u32,
     },
+    AudioTracks(Vec<AudioTrackInfo>),
 
     LoopEnabled(bool),
     FolderLoopEnabled(bool),

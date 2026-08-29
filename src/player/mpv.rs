@@ -7,7 +7,9 @@ use std::{
 
 use crate::ipc::{Command, Event};
 use crate::player::{
-    audio_metadata::AudioMetadata, media_info::MediaInfo, playlist::DirectoryPlaylist,
+    audio_metadata::AudioMetadata,
+    media_info::{MediaInfo, read_audio_tracks},
+    playlist::DirectoryPlaylist,
 };
 use crate::render::mpv_opengl::MpvRenderSource;
 use anyhow::Context;
@@ -68,6 +70,7 @@ fn send_media_info(mpv: &Mpv, tx: &Sender<Event>) {
 
 fn send_media_ready(mpv: &Mpv, tx: &Sender<Event>) {
     send_media_info(mpv, tx);
+    let _ = tx.send(Event::AudioTracks(read_audio_tracks(mpv)));
     let _ = tx.send(Event::MediaAvailable(true));
     let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
     let _ = tx.send(Event::PlaybackState(!paused));
@@ -279,6 +282,13 @@ fn handle_command(
         }
         Command::SetSpeed(value) => {
             mpv_error(mpv.set_property("speed", value.clamp(0.25, 4.0)))?;
+        }
+        Command::SelectAudioTrack(id) => {
+            if !read_audio_tracks(mpv).iter().any(|track| track.id == id) {
+                anyhow::bail!("Аудиодорожка {id} отсутствует в текущем файле");
+            }
+            mpv_error(mpv.set_property("aid", id))?;
+            let _ = tx.send(Event::AudioTracks(read_audio_tracks(mpv)));
         }
         Command::SetDarkTheme(dark_theme) => {
             mpv_error(mpv.set_property(
