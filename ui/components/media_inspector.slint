@@ -9,6 +9,12 @@ export struct AudioTrackEntry {
     selected: bool,
 }
 
+export struct SubtitleTrackEntry {
+    id: int,
+    label: string,
+    selected: bool,
+}
+
 component PropertyRow inherits Rectangle {
     in property <string> label;
     in property <string> value;
@@ -47,7 +53,10 @@ export component MediaInspector inherits Rectangle {
     in property <string> resolution;
     in property <string> fps;
     in property <bool> audio-media;
+    in property <bool> media-loaded;
     in property <[AudioTrackEntry]> audio-tracks;
+    in property <[SubtitleTrackEntry]> subtitle-tracks;
+    in property <bool> subtitles-enabled;
     in-out property <float> speed;
     in-out property <bool> folder-loop-enabled;
     in-out property <bool> shuffle-enabled;
@@ -58,7 +67,8 @@ export component MediaInspector inherits Rectangle {
         ? 0px : self.width + Theme.space-5;
     private property <length> playback-content-height: 392px
         + (audio-tracks.length > 0 ? 88px : 0px)
-        + max(0, audio-tracks.length - 1) * 44px;
+        + max(0, audio-tracks.length - 1) * 44px
+        + (media-loaded ? 132px + subtitle-tracks.length * 44px : 0px);
     callback show-playlist();
     callback show-info();
     callback show-playback();
@@ -66,6 +76,8 @@ export component MediaInspector inherits Rectangle {
     callback play-index(int);
     callback set-speed(float);
     callback select-audio-track(int);
+    callback select-subtitle-track(int);
+    callback load-subtitle();
     callback toggle-folder-loop();
     callback toggle-shuffle();
     callback toggle-audio-visualization();
@@ -307,6 +319,37 @@ export component MediaInspector inherits Rectangle {
                 }
 
                 if root.audio-tracks.length > 0 : Divider { }
+
+                if root.media-loaded : UiText {
+                    text: "Субтитры";
+                    variant: TextVariant.label;
+                }
+
+                if root.media-loaded : VerticalLayout {
+                    spacing: Theme.space-2;
+
+                    Button {
+                        height: Theme.space-10;
+                        text: "Выключены";
+                        selected: !root.subtitles-enabled;
+                        clicked => root.select-subtitle-track(-1);
+                    }
+
+                    for track in root.subtitle-tracks : Button {
+                        height: Theme.space-10;
+                        text: track.label;
+                        selected: track.selected;
+                        clicked => root.select-subtitle-track(track.id);
+                    }
+
+                    Button {
+                        height: Theme.space-10;
+                        text: "Загрузить внешний файл…";
+                        clicked => root.load-subtitle();
+                    }
+                }
+
+                if root.media-loaded : Divider { }
 
                 SettingsRow {
                     height: Theme.space-12;

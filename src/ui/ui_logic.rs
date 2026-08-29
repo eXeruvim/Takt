@@ -49,6 +49,8 @@ slint::include_modules!();
 #[cfg(target_os = "windows")]
 const DRAWER_CLOSE_DELAY: Duration = Duration::from_millis(280);
 
+const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "ass", "ssa", "vtt", "sub", "idx", "sup"];
+
 #[cfg(target_os = "windows")]
 #[derive(Clone, Copy, Default)]
 struct WindowDragState {
@@ -1168,6 +1170,33 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         let tx = tx.clone();
         let dialog_active = dialog_active.clone();
 
+        app.on_load_subtitle(move || {
+            if dialog_active
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
+                return;
+            }
+
+            let tx = tx.clone();
+            let dialog_active = dialog_active.clone();
+            std::thread::spawn(move || {
+                let path = rfd::FileDialog::new()
+                    .add_filter("Субтитры", SUBTITLE_EXTENSIONS)
+                    .pick_file();
+                dialog_active.store(false, Ordering::Release);
+
+                if let Some(path) = path {
+                    let _ = tx.send(Command::LoadSubtitle(path.to_string_lossy().into_owned()));
+                }
+            });
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        let dialog_active = dialog_active.clone();
+
         app.on_open_folder(move || {
             if dialog_active
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -1240,6 +1269,15 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
         app.on_select_audio_track(move |id| {
             let _ = tx.send(Command::SelectAudioTrack(i64::from(id)));
+        });
+    }
+
+    {
+        let tx = tx.clone();
+
+        app.on_select_subtitle_track(move |id| {
+            let id = (id >= 0).then(|| i64::from(id));
+            let _ = tx.send(Command::SelectSubtitleTrack(id));
         });
     }
 
@@ -1765,6 +1803,11 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         app.set_audio_tracks(ModelRc::new(VecModel::from(
                             Vec::<AudioTrackEntry>::new(),
                         )));
+                        app.set_subtitle_tracks(ModelRc::new(VecModel::from(Vec::<
+                            SubtitleTrackEntry,
+                        >::new(
+                        ))));
+                        app.set_subtitles_enabled(false);
                         app.set_waiting_for_video_surface(false);
                         app.set_media_transitioning(preserve_media_surface);
                         app.set_is_playing(false);
@@ -1949,6 +1992,21 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                             })
                             .collect::<Vec<_>>();
                         app.set_audio_tracks(ModelRc::new(VecModel::from(tracks)));
+                    }
+
+                    Event::SubtitleTracks(tracks) => {
+                        let tracks = tracks
+                            .into_iter()
+                            .filter_map(|track| {
+                                Some(SubtitleTrackEntry {
+                                    id: i32::try_from(track.id).ok()?,
+                                    label: track.label.into(),
+                                    selected: track.selected,
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        app.set_subtitles_enabled(tracks.iter().any(|track| track.selected));
+                        app.set_subtitle_tracks(ModelRc::new(VecModel::from(tracks)));
                     }
 
                     Event::VideoOutputReady => {

@@ -1,4 +1,6 @@
-use crate::ipc::AudioTrackInfo;
+use std::path::Path;
+
+use crate::ipc::{AudioTrackInfo, SubtitleTrackInfo};
 use libmpv::Mpv;
 
 #[derive(Debug, Default)]
@@ -27,11 +29,71 @@ impl MediaInfo {
 }
 
 pub fn read_audio_tracks(mpv: &Mpv) -> Vec<AudioTrackInfo> {
+    read_tracks(mpv, "audio")
+        .into_iter()
+        .enumerate()
+        .map(|(index, track)| AudioTrackInfo {
+            id: track.id,
+            label: track_label(
+                "Дорожка",
+                index + 1,
+                &track.title,
+                &track.language,
+                &track.codec,
+                None,
+            ),
+            selected: track.selected,
+        })
+        .collect()
+}
+
+pub fn read_subtitle_tracks(mpv: &Mpv) -> Vec<SubtitleTrackInfo> {
+    read_tracks(mpv, "sub")
+        .into_iter()
+        .enumerate()
+        .map(|(index, track)| {
+            let external_title = track.external_filename.as_deref().and_then(|path| {
+                Path::new(path)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            });
+            let title = if track.title.trim().is_empty() {
+                external_title.as_deref().unwrap_or_default()
+            } else {
+                &track.title
+            };
+
+            SubtitleTrackInfo {
+                id: track.id,
+                label: track_label(
+                    "Субтитры",
+                    index + 1,
+                    title,
+                    &track.language,
+                    &track.codec,
+                    track.external.then_some("Внешние"),
+                ),
+                selected: track.selected,
+            }
+        })
+        .collect()
+}
+
+struct RawTrack {
+    id: i64,
+    title: String,
+    language: String,
+    codec: String,
+    selected: bool,
+    external: bool,
+    external_filename: Option<String>,
+}
+
+fn read_tracks(mpv: &Mpv, track_type: &str) -> Vec<RawTrack> {
     let count = mpv
         .get_property::<i64>("track-list/count")
         .unwrap_or_default()
         .max(0);
-    let mut audio_position = 0;
     let mut tracks = Vec::new();
 
     for index in 0..count {
@@ -39,7 +101,7 @@ pub fn read_audio_tracks(mpv: &Mpv) -> Vec<AudioTrackInfo> {
         if mpv
             .get_property::<String>(&property("type"))
             .unwrap_or_default()
-            != "audio"
+            != track_type
         {
             continue;
         }
@@ -47,7 +109,6 @@ pub fn read_audio_tracks(mpv: &Mpv) -> Vec<AudioTrackInfo> {
         let Ok(id) = mpv.get_property::<i64>(&property("id")) else {
             continue;
         };
-        audio_position += 1;
         let title = mpv
             .get_property::<String>(&property("title"))
             .unwrap_or_default();
@@ -60,29 +121,47 @@ pub fn read_audio_tracks(mpv: &Mpv) -> Vec<AudioTrackInfo> {
         let selected = mpv
             .get_property::<bool>(&property("selected"))
             .unwrap_or(false);
+        let external = mpv
+            .get_property::<bool>(&property("external"))
+            .unwrap_or(false);
+        let external_filename = mpv
+            .get_property::<String>(&property("external-filename"))
+            .ok();
 
-        tracks.push(AudioTrackInfo {
+        tracks.push(RawTrack {
             id,
-            label: audio_track_label(audio_position, &title, &language, &codec),
+            title,
+            language,
+            codec,
             selected,
+            external,
+            external_filename,
         });
     }
 
     tracks
 }
 
-fn audio_track_label(position: usize, title: &str, language: &str, codec: &str) -> String {
+fn track_label(
+    fallback: &str,
+    position: usize,
+    title: &str,
+    language: &str,
+    codec: &str,
+    qualifier: Option<&str>,
+) -> String {
     let title = title.trim();
     let language = language.trim();
     let codec = codec.trim();
     let mut label = if title.is_empty() {
-        format!("Дорожка {position}")
+        format!("{fallback} {position}")
     } else {
         title.to_owned()
     };
     let details = [
         (!language.is_empty()).then(|| language.to_uppercase()),
         (!codec.is_empty()).then(|| codec.to_uppercase()),
+        qualifier.map(str::to_owned),
     ]
     .into_iter()
     .flatten()
@@ -101,7 +180,7 @@ fn non_negative_u32(value: i64) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{audio_track_label, non_negative_u32};
+    use super::{non_negative_u32, track_label};
 
     #[test]
     fn rejects_negative_media_dimensions() {
@@ -112,10 +191,17 @@ mod tests {
     #[test]
     fn labels_audio_tracks_with_useful_fallbacks() {
         assert_eq!(
-            audio_track_label(2, " Commentary ", "eng", "aac"),
+            track_label("Дорожка", 2, " Commentary ", "eng", "aac", None),
             "Commentary  ·  ENG  ·  AAC"
         );
-        assert_eq!(audio_track_label(1, "", "rus", ""), "Дорожка 1  ·  RUS");
-        assert_eq!(audio_track_label(3, "", "", ""), "Дорожка 3");
+        assert_eq!(
+            track_label("Дорожка", 1, "", "rus", "", None),
+            "Дорожка 1  ·  RUS"
+        );
+        assert_eq!(track_label("Дорожка", 3, "", "", "", None), "Дорожка 3");
+        assert_eq!(
+            track_label("Субтитры", 1, "captions.srt", "", "subrip", Some("Внешние")),
+            "captions.srt  ·  SUBRIP  ·  Внешние"
+        );
     }
 }

@@ -14,6 +14,8 @@ pub enum Command {
     SetVolume(f64),
     SetSpeed(f64),
     SelectAudioTrack(i64),
+    SelectSubtitleTrack(Option<i64>),
+    LoadSubtitle(String),
     SetDarkTheme(bool),
 
     NextVideo,
@@ -38,6 +40,13 @@ pub enum Command {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AudioTrackInfo {
+    pub id: i64,
+    pub label: String,
+    pub selected: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubtitleTrackInfo {
     pub id: i64,
     pub label: String,
     pub selected: bool,
@@ -84,6 +93,7 @@ pub enum Event {
         artwork_height: u32,
     },
     AudioTracks(Vec<AudioTrackInfo>),
+    SubtitleTracks(Vec<SubtitleTrackInfo>),
 
     LoopEnabled(bool),
     FolderLoopEnabled(bool),

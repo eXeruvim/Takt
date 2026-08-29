@@ -8,7 +8,7 @@ use std::{
 use crate::ipc::{Command, Event};
 use crate::player::{
     audio_metadata::AudioMetadata,
-    media_info::{MediaInfo, read_audio_tracks},
+    media_info::{MediaInfo, read_audio_tracks, read_subtitle_tracks},
     playlist::DirectoryPlaylist,
 };
 use crate::render::mpv_opengl::MpvRenderSource;
@@ -71,6 +71,7 @@ fn send_media_info(mpv: &Mpv, tx: &Sender<Event>) {
 fn send_media_ready(mpv: &Mpv, tx: &Sender<Event>) {
     send_media_info(mpv, tx);
     let _ = tx.send(Event::AudioTracks(read_audio_tracks(mpv)));
+    let _ = tx.send(Event::SubtitleTracks(read_subtitle_tracks(mpv)));
     let _ = tx.send(Event::MediaAvailable(true));
     let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
     let _ = tx.send(Event::PlaybackState(!paused));
@@ -93,9 +94,13 @@ fn send_audio_metadata(path: &Path, tx: &Sender<Event>) {
     });
 }
 
+fn quote_mpv_command_arg(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
 fn load_file_in_mpv(mpv: &Mpv, path: &Path) -> anyhow::Result<()> {
-    let escaped_path = path.to_string_lossy().replace('\\', "\\\\");
-    let quoted_path = format!("\"{escaped_path}\"");
+    let quoted_path = quote_mpv_command_arg(&path.to_string_lossy());
     mpv_error(mpv.command("loadfile", &[&quoted_path, "replace"]))
         .with_context(|| format!("Не удалось открыть медиафайл: {}", path.display()))
 }
@@ -289,6 +294,29 @@ fn handle_command(
             }
             mpv_error(mpv.set_property("aid", id))?;
             let _ = tx.send(Event::AudioTracks(read_audio_tracks(mpv)));
+        }
+        Command::SelectSubtitleTrack(id) => {
+            if let Some(id) = id {
+                if !read_subtitle_tracks(mpv).iter().any(|track| track.id == id) {
+                    anyhow::bail!("Субтитры {id} отсутствуют в текущем файле");
+                }
+                mpv_error(mpv.set_property("sid", id))?;
+            } else {
+                mpv_error(mpv.set_property("sid", "no".to_owned()))?;
+            }
+            let _ = tx.send(Event::SubtitleTracks(read_subtitle_tracks(mpv)));
+        }
+        Command::LoadSubtitle(path) => {
+            if !options.media_available {
+                return Ok(true);
+            }
+            if !Path::new(&path).is_file() {
+                anyhow::bail!("Файл субтитров не найден: {path}");
+            }
+            let quoted_path = quote_mpv_command_arg(&path);
+            mpv_error(mpv.command("sub-add", &[&quoted_path, "select"]))
+                .with_context(|| format!("Не удалось загрузить субтитры: {path}"))?;
+            let _ = tx.send(Event::SubtitleTracks(read_subtitle_tracks(mpv)));
         }
         Command::SetDarkTheme(dark_theme) => {
             mpv_error(mpv.set_property(
@@ -544,7 +572,10 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{loop_value_is_enabled, should_restart_current, video_background_color};
+    use super::{
+        loop_value_is_enabled, quote_mpv_command_arg, should_restart_current,
+        video_background_color,
+    };
 
     #[test]
     fn recognizes_normalized_mpv_loop_values() {
@@ -566,5 +597,13 @@ mod tests {
     fn chooses_letterbox_color_for_the_active_theme() {
         assert_eq!(video_background_color(true), "0.035/0.035/0.05/0.72");
         assert_eq!(video_background_color(false), "1.0/1.0/1.0/0.42");
+    }
+
+    #[test]
+    fn quotes_windows_paths_for_mpv_command_strings() {
+        assert_eq!(
+            quote_mpv_command_arg(r#"Z:\Media\Director's "cut"\captions.srt"#),
+            r#""Z:\\Media\\Director's \"cut\"\\captions.srt""#
+        );
     }
 }
