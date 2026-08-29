@@ -393,6 +393,9 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
             // Oxide renders embedded artwork inside its own audio scene. Prevent mpv
             // from promoting the attached picture to the native video surface.
             initializer.set_property("audio-display", "no".to_owned())?;
+            // Keep the audio device open for compatible consecutive tracks without
+            // forcing unlike files into the first track's output format.
+            initializer.set_property("gapless-audio", "weak".to_owned())?;
             #[cfg(target_os = "windows")]
             {
                 initializer.set_property("vo", "libmpv".to_owned())?;

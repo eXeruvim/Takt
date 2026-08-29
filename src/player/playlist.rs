@@ -10,10 +10,14 @@ use anyhow::{Context, Result, bail};
 pub const VIDEO_EXTENSIONS: &[&str] = &[
     "mp4", "mkv", "webm", "mov", "avi", "m4v", "ts", "flv", "wmv", "mpg", "mpeg", "ogv",
 ];
-pub const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "wma"];
+pub const AUDIO_EXTENSIONS: &[&str] = &[
+    "mp3", "flac", "wav", "wave", "m4a", "m4b", "aac", "ogg", "oga", "opus", "wma", "aif", "aiff",
+    "aifc", "ape", "wv", "tta", "alac", "mka",
+];
 pub const MEDIA_EXTENSIONS: &[&str] = &[
     "mp4", "mkv", "webm", "mov", "avi", "m4v", "ts", "flv", "wmv", "mpg", "mpeg", "ogv", "mp3",
-    "flac", "wav", "m4a", "aac", "ogg", "opus", "wma",
+    "flac", "wav", "wave", "m4a", "m4b", "aac", "ogg", "oga", "opus", "wma", "aif", "aiff", "aifc",
+    "ape", "wv", "tta", "alac", "mka",
 ];
 
 fn has_extension(path: &Path, extensions: &[&str]) -> bool {
@@ -309,6 +313,10 @@ mod tests {
     fn detects_supported_audio_and_media_extensions_case_insensitively() {
         assert!(is_audio_file(Path::new("track.FLAC")));
         assert!(is_audio_file(Path::new("voice.opus")));
+        assert!(is_audio_file(Path::new("album.APE")));
+        assert!(is_audio_file(Path::new("master.WV")));
+        assert!(is_audio_file(Path::new("archive.aiff")));
+        assert!(is_audio_file(Path::new("lossless.mka")));
         assert!(!is_audio_file(Path::new("movie.mp4")));
         assert!(is_media_file(Path::new("movie.mp4")));
         assert!(is_media_file(Path::new("track.mp3")));
