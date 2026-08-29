@@ -1311,6 +1311,13 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
     {
         let tx = tx.clone();
+        app.on_select_chapter(move |index| {
+            let _ = tx.send(Command::SelectChapter(i64::from(index)));
+        });
+    }
+
+    {
+        let tx = tx.clone();
 
         app.on_next_video(move || {
             let _ = tx.send(Command::NextVideo);
@@ -1838,6 +1845,8 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         app.set_subtitles_enabled(false);
                         app.set_audio_delay(0.0);
                         app.set_subtitle_delay(0.0);
+                        app.set_chapters(ModelRc::new(VecModel::from(Vec::<ChapterEntry>::new())));
+                        app.set_current_chapter_index(-1);
                         app.set_waiting_for_video_surface(false);
                         app.set_media_transitioning(preserve_media_surface);
                         app.set_is_playing(false);
@@ -2045,6 +2054,27 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                             .collect::<Vec<_>>();
                         app.set_subtitles_enabled(tracks.iter().any(|track| track.selected));
                         app.set_subtitle_tracks(ModelRc::new(VecModel::from(tracks)));
+                    }
+
+                    Event::Chapters {
+                        items,
+                        current_index,
+                    } => {
+                        let chapters = items
+                            .into_iter()
+                            .filter_map(|chapter| {
+                                Some(ChapterEntry {
+                                    index: i32::try_from(chapter.index).ok()?,
+                                    label: chapter.label.into(),
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        app.set_chapters(ModelRc::new(VecModel::from(chapters)));
+                        app.set_current_chapter_index(i32::try_from(current_index).unwrap_or(-1));
+                    }
+
+                    Event::ChapterChanged(index) => {
+                        app.set_current_chapter_index(i32::try_from(index).unwrap_or(-1));
                     }
 
                     Event::VideoOutputReady => {

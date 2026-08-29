@@ -15,6 +15,11 @@ export struct SubtitleTrackEntry {
     selected: bool,
 }
 
+export struct ChapterEntry {
+    index: int,
+    label: string,
+}
+
 component PropertyRow inherits Rectangle {
     in property <string> label;
     in property <string> value;
@@ -96,6 +101,8 @@ export component MediaInspector inherits Rectangle {
     in property <[AudioTrackEntry]> audio-tracks;
     in property <[SubtitleTrackEntry]> subtitle-tracks;
     in property <bool> subtitles-enabled;
+    in property <[ChapterEntry]> chapters;
+    in property <int> current-chapter-index: -1;
     in property <float> audio-delay;
     in property <float> subtitle-delay;
     in-out property <float> speed;
@@ -109,6 +116,7 @@ export component MediaInspector inherits Rectangle {
     private property <length> playback-content-height: 392px
         + (audio-tracks.length > 0 ? 88px : 0px)
         + max(0, audio-tracks.length - 1) * 44px
+        + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
         + (media-loaded ? 168px + subtitle-tracks.length * 48px : 0px)
         + (media-loaded && !audio-media ? 144px : 0px)
         + (subtitle-tracks.length > 0 ? 144px : 0px);
@@ -125,6 +133,7 @@ export component MediaInspector inherits Rectangle {
     callback adjust-subtitle-delay(float);
     callback reset-audio-delay();
     callback reset-subtitle-delay();
+    callback select-chapter(int);
     callback toggle-folder-loop();
     callback toggle-shuffle();
     callback toggle-audio-visualization();
@@ -366,6 +375,24 @@ export component MediaInspector inherits Rectangle {
                 }
 
                 if root.audio-tracks.length > 0 : Divider { }
+
+                if root.chapters.length > 0 : UiText {
+                    text: "Главы";
+                    variant: TextVariant.label;
+                }
+
+                if root.chapters.length > 0 : VerticalLayout {
+                    spacing: Theme.space-2;
+
+                    for chapter in root.chapters : Button {
+                        height: Theme.space-10;
+                        text: chapter.label;
+                        selected: chapter.index == root.current-chapter-index;
+                        clicked => root.select-chapter(chapter.index);
+                    }
+                }
+
+                if root.chapters.length > 0 : Divider { }
 
                 if root.media-loaded : UiText {
                     text: "Субтитры";

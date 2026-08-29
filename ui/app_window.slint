@@ -2,7 +2,7 @@ import { Theme } from "theme.slint";
 import { PlayerControls } from "components/player_controls.slint";
 import { AudioCanvas } from "components/audio_canvas.slint";
 import { CommandEntry, CommandPaletteOverlay } from "components/command_palette.slint";
-import { AudioTrackEntry, MediaInspector, SubtitleTrackEntry } from "components/media_inspector.slint";
+import { AudioTrackEntry, ChapterEntry, MediaInspector, SubtitleTrackEntry } from "components/media_inspector.slint";
 import { ShortcutEditorOverlay, ShortcutEntry } from "components/shortcut_editor.slint";
 import { Toast } from "design_system/composites.slint";
 import { CaptionButton, EmptyState, Icon, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
@@ -40,6 +40,8 @@ export component AppWindow inherits Window {
     in-out property <bool> subtitles_enabled: false;
     in-out property <float> audio_delay: 0;
     in-out property <float> subtitle_delay: 0;
+    in property <[ChapterEntry]> chapters;
+    in-out property <int> current_chapter_index: -1;
     in-out property <image> album_art;
     in-out property <bool> album_art_available: false;
     in-out property <bool> audio_visualization_enabled: true;
@@ -149,6 +151,7 @@ export component AppWindow inherits Window {
     callback adjust_subtitle_delay(float);
     callback reset_audio_delay();
     callback reset_subtitle_delay();
+    callback select_chapter(int);
     callback toggle_loop();
     callback toggle_folder_loop();
     callback toggle_shuffle();
@@ -507,6 +510,8 @@ export component AppWindow inherits Window {
                 subtitles-enabled: root.subtitles_enabled;
                 audio-delay: root.audio_delay;
                 subtitle-delay: root.subtitle_delay;
+                chapters: root.chapters;
+                current-chapter-index: root.current_chapter_index;
                 speed: root.speed;
                 folder-loop-enabled: root.folder_loop_enabled;
                 shuffle-enabled: root.shuffle_enabled;
@@ -530,6 +535,7 @@ export component AppWindow inherits Window {
                 adjust-subtitle-delay(delta) => root.adjust_subtitle_delay(delta);
                 reset-audio-delay => root.reset_audio_delay();
                 reset-subtitle-delay => root.reset_subtitle_delay();
+                select-chapter(index) => root.select_chapter(index);
                 toggle-folder-loop => root.toggle_folder_loop();
                 toggle-shuffle => root.toggle_shuffle();
                 toggle-audio-visualization => {

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::ipc::{AudioTrackInfo, SubtitleTrackInfo};
+use crate::ipc::{AudioTrackInfo, ChapterInfo, SubtitleTrackInfo};
 use libmpv::Mpv;
 
 #[derive(Debug, Default)]
@@ -77,6 +77,46 @@ pub fn read_subtitle_tracks(mpv: &Mpv) -> Vec<SubtitleTrackInfo> {
             }
         })
         .collect()
+}
+
+pub fn read_chapters(mpv: &Mpv) -> Vec<ChapterInfo> {
+    let count = mpv
+        .get_property::<i64>("chapter-list/count")
+        .unwrap_or_default()
+        .max(0);
+
+    (0..count)
+        .map(|index| {
+            let title = mpv
+                .get_property::<String>(&format!("chapter-list/{index}/title"))
+                .unwrap_or_default();
+            let time = mpv
+                .get_property::<f64>(&format!("chapter-list/{index}/time"))
+                .unwrap_or_default();
+            let title = if title.trim().is_empty() {
+                format!("Глава {}", index + 1)
+            } else {
+                title.trim().to_owned()
+            };
+
+            ChapterInfo {
+                index,
+                label: format!("{}  ·  {}", format_chapter_time(time), title),
+            }
+        })
+        .collect()
+}
+
+fn format_chapter_time(seconds: f64) -> String {
+    let total = seconds.max(0.0).round() as u64;
+    let hours = total / 3_600;
+    let minutes = (total % 3_600) / 60;
+    let seconds = total % 60;
+    if hours > 0 {
+        format!("{hours:02}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes:02}:{seconds:02}")
+    }
 }
 
 struct RawTrack {
@@ -180,7 +220,7 @@ fn non_negative_u32(value: i64) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{non_negative_u32, track_label};
+    use super::{format_chapter_time, non_negative_u32, track_label};
 
     #[test]
     fn rejects_negative_media_dimensions() {
@@ -203,5 +243,12 @@ mod tests {
             track_label("Субтитры", 1, "captions.srt", "", "subrip", Some("Внешние")),
             "captions.srt  ·  SUBRIP  ·  Внешние"
         );
+    }
+
+    #[test]
+    fn formats_chapter_start_times() {
+        assert_eq!(format_chapter_time(65.2), "01:05");
+        assert_eq!(format_chapter_time(3_661.0), "01:01:01");
+        assert_eq!(format_chapter_time(-5.0), "00:00");
     }
 }

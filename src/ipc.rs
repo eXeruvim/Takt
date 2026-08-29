@@ -20,6 +20,7 @@ pub enum Command {
     AdjustSubtitleDelay(f64),
     ResetAudioDelay,
     ResetSubtitleDelay,
+    SelectChapter(i64),
     SetDarkTheme(bool),
 
     NextVideo,
@@ -54,6 +55,12 @@ pub struct SubtitleTrackInfo {
     pub id: i64,
     pub label: String,
     pub selected: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChapterInfo {
+    pub index: i64,
+    pub label: String,
 }
 
 #[derive(Debug)]
@@ -100,6 +107,11 @@ pub enum Event {
     },
     AudioTracks(Vec<AudioTrackInfo>),
     SubtitleTracks(Vec<SubtitleTrackInfo>),
+    Chapters {
+        items: Vec<ChapterInfo>,
+        current_index: i64,
+    },
+    ChapterChanged(i64),
 
     LoopEnabled(bool),
     FolderLoopEnabled(bool),

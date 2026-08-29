@@ -8,7 +8,7 @@ use std::{
 use crate::ipc::{Command, Event};
 use crate::player::{
     audio_metadata::AudioMetadata,
-    media_info::{MediaInfo, read_audio_tracks, read_subtitle_tracks},
+    media_info::{MediaInfo, read_audio_tracks, read_chapters, read_subtitle_tracks},
     playlist::DirectoryPlaylist,
 };
 use crate::render::mpv_opengl::MpvRenderSource;
@@ -77,6 +77,10 @@ fn send_media_ready(mpv: &Mpv, tx: &Sender<Event>) {
     send_media_info(mpv, tx);
     let _ = tx.send(Event::AudioTracks(read_audio_tracks(mpv)));
     let _ = tx.send(Event::SubtitleTracks(read_subtitle_tracks(mpv)));
+    let _ = tx.send(Event::Chapters {
+        items: read_chapters(mpv),
+        current_index: mpv.get_property::<i64>("chapter").unwrap_or(-1),
+    });
     let _ = tx.send(Event::MediaAvailable(true));
     let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
     let _ = tx.send(Event::PlaybackState(!paused));
@@ -345,6 +349,16 @@ fn handle_command(
                 mpv_error(mpv.set_property("sub-delay", 0.0))?;
             }
         }
+        Command::SelectChapter(index) => {
+            if !read_chapters(mpv)
+                .iter()
+                .any(|chapter| chapter.index == index)
+            {
+                anyhow::bail!("Глава {} отсутствует в текущем файле", index + 1);
+            }
+            mpv_error(mpv.set_property("chapter", index))?;
+            let _ = tx.send(Event::ChapterChanged(index));
+        }
         Command::SetDarkTheme(dark_theme) => {
             mpv_error(mpv.set_property(
                 "background-color",
@@ -446,6 +460,7 @@ fn send_property_change(tx: &Sender<Event>, name: &str, change: PropertyData<'_>
         }
         ("audio-delay", PropertyData::Double(value)) => Some(Event::AudioDelay(value)),
         ("sub-delay", PropertyData::Double(value)) => Some(Event::SubtitleDelay(value)),
+        ("chapter", PropertyData::Int64(value)) => Some(Event::ChapterChanged(value)),
         _ => None,
     };
 
@@ -494,6 +509,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
         (7, "loop-file", Format::String),
         (8, "audio-delay", Format::Double),
         (9, "sub-delay", Format::Double),
+        (10, "chapter", Format::Int64),
     ] {
         mpv_error(events.observe_property(name, format, id))?;
     }
