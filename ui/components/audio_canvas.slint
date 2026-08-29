@@ -1,15 +1,196 @@
 import { Theme } from "../theme.slint";
 import { Icon, UiText, TextVariant } from "../design_system/primitives.slint";
 
+component AlbumSleeve inherits Rectangle {
+    in property <image> artwork;
+    in property <bool> artwork-available;
+
+    border-radius: Theme.radius-large;
+    background: Theme.audio-artwork-placeholder;
+    border-width: 1px;
+    border-color: Theme.border-glass;
+    drop-shadow-color: Theme.shadow-high;
+    drop-shadow-blur: Theme.elevation-high-blur;
+    drop-shadow-offset-y: Theme.elevation-high-y;
+    clip: true;
+
+    if root.artwork-available : Image {
+        width: parent.width;
+        height: parent.height;
+        source: root.artwork;
+        image-fit: cover;
+    }
+
+    if !root.artwork-available : Rectangle {
+        x: Theme.space-4;
+        y: Theme.space-4;
+        width: parent.width - Theme.space-8;
+        height: parent.height - Theme.space-8;
+        border-radius: Theme.radius-medium;
+        background: Theme.surface-control;
+        border-width: 1px;
+        border-color: Theme.border-subtle;
+
+        Icon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2 - Theme.space-3;
+            source: @image-url("../icons/oxide.svg");
+            size: min(72px, parent.width * 0.26);
+            tint: Theme.accent;
+        }
+
+        UiText {
+            x: Theme.space-3;
+            y: parent.height - Theme.space-10;
+            width: parent.width - Theme.space-6;
+            text: "OXIDE AUDIO";
+            variant: TextVariant.caption;
+            color: Theme.text-muted;
+            horizontal-alignment: center;
+        }
+    }
+
+    Rectangle {
+        x: Theme.space-3;
+        y: Theme.space-3;
+        width: parent.width - Theme.space-6;
+        height: 1px;
+        background: Theme.border-glass;
+        opacity: 0.62;
+    }
+}
+
+component VinylRecord inherits Rectangle {
+    in property <float> rotation;
+
+    background: transparent;
+
+    record-transform := Image {
+        width: parent.width;
+        height: parent.height;
+        transform-rotation: root.rotation * 1deg;
+        transform-origin: { x: self.width / 2, y: self.height / 2 };
+
+        vinyl := Rectangle {
+            width: parent.width;
+            height: parent.height;
+            border-radius: Theme.radius-full;
+            background: @linear-gradient(138deg,
+                #34343a 0%,
+                #09090c 31%,
+                #202026 50%,
+                #070709 72%,
+                #2a2a30 100%);
+            border-width: 1px;
+            border-color: Theme.border-strong;
+            drop-shadow-color: Theme.shadow-high;
+            drop-shadow-blur: Theme.elevation-high-blur;
+            drop-shadow-offset-y: Theme.elevation-high-y;
+
+            for groove[index] in [0.92, 0.78, 0.64, 0.50] : Rectangle {
+                width: parent.width * groove;
+                height: self.width;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                border-radius: Theme.radius-full;
+                background: transparent;
+                border-width: 1px;
+                border-color: index == 1 ? #ffffff14 : #ffffff0b;
+            }
+
+            Rectangle {
+                width: parent.width * 0.34;
+                height: self.width;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                border-radius: Theme.radius-full;
+                background: @linear-gradient(145deg,
+                    Theme.accent-hover 0%,
+                    Theme.accent-pressed 100%);
+                border-width: 1px;
+                border-color: Theme.border-glass;
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    source: @image-url("../icons/oxide.svg");
+                    size: min(36px, parent.width * 0.52);
+                    tint: Theme.on-accent;
+                }
+
+                Rectangle {
+                    width: max(5px, parent.width * 0.09);
+                    height: self.width;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: Theme.radius-full;
+                    background: #111116;
+                }
+            }
+
+            Rectangle {
+                x: parent.width * 0.18;
+                y: parent.height * 0.11;
+                width: parent.width * 0.18;
+                height: parent.height * 0.025;
+                border-radius: Theme.radius-full;
+                background: #ffffff24;
+            }
+        }
+    }
+}
+
+component AudioVisualizationLayer inherits Rectangle {
+    in property <bool> enabled;
+    in property <bool> active;
+
+    visible: enabled || self.opacity > 0.01;
+    opacity: enabled ? active ? 0.64 : 0.46 : 0;
+    border-radius: Theme.radius-xlarge;
+    background: @linear-gradient(110deg,
+        Theme.accent-subtle 0%,
+        transparent 42%,
+        Theme.surface-control 100%);
+
+    animate opacity {
+        duration: Theme.motion-gentle;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
+}
+
+// The audio scene deliberately has no fake spectrum. Artwork provides identity,
+// the partially revealed record communicates playback, and the ambient layer is
+// ready for real audio data from stage 6A.
 export component AudioCanvas inherits Rectangle {
     in property <bool> shown;
+    in property <bool> is-playing;
+    in property <bool> expanded;
+    in property <bool> controls-visible: true;
+    in property <bool> visualization-enabled: true;
     in property <string> file-name;
     in property <string> audio-codec;
+    in property <image> album-art;
+    in property <bool> album-art-available: false;
+    private property <float> record-rotation: 0;
+    private property <float> record-speed: 0;
+    private property <length> content-top: Theme.top-bar-height + Theme.space-4;
+    private property <length> content-bottom: Theme.player-controls-height + Theme.space-4;
+    private property <length> content-height: max(0px, self.height - content-top - content-bottom);
+    private property <length> cover-size: min(
+        expanded ? 520px : 420px,
+        max(200px, min((self.width - Theme.space-12 * 2) / 1.34, content-height - 120px))
+    );
+    private property <length> scene-width: min(
+        self.width - Theme.space-8 * 2,
+        cover-size * 1.34
+    );
+    private property <length> visual-offset-y: controls-visible
+        ? 0px : Theme.player-controls-height / 2;
     callback fullscreen();
 
     visible: shown || self.opacity > 0.01;
     opacity: shown ? 1 : 0;
-    background: Theme.surface-media-glass;
+    background: transparent;
     border-radius: Theme.radius-medium;
     clip: true;
 
@@ -18,81 +199,102 @@ export component AudioCanvas inherits Rectangle {
         easing: cubic-bezier(0.2, 0, 0, 1);
     }
 
+    animate visual-offset-y {
+        duration: Theme.motion-dismiss;
+        easing: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    record-timer := Timer {
+        interval: 33ms;
+        running: root.shown && (root.is-playing || root.record-speed > 0.001);
+        triggered => {
+            root.record-speed = root.is-playing
+                ? min(0.42, root.record-speed + 0.012)
+                : max(0, root.record-speed - 0.018);
+            root.record-rotation = Math.mod(
+                root.record-rotation + root.record-speed,
+                360
+            );
+        }
+    }
+
     TouchArea {
         width: parent.width;
         height: parent.height;
         double-clicked => root.fullscreen();
     }
 
-    Rectangle {
-        width: min(parent.width - Theme.space-8, parent.height - Theme.space-8);
-        height: self.width;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        border-radius: Theme.radius-full;
-        background: Theme.accent-subtle;
-        opacity: 0.42;
+    AudioVisualizationLayer {
+        x: parent.width * 0.10;
+        y: root.content-top + root.content-height * 0.08 + root.visual-offset-y;
+        width: parent.width * 0.80;
+        height: root.content-height * 0.78;
+        enabled: root.visualization-enabled;
+        active: root.is-playing;
     }
 
-    Rectangle {
-        width: min(280px, max(0px, parent.width - Theme.space-12 * 2));
-        height: min(300px, max(0px, parent.height - Theme.space-8));
+    scene := Rectangle {
         x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        border-radius: Theme.radius-xlarge;
-        background: Theme.surface-inspector;
-        border-width: 1px;
-        border-color: Theme.border-glass;
-        drop-shadow-color: Theme.shadow-low;
-        drop-shadow-blur: Theme.elevation-low-blur;
-        drop-shadow-offset-y: Theme.elevation-low-y;
+        y: root.content-top + max(0px, (root.content-height - self.height) / 2)
+            + root.visual-offset-y;
+        width: root.scene-width;
+        height: root.cover-size + 112px;
+        background: transparent;
 
-        VerticalLayout {
-            padding: Theme.space-6;
-            spacing: Theme.space-3;
-            alignment: center;
+        // The record is painted first so the artwork remains the visual hero.
+        VinylRecord {
+            x: root.cover-size * 0.42;
+            y: root.cover-size * 0.04;
+            width: root.cover-size * 0.92;
+            height: self.width;
+            rotation: root.record-rotation;
+        }
 
-            Rectangle {
-                width: 112px;
-                height: 112px;
-                border-radius: Theme.radius-full;
-                background: Theme.surface-selected;
-                border-width: 1px;
-                border-color: Theme.accent;
+        AlbumSleeve {
+            x: 0px;
+            y: 0px;
+            width: root.cover-size;
+            height: root.cover-size;
+            artwork: root.album-art;
+            artwork-available: root.album-art-available;
+        }
 
-                Icon {
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    source: @image-url("../icons/oxide.svg");
-                    size: 52px;
-                    tint: Theme.accent;
+        metadata := Rectangle {
+            x: 0px;
+            y: root.cover-size + Theme.space-6;
+            width: parent.width;
+            height: 80px;
+            background: transparent;
+
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                spacing: Theme.space-2;
+                alignment: center;
+
+                UiText {
+                    width: parent.width;
+                    height: 36px;
+                    text: root.file-name;
+                    variant: TextVariant.heading;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    overflow: elide;
                 }
-            }
 
-            UiText {
-                text: "AUDIO";
-                variant: TextVariant.caption;
-                color: Theme.accent;
-                horizontal-alignment: center;
-            }
-
-            UiText {
-                width: parent.width - Theme.space-12;
-                text: root.file-name;
-                variant: TextVariant.heading;
-                horizontal-alignment: center;
-                overflow: elide;
-            }
-
-            UiText {
-                width: parent.width - Theme.space-12;
-                text: root.audio-codec == "" || root.audio-codec == "—"
-                    ? "Аудиофайл"
-                    : root.audio-codec;
-                variant: TextVariant.caption;
-                color: Theme.text-secondary;
-                horizontal-alignment: center;
-                overflow: elide;
+                UiText {
+                    width: parent.width;
+                    height: 28px;
+                    text: (root.is-playing ? "Сейчас играет" : "Пауза") + "  ·  "
+                        + (root.audio-codec == "" || root.audio-codec == "—"
+                            ? "Аудиофайл"
+                            : root.audio-codec);
+                    variant: TextVariant.caption;
+                    color: root.is-playing ? Theme.accent : Theme.text-secondary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
             }
         }
     }

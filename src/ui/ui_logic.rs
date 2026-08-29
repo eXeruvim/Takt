@@ -30,6 +30,7 @@ use slint::winit_030::{
         dpi::PhysicalPosition,
         event::{MouseButton, WindowEvent},
         keyboard::{KeyCode, ModifiersState, PhysicalKey},
+        window::Theme as WinitTheme,
     },
 };
 use slint::{ModelRc, SharedString, VecModel};
@@ -490,46 +491,6 @@ const PALETTE_COMMANDS: &[PaletteCommandSpec] = &[
         requires_media: false,
     },
     PaletteCommandSpec {
-        action: 17,
-        title: "Скорость: 0.5×",
-        description: "Установить половинную скорость",
-        shortcut: "—",
-        keywords: "speed slow скорость медленно половина",
-        requires_media: true,
-    },
-    PaletteCommandSpec {
-        action: 18,
-        title: "Скорость: 1×",
-        description: "Вернуть обычную скорость",
-        shortcut: "—",
-        keywords: "speed normal reset скорость обычно сброс",
-        requires_media: true,
-    },
-    PaletteCommandSpec {
-        action: 19,
-        title: "Скорость: 1.25×",
-        description: "Установить скорость 1.25×",
-        shortcut: "—",
-        keywords: "speed скорость",
-        requires_media: true,
-    },
-    PaletteCommandSpec {
-        action: 20,
-        title: "Скорость: 1.5×",
-        description: "Установить скорость 1.5×",
-        shortcut: "—",
-        keywords: "speed fast скорость быстро",
-        requires_media: true,
-    },
-    PaletteCommandSpec {
-        action: 21,
-        title: "Скорость: 2×",
-        description: "Установить двойную скорость",
-        shortcut: "—",
-        keywords: "speed fast скорость быстро двойная",
-        requires_media: true,
-    },
-    PaletteCommandSpec {
         action: 10,
         title: "Горячие клавиши",
         description: "Показать справку по управлению",
@@ -921,11 +882,24 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         let mut modifiers = ModifiersState::empty();
         let mut last_cursor_position = None::<(f64, f64)>;
         let mut drawer_swipe = None::<(DrawerSwipeTarget, f64)>;
+        let mut theme_initialized = false;
 
         app.window().on_winit_window_event(move |window, event| {
             let Some(app) = app_weak.upgrade() else {
                 return EventResult::Propagate;
             };
+
+            if !theme_initialized {
+                let dark_theme = window
+                    .with_winit_window(|native_window| {
+                        native_window
+                            .theme()
+                            .map_or(app.get_dark_theme(), |theme| theme == WinitTheme::Dark)
+                    })
+                    .unwrap_or_else(|| app.get_dark_theme());
+                let _ = tx.send(Command::SetDarkTheme(dark_theme));
+                theme_initialized = true;
+            }
 
             match event {
                 WindowEvent::CursorMoved { position, .. } => {
@@ -967,6 +941,10 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     if !focused {
                         finish_manual_window_drag(&event_window_drag_state);
                     }
+                }
+                WindowEvent::ThemeChanged(theme) => {
+                    let _ = tx.send(Command::SetDarkTheme(matches!(theme, WinitTheme::Dark)));
+                    window.request_redraw();
                 }
                 WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
                     // Keep Slint and the native mpv child on the same frame. Resizing the child

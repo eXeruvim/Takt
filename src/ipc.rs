@@ -13,6 +13,7 @@ pub enum Command {
 
     SetVolume(f64),
     SetSpeed(f64),
+    SetDarkTheme(bool),
 
     NextVideo,
     PreviousVideo,

@@ -32,6 +32,10 @@ export component AppWindow inherits Window {
     in-out property <string> file_name: "Не выбран файл";
     in-out property <string> codec: "—";
     in-out property <string> audio_codec: "—";
+    in-out property <image> album_art;
+    in-out property <bool> album_art_available: false;
+    in-out property <bool> audio_visualization_enabled: true;
+    out property <bool> dark_theme: Theme.is-dark;
     in-out property <string> resolution: "—";
     in-out property <string> fps: "—";
     in-out property <string> current_time: "00:00";
@@ -153,8 +157,10 @@ export component AppWindow inherits Window {
         easing: cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    animate video_left_panel_inset, video_right_panel_inset,
-        audio_left_panel_inset, audio_right_panel_inset {
+    // Audio is fully composed by Slint and can transition smoothly. Native mpv
+    // fallback geometry must snap to its final bounds instead of resizing an
+    // HWND on every animation frame.
+    animate audio_left_panel_inset, audio_right_panel_inset {
         duration: Theme.motion-slow;
         easing: cubic-bezier(0.16, 1, 0.3, 1);
     }
@@ -241,8 +247,14 @@ export component AppWindow inherits Window {
                 width: max(0px, parent.width - self.x - root.audio_right_panel_inset);
                 height: max(0px, parent.height - self.y - root.audio_bottom_inset);
                 shown: root.media_presented && root.audio_media;
+                expanded: root.maximized || root.fullscreen_mode;
+                controls-visible: root.controls_visible;
+                visualization-enabled: root.audio_visualization_enabled;
                 file-name: root.file_name;
                 audio-codec: root.audio_codec;
+                album-art: root.album_art;
+                album-art-available: root.album_art_available;
+                is-playing: root.is_playing;
                 fullscreen => root.toggle_fullscreen();
             }
 
@@ -472,9 +484,9 @@ export component AppWindow inherits Window {
                 fps: root.fps;
                 audio-media: root.audio_media;
                 speed: root.speed;
-                loop-enabled: root.loop_enabled;
                 folder-loop-enabled: root.folder_loop_enabled;
                 shuffle-enabled: root.shuffle_enabled;
+                audio-visualization-enabled: root.audio_visualization_enabled;
                 parent-width: parent.width;
                 parent-height: parent.height;
                 show-playlist => root.toggle_playlist();
@@ -487,9 +499,11 @@ export component AppWindow inherits Window {
                 }
                 play-index(index) => root.play_playlist_index(index);
                 set-speed(value) => root.set_speed(value);
-                toggle-loop => root.toggle_loop();
                 toggle-folder-loop => root.toggle_folder_loop();
                 toggle-shuffle => root.toggle_shuffle();
+                toggle-audio-visualization => {
+                    root.audio_visualization_enabled = !root.audio_visualization_enabled;
+                }
                 edit-shortcuts => root.toggle_shortcuts();
             }
 
@@ -587,10 +601,5 @@ export component AppWindow inherits Window {
         else if (action == 14) { seek_relative(10.0); }
         else if (action == 15) { adjust_volume(-5.0); }
         else if (action == 16) { adjust_volume(5.0); }
-        else if (action == 17) { set_speed(0.5); }
-        else if (action == 18) { set_speed(1.0); }
-        else if (action == 19) { set_speed(1.25); }
-        else if (action == 20) { set_speed(1.5); }
-        else if (action == 21) { set_speed(2.0); }
     }
 }

@@ -33,6 +33,14 @@ fn loop_value_is_enabled(value: &str) -> bool {
     !matches!(value, "" | "no" | "0" | "false")
 }
 
+fn video_background_color(dark_theme: bool) -> &'static str {
+    if dark_theme {
+        "0.035/0.035/0.05/0.72"
+    } else {
+        "1.0/1.0/1.0/0.42"
+    }
+}
+
 fn should_restart_current(position: f64) -> bool {
     position.is_finite() && position > PREVIOUS_RESTART_THRESHOLD_SECONDS
 }
@@ -252,6 +260,12 @@ fn handle_command(
         Command::SetSpeed(value) => {
             mpv_error(mpv.set_property("speed", value.clamp(0.25, 4.0)))?;
         }
+        Command::SetDarkTheme(dark_theme) => {
+            mpv_error(mpv.set_property(
+                "background-color",
+                video_background_color(dark_theme).to_owned(),
+            ))?;
+        }
         Command::NextVideo => {
             if load_adjacent(mpv, tx, playlist, true, options.repeat_folder)? {
                 options.media_available = true;
@@ -360,7 +374,8 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
             {
                 initializer.set_property("vo", "libmpv".to_owned())?;
                 initializer.set_property("background", "color".to_owned())?;
-                initializer.set_property("background-color", "0.035/0.035/0.05/0.72".to_owned())?;
+                initializer
+                    .set_property("background-color", video_background_color(true).to_owned())?;
             }
             Ok(())
         })
@@ -493,7 +508,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{loop_value_is_enabled, should_restart_current};
+    use super::{loop_value_is_enabled, should_restart_current, video_background_color};
 
     #[test]
     fn recognizes_normalized_mpv_loop_values() {
@@ -509,5 +524,11 @@ mod tests {
         assert!(!should_restart_current(3.0));
         assert!(should_restart_current(3.01));
         assert!(!should_restart_current(f64::NAN));
+    }
+
+    #[test]
+    fn chooses_letterbox_color_for_the_active_theme() {
+        assert_eq!(video_background_color(true), "0.035/0.035/0.05/0.72");
+        assert_eq!(video_background_color(false), "1.0/1.0/1.0/0.42");
     }
 }

@@ -42,9 +42,9 @@ export component MediaInspector inherits Rectangle {
     in property <string> fps;
     in property <bool> audio-media;
     in-out property <float> speed;
-    in-out property <bool> loop-enabled;
     in-out property <bool> folder-loop-enabled;
     in-out property <bool> shuffle-enabled;
+    in-out property <bool> audio-visualization-enabled;
     in property <length> parent-width;
     in property <length> parent-height;
     out property <length> slide-offset: open || prewarming
@@ -55,9 +55,9 @@ export component MediaInspector inherits Rectangle {
     callback close();
     callback play-index(int);
     callback set-speed(float);
-    callback toggle-loop();
     callback toggle-folder-loop();
     callback toggle-shuffle();
+    callback toggle-audio-visualization();
     callback edit-shortcuts();
 
     width: min(392px, parent-width - Theme.space-8);
@@ -275,16 +275,6 @@ export component MediaInspector inherits Rectangle {
 
                 SettingsRow {
                     height: Theme.space-12;
-                    title: "Повтор файла";
-                    description: "Запускать текущий файл заново";
-                    Toggle {
-                        checked: root.loop-enabled;
-                        toggled => root.toggle-loop();
-                    }
-                }
-
-                SettingsRow {
-                    height: Theme.space-12;
                     title: "Повтор папки";
                     description: "Возвращаться к началу списка";
                     Toggle {
@@ -300,6 +290,16 @@ export component MediaInspector inherits Rectangle {
                     Toggle {
                         checked: root.shuffle-enabled;
                         toggled => root.toggle-shuffle();
+                    }
+                }
+
+                if root.audio-media : SettingsRow {
+                    height: Theme.space-12;
+                    title: "Визуализация аудио";
+                    description: "Показывать ambient-слой за обложкой";
+                    Toggle {
+                        checked: root.audio-visualization-enabled;
+                        toggled => root.toggle-audio-visualization();
                     }
                 }
 
