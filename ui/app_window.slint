@@ -20,11 +20,12 @@ export component AppWindow inherits Window {
     forward-focus: keyboard;
     preferred-width: 1280px;
     preferred-height: 760px;
-    min-width: 760px;
-    min-height: 520px;
+    min-width: self.picture_in_picture ? 360px : 760px;
+    min-height: self.picture_in_picture ? 240px : 520px;
     background: transparent;
     default-font-family: "Segoe UI Variable";
     no-frame: true;
+    always-on-top: self.picture_in_picture;
     resize-border-width: self.edge_to_edge ? 0px : 6px;
     title: "Oxide";
     icon: @image-url("icons/oxide.svg");
@@ -83,6 +84,7 @@ export component AppWindow inherits Window {
     in-out property <bool> inspector_reserved: false;
     in-out property <bool> shortcut_editor_visible: false;
     in-out property <bool> fullscreen_mode: false;
+    in-out property <bool> picture_in_picture: false;
     in-out property <bool> window_active: true;
     out property <bool> edge_to_edge: self.maximized || self.fullscreen_mode;
     in-out property <int> shortcut_capture_action: -1;
@@ -162,6 +164,7 @@ export component AppWindow inherits Window {
     callback toggle_shuffle();
     callback request_media_info();
     callback toggle_fullscreen();
+    callback toggle_picture_in_picture();
     callback toggle_info();
     callback toggle_playlist();
     callback toggle_settings();
@@ -359,11 +362,14 @@ export component AppWindow inherits Window {
 
             top-bar := Rectangle {
                 x: 0px;
-                y: !root.fullscreen_mode || root.controls_visible ? 0px : -Theme.space-2;
+                y: (!root.fullscreen_mode && !root.picture_in_picture)
+                    || root.controls_visible ? 0px : -Theme.space-2;
                 width: parent.width;
                 height: Theme.top-bar-height;
-                opacity: !root.fullscreen_mode || root.controls_visible ? 1 : 0;
-                visible: !root.fullscreen_mode || root.controls_visible || self.opacity > 0.01;
+                opacity: (!root.fullscreen_mode && !root.picture_in_picture)
+                    || root.controls_visible ? 1 : 0;
+                visible: (!root.fullscreen_mode && !root.picture_in_picture)
+                    || root.controls_visible || self.opacity > 0.01;
                 border-radius: 0px;
                 background: Theme.surface-chrome;
                 border-width: 0px;
@@ -378,7 +384,10 @@ export component AppWindow inherits Window {
                             root.drag_window();
                         }
                     }
-                    double-clicked => { root.maximized = !root.maximized; }
+                    double-clicked => {
+                        if (root.picture_in_picture) { root.toggle_picture_in_picture(); }
+                        else { root.maximized = !root.maximized; }
+                    }
                 }
 
                 HorizontalLayout {
@@ -436,7 +445,10 @@ export component AppWindow inherits Window {
                             : @image-url("icons/window-maximize.svg");
                         accessible-name: root.maximized ? "Восстановить окно" : "Развернуть окно";
                         window-active: root.window_active;
-                        clicked => { root.maximized = !root.maximized; }
+                        clicked => {
+                            if (root.picture_in_picture) { root.toggle_picture_in_picture(); }
+                            else { root.maximized = !root.maximized; }
+                        }
                     }
 
                     CaptionButton {
@@ -475,6 +487,7 @@ export component AppWindow inherits Window {
                 info_open: root.info_drawer_visible;
                 settings_open: root.settings_drawer_visible;
                 command_palette_open: root.command_palette_visible;
+                picture_in_picture_active: root.picture_in_picture;
                 next_file: root.next_card_visible ? root.next_file : "";
                 open_file => root.open_file();
                 open_folder => root.open_folder();
@@ -489,6 +502,7 @@ export component AppWindow inherits Window {
                 toggle_loop => root.toggle_loop();
                 toggle_settings => root.toggle_settings();
                 toggle_fullscreen => root.toggle_fullscreen();
+                toggle_picture_in_picture => root.toggle_picture_in_picture();
                 show_more => root.toggle_command_palette();
 
                 animate opacity {
@@ -653,5 +667,6 @@ export component AppWindow inherits Window {
         else if (action == 16) { adjust_volume(5.0); }
         else if (action == 25) { step_frame(-1); }
         else if (action == 26) { step_frame(1); }
+        else if (action == 27) { toggle_picture_in_picture(); }
     }
 }

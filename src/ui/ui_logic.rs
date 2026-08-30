@@ -27,7 +27,7 @@ use crate::ui::native_fullscreen::NativeFullscreen;
 use slint::winit_030::{
     EventResult, WinitWindowAccessor,
     winit::{
-        dpi::PhysicalPosition,
+        dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
         event::{MouseButton, WindowEvent},
         keyboard::{KeyCode, ModifiersState, PhysicalKey},
         window::Theme as WinitTheme,
@@ -59,6 +59,15 @@ struct WindowDragState {
     window_origin: (i32, i32),
 }
 
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Default)]
+struct PictureInPictureState {
+    active: bool,
+    saved_position: Option<PhysicalPosition<i32>>,
+    saved_size: Option<PhysicalSize<u32>>,
+    was_maximized: bool,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(i32)]
 enum ShortcutAction {
@@ -83,6 +92,7 @@ enum ShortcutAction {
     ToggleCommandPalette = 24,
     FrameBackward = 25,
     FrameForward = 26,
+    TogglePictureInPicture = 27,
 }
 
 #[derive(Clone, Copy)]
@@ -93,7 +103,7 @@ enum DrawerSwipeTarget {
 }
 
 impl ShortcutAction {
-    const ALL: [Self; 21] = [
+    const ALL: [Self; 22] = [
         Self::ToggleCommandPalette,
         Self::OpenFile,
         Self::OpenFolder,
@@ -113,6 +123,7 @@ impl ShortcutAction {
         Self::ToggleMute,
         Self::ToggleLoop,
         Self::ToggleFullscreen,
+        Self::TogglePictureInPicture,
         Self::ToggleInfo,
         Self::ToggleShortcuts,
     ];
@@ -141,6 +152,7 @@ impl ShortcutAction {
             16 => Some(Self::VolumeUp),
             25 => Some(Self::FrameBackward),
             26 => Some(Self::FrameForward),
+            27 => Some(Self::TogglePictureInPicture),
             _ => None,
         }
     }
@@ -164,6 +176,7 @@ impl ShortcutAction {
             Self::ToggleMute => "Выключить / включить звук",
             Self::ToggleLoop => "Повтор файла",
             Self::ToggleFullscreen => "Полноэкранный режим",
+            Self::TogglePictureInPicture => "Картинка в картинке",
             Self::ToggleInfo => "Свойства файла",
             Self::TogglePlaylist => "Плейлист",
             Self::ToggleShortcuts => "Горячие клавиши",
@@ -196,6 +209,9 @@ impl ShortcutAction {
             Self::ToggleMute => vec![plain(KeyCode::KeyM)],
             Self::ToggleLoop => vec![plain(KeyCode::KeyR)],
             Self::ToggleFullscreen => vec![plain(KeyCode::KeyF)],
+            Self::TogglePictureInPicture => {
+                vec![ShortcutBinding::new(KeyCode::KeyP, ModifiersState::ALT)]
+            }
             Self::ToggleInfo => vec![plain(KeyCode::KeyI)],
             Self::TogglePlaylist => vec![control(KeyCode::KeyL)],
             Self::ToggleShortcuts => vec![plain(KeyCode::KeyH)],
@@ -375,6 +391,7 @@ fn dispatch_shortcut(app: &AppWindow, action: ShortcutAction) {
         ShortcutAction::ToggleMute => app.invoke_toggle_mute(),
         ShortcutAction::ToggleLoop => app.invoke_toggle_loop(),
         ShortcutAction::ToggleFullscreen => app.invoke_toggle_fullscreen(),
+        ShortcutAction::TogglePictureInPicture => app.invoke_toggle_picture_in_picture(),
         ShortcutAction::ToggleInfo => app.invoke_toggle_info(),
         ShortcutAction::TogglePlaylist => app.invoke_toggle_playlist(),
         ShortcutAction::ToggleShortcuts => app.invoke_toggle_shortcuts(),
@@ -537,6 +554,14 @@ const PALETTE_COMMANDS: &[PaletteCommandSpec] = &[
         shortcut: "F",
         keywords: "fullscreen full screen полный экран",
         requires_media: false,
+    },
+    PaletteCommandSpec {
+        action: 27,
+        title: "Картинка в картинке",
+        description: "Переключить компактное окно поверх остальных",
+        shortcut: "Alt P",
+        keywords: "picture in picture pip mini player окно поверх компактное",
+        requires_media: true,
     },
     PaletteCommandSpec {
         action: 12,
@@ -851,6 +876,95 @@ fn toggle_native_fullscreen(app: &AppWindow, native_fullscreen: &Arc<Mutex<Nativ
     sync_native_window_resizable(app.window(), app.get_fullscreen_mode());
 }
 
+#[cfg(target_os = "windows")]
+fn toggle_picture_in_picture(
+    app: &AppWindow,
+    state: &Arc<Mutex<PictureInPictureState>>,
+    native_fullscreen: &Arc<Mutex<NativeFullscreen>>,
+) {
+    let entering = !app.get_picture_in_picture();
+    if entering && app.get_fullscreen_mode() {
+        toggle_native_fullscreen(app, native_fullscreen);
+        if app.get_fullscreen_mode() {
+            return;
+        }
+    }
+
+    if entering {
+        app.set_info_drawer_visible(false);
+        app.set_playlist_drawer_visible(false);
+        app.set_settings_drawer_visible(false);
+        app.set_inspector_reserved(false);
+        app.set_shortcut_editor_visible(false);
+        app.set_command_palette_visible(false);
+        app.set_picture_in_picture(true);
+    }
+
+    let result = state
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Не удалось изменить режим «картинка в картинке»"))
+        .map(|mut state| {
+            app.window().with_winit_window(|window| {
+                if entering {
+                    if state.active {
+                        return;
+                    }
+                    state.saved_position = window.outer_position().ok();
+                    state.saved_size = Some(window.inner_size());
+                    state.was_maximized = window.is_maximized();
+
+                    window.set_minimized(false);
+                    window.set_maximized(false);
+
+                    let target_logical = LogicalSize::new(480.0, 300.0);
+                    let target_physical: PhysicalSize<u32> =
+                        target_logical.to_physical(window.scale_factor());
+                    let _ = window.request_inner_size(target_physical);
+
+                    if let Some(monitor) = window.current_monitor() {
+                        let monitor_position = monitor.position();
+                        let monitor_size = monitor.size();
+                        let right_offset = monitor_size
+                            .width
+                            .saturating_sub(target_physical.width.saturating_add(32));
+                        let bottom_offset = monitor_size
+                            .height
+                            .saturating_sub(target_physical.height.saturating_add(72));
+                        window.set_outer_position(PhysicalPosition::new(
+                            monitor_position.x + i32::try_from(right_offset).unwrap_or(i32::MAX),
+                            monitor_position.y + i32::try_from(bottom_offset).unwrap_or(i32::MAX),
+                        ));
+                    }
+                    state.active = true;
+                } else if state.active {
+                    window.set_maximized(false);
+                    if let Some(size) = state.saved_size {
+                        let _ = window.request_inner_size(size);
+                    }
+                    if let Some(position) = state.saved_position {
+                        window.set_outer_position(position);
+                    }
+                    if state.was_maximized {
+                        window.set_maximized(true);
+                    }
+                    *state = PictureInPictureState::default();
+                }
+                window.request_redraw();
+            });
+        });
+
+    if let Err(error) = result {
+        if entering {
+            app.set_picture_in_picture(false);
+        }
+        app.set_error_message(error.to_string().into());
+        app.set_error_visible(true);
+    } else if !entering {
+        app.set_picture_in_picture(false);
+    }
+    app.invoke_reveal_controls();
+}
+
 pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     let app = AppWindow::new()?;
     let shortcut_registry = Arc::new(Mutex::new(ShortcutRegistry::default()));
@@ -868,6 +982,8 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     let render_source = Arc::new(Mutex::new(None::<MpvRenderSource>));
     #[cfg(target_os = "windows")]
     let native_fullscreen = Arc::new(Mutex::new(NativeFullscreen::default()));
+    #[cfg(target_os = "windows")]
+    let picture_in_picture_state = Arc::new(Mutex::new(PictureInPictureState::default()));
     #[cfg(target_os = "windows")]
     let video_resize_timer = slint::Timer::default();
     #[cfg(target_os = "windows")]
@@ -1414,10 +1530,29 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     {
         let app_weak = app.as_weak();
         let native_fullscreen = native_fullscreen.clone();
+        let picture_in_picture_state = picture_in_picture_state.clone();
 
         app.on_toggle_fullscreen(move || {
             if let Some(app) = app_weak.upgrade() {
+                if app.get_picture_in_picture() {
+                    toggle_picture_in_picture(&app, &picture_in_picture_state, &native_fullscreen);
+                }
                 toggle_native_fullscreen(&app, &native_fullscreen);
+            }
+        });
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let app_weak = app.as_weak();
+        let native_fullscreen = native_fullscreen.clone();
+        let picture_in_picture_state = picture_in_picture_state.clone();
+
+        app.on_toggle_picture_in_picture(move || {
+            if let Some(app) = app_weak.upgrade()
+                && app.get_media_loaded()
+            {
+                toggle_picture_in_picture(&app, &picture_in_picture_state, &native_fullscreen);
             }
         });
     }
@@ -1431,6 +1566,20 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 let fullscreen = !app.window().is_fullscreen();
                 app.set_fullscreen_mode(fullscreen);
                 app.window().set_fullscreen(fullscreen);
+            }
+        });
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let app_weak = app.as_weak();
+
+        app.on_toggle_picture_in_picture(move || {
+            if let Some(app) = app_weak.upgrade()
+                && app.get_media_loaded()
+            {
+                app.set_picture_in_picture(!app.get_picture_in_picture());
+                app.invoke_reveal_controls();
             }
         });
     }

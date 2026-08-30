@@ -18,6 +18,7 @@ export component PlayerControls inherits Rectangle {
     in property <bool> info_open;
     in property <bool> settings_open;
     in property <bool> command_palette_open;
+    in property <bool> picture_in_picture_active;
     in property <string> next_file;
     private property <bool> show_remaining_time: true;
     out property <bool> show-volume-slider: self.width >= 1080px;
@@ -29,9 +30,9 @@ export component PlayerControls inherits Rectangle {
         ? 160px + group-spacing * 3
         : 80px + group-spacing;
     out property <length> side-zone-width: show-volume-slider
-        ? 320px + group-spacing * 4
+        ? 360px + group-spacing * 5
         : show-secondary-actions
-            ? 200px + group-spacing * 4
+            ? 240px + group-spacing * 5
             : 160px + group-spacing * 3;
     callback open_file();
     callback open_folder();
@@ -46,6 +47,7 @@ export component PlayerControls inherits Rectangle {
     callback toggle_loop();
     callback toggle_settings();
     callback toggle_fullscreen();
+    callback toggle_picture_in_picture();
     callback show_more();
 
     height: Theme.player-controls-height;
@@ -149,6 +151,7 @@ export component PlayerControls inherits Rectangle {
             background: transparent;
 
             left-actions := Rectangle {
+                visible: !root.picture_in_picture_active;
                 x: 0px;
                 y: 0px;
                 width: root.side-zone-width;
@@ -208,6 +211,7 @@ export component PlayerControls inherits Rectangle {
             }
 
             transport-actions := Rectangle {
+                visible: !root.picture_in_picture_active;
                 x: (parent.width - self.width) / 2;
                 y: 0px;
                 width: 124px + root.group-spacing * 2;
@@ -264,6 +268,7 @@ export component PlayerControls inherits Rectangle {
             }
 
             right-actions := Rectangle {
+                visible: !root.picture_in_picture_active;
                 width: root.side-zone-width;
                 height: parent.height;
                 x: parent.width - self.width;
@@ -338,6 +343,15 @@ export component PlayerControls inherits Rectangle {
                     }
 
                     if root.show-secondary-actions : IconButton {
+                        icon: @image-url("../icons/picture-in-picture.svg");
+                        accessible-name: "Картинка в картинке";
+                        circular: true;
+                        selected: root.picture_in_picture_active;
+                        capture-focus: false;
+                        clicked => root.toggle_picture_in_picture();
+                    }
+
+                    if root.show-secondary-actions : IconButton {
                         icon: @image-url("../icons/maximize.svg");
                         accessible-name: root.fullscreen_active
                             ? "Выйти из полноэкранного режима"
@@ -355,6 +369,59 @@ export component PlayerControls inherits Rectangle {
                         selected: root.command_palette_open;
                         capture-focus: false;
                         clicked => root.show_more();
+                    }
+                }
+            }
+
+            if root.picture_in_picture_active : Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: 0px;
+                width: 172px;
+                height: parent.height;
+                background: transparent;
+
+                HorizontalLayout {
+                    width: parent.width;
+                    height: parent.height;
+                    spacing: Theme.space-1;
+                    alignment: center;
+
+                    IconButton {
+                        icon: @image-url("../icons/skip-back.svg");
+                        accessible-name: "Предыдущий файл";
+                        circular: true;
+                        enabled: root.media_loaded;
+                        capture-focus: false;
+                        clicked => root.previous();
+                    }
+                    IconButton {
+                        width: 44px;
+                        height: 44px;
+                        icon: root.is_playing
+                            ? @image-url("../icons/pause.svg")
+                            : @image-url("../icons/play.svg");
+                        accessible-name: root.is_playing ? "Пауза" : "Воспроизведение";
+                        primary: true;
+                        circular: true;
+                        enabled: root.media_loaded;
+                        capture-focus: false;
+                        clicked => root.play_pause();
+                    }
+                    IconButton {
+                        icon: @image-url("../icons/skip-forward.svg");
+                        accessible-name: "Следующий файл";
+                        circular: true;
+                        enabled: root.media_loaded;
+                        capture-focus: false;
+                        clicked => root.next();
+                    }
+                    IconButton {
+                        icon: @image-url("../icons/picture-in-picture.svg");
+                        accessible-name: "Вернуться в основное окно";
+                        circular: true;
+                        selected: true;
+                        capture-focus: false;
+                        clicked => root.toggle_picture_in_picture();
                     }
                 }
             }
