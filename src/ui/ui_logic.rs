@@ -14,7 +14,7 @@ use crossbeam_channel::{Receiver, Sender};
 #[cfg(target_os = "windows")]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use crate::ipc::{Command, Event};
+use crate::ipc::{AspectRatio, Command, Event};
 use crate::player::playlist::{
     AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, is_media_file,
 };
@@ -1318,6 +1318,15 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
     {
         let tx = tx.clone();
+        app.on_set_aspect_ratio(move |index| {
+            if let Some(aspect_ratio) = AspectRatio::from_ui_index(index) {
+                let _ = tx.send(Command::SetAspectRatio(aspect_ratio));
+            }
+        });
+    }
+
+    {
+        let tx = tx.clone();
 
         app.on_next_video(move || {
             let _ = tx.send(Command::NextVideo);
@@ -1847,6 +1856,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         app.set_subtitle_delay(0.0);
                         app.set_chapters(ModelRc::new(VecModel::from(Vec::<ChapterEntry>::new())));
                         app.set_current_chapter_index(-1);
+                        app.set_aspect_ratio_index(AspectRatio::Original.ui_index());
                         app.set_waiting_for_video_surface(false);
                         app.set_media_transitioning(preserve_media_surface);
                         app.set_is_playing(false);
@@ -2075,6 +2085,10 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
                     Event::ChapterChanged(index) => {
                         app.set_current_chapter_index(i32::try_from(index).unwrap_or(-1));
+                    }
+
+                    Event::AspectRatioChanged(aspect_ratio) => {
+                        app.set_aspect_ratio_index(aspect_ratio.ui_index());
                     }
 
                     Event::VideoOutputReady => {

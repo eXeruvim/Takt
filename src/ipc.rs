@@ -1,5 +1,48 @@
 use crate::render::mpv_opengl::MpvRenderSource;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum AspectRatio {
+    #[default]
+    Original,
+    Wide,
+    Standard,
+    Flat,
+    Scope,
+}
+
+impl AspectRatio {
+    pub const fn from_ui_index(index: i32) -> Option<Self> {
+        match index {
+            0 => Some(Self::Original),
+            1 => Some(Self::Wide),
+            2 => Some(Self::Standard),
+            3 => Some(Self::Flat),
+            4 => Some(Self::Scope),
+            _ => None,
+        }
+    }
+
+    pub const fn ui_index(self) -> i32 {
+        match self {
+            Self::Original => 0,
+            Self::Wide => 1,
+            Self::Standard => 2,
+            Self::Flat => 3,
+            Self::Scope => 4,
+        }
+    }
+
+    pub const fn mpv_value(self) -> &'static str {
+        match self {
+            Self::Original => "no",
+            Self::Wide => "16:9",
+            Self::Standard => "4:3",
+            Self::Flat => "1.85:1",
+            Self::Scope => "2.39:1",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum Command {
     OpenFile(String),
@@ -21,6 +64,7 @@ pub enum Command {
     ResetAudioDelay,
     ResetSubtitleDelay,
     SelectChapter(i64),
+    SetAspectRatio(AspectRatio),
     SetDarkTheme(bool),
 
     NextVideo,
@@ -112,6 +156,7 @@ pub enum Event {
         current_index: i64,
     },
     ChapterChanged(i64),
+    AspectRatioChanged(AspectRatio),
 
     LoopEnabled(bool),
     FolderLoopEnabled(bool),

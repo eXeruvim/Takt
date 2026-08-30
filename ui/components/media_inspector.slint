@@ -103,6 +103,7 @@ export component MediaInspector inherits Rectangle {
     in property <bool> subtitles-enabled;
     in property <[ChapterEntry]> chapters;
     in property <int> current-chapter-index: -1;
+    in property <int> aspect-ratio-index: 0;
     in property <float> audio-delay;
     in property <float> subtitle-delay;
     in-out property <float> speed;
@@ -113,10 +114,11 @@ export component MediaInspector inherits Rectangle {
     in property <length> parent-height;
     out property <length> slide-offset: open || prewarming
         ? 0px : self.width + Theme.space-5;
-    private property <length> playback-content-height: 392px
+    private property <length> playback-content-height: 440px
         + (audio-tracks.length > 0 ? 88px : 0px)
         + max(0, audio-tracks.length - 1) * 44px
         + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
+        + (media-loaded && !audio-media ? 116px : 0px)
         + (media-loaded ? 168px + subtitle-tracks.length * 48px : 0px)
         + (media-loaded && !audio-media ? 144px : 0px)
         + (subtitle-tracks.length > 0 ? 144px : 0px);
@@ -134,6 +136,7 @@ export component MediaInspector inherits Rectangle {
     callback reset-audio-delay();
     callback reset-subtitle-delay();
     callback select-chapter(int);
+    callback set-aspect-ratio(int);
     callback toggle-folder-loop();
     callback toggle-shuffle();
     callback toggle-audio-visualization();
@@ -317,18 +320,29 @@ export component MediaInspector inherits Rectangle {
             }
         }
 
-            ScrollView {
+            playback-scroll := ScrollView {
                 x: root.playback-open || root.prewarming
                     ? 0px : parent.width + Theme.space-1;
                 width: parent.width;
                 height: parent.height;
+                viewport-width: self.visible-width;
                 viewport-height: max(self.visible-height, root.playback-content-height);
 
-                VerticalLayout {
-                    width: parent.width;
+                settings-viewport := Rectangle {
+                    // Fluent ScrollView expands its overlaid scrollbar on hover.
+                    // Keep both the expanded bar and a visible air gap outside
+                    // control borders so their hover states never touch.
+                    width: max(0px, playback-scroll.visible-width
+                        - Theme.space-8 - Theme.space-1);
                     height: root.playback-content-height;
                     y: 0px;
-                    spacing: Theme.space-4;
+                    background: transparent;
+                    clip: true;
+
+                    VerticalLayout {
+                        width: parent.width;
+                        height: parent.height;
+                        spacing: Theme.space-4;
 
                 UiText {
                     text: "Настройки воспроизведения";
@@ -341,10 +355,23 @@ export component MediaInspector inherits Rectangle {
                     height: Theme.space-10;
                     spacing: Theme.space-2;
 
-                    for value in ["0.5", "1.0", "1.25", "1.5", "2.0"] : Button {
+                    for value in ["0.5", "0.75", "1.0"] : Button {
                         horizontal-stretch: 1;
                         min-width: 0px;
-                        text: value + "×";
+                        text: value == "1.0" ? "1×" : value + "×";
+                        selected: root.speed == value.to-float();
+                        clicked => root.set-speed(value.to-float());
+                    }
+                }
+
+                HorizontalLayout {
+                    height: Theme.space-10;
+                    spacing: Theme.space-2;
+
+                    for value in ["1.25", "1.5", "2.0"] : Button {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        text: value == "2.0" ? "2×" : value + "×";
                         selected: root.speed == value.to-float();
                         clicked => root.set-speed(value.to-float());
                     }
@@ -393,6 +420,43 @@ export component MediaInspector inherits Rectangle {
                 }
 
                 if root.chapters.length > 0 : Divider { }
+
+                if root.media-loaded && !root.audio-media : UiText {
+                    text: "Соотношение сторон";
+                    variant: TextVariant.label;
+                }
+
+                if root.media-loaded && !root.audio-media : VerticalLayout {
+                    spacing: Theme.space-2;
+
+                    HorizontalLayout {
+                        height: Theme.space-10;
+                        spacing: Theme.space-2;
+
+                        for preset[index] in ["Исходное", "16:9", "4:3"] : Button {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            text: preset;
+                            selected: root.aspect-ratio-index == index;
+                            clicked => root.set-aspect-ratio(index);
+                        }
+                    }
+
+                    HorizontalLayout {
+                        height: Theme.space-10;
+                        spacing: Theme.space-2;
+
+                        for preset[index] in ["1.85:1", "2.39:1"] : Button {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            text: preset;
+                            selected: root.aspect-ratio-index == index + 3;
+                            clicked => root.set-aspect-ratio(index + 3);
+                        }
+                    }
+                }
+
+                if root.media-loaded && !root.audio-media : Divider { }
 
                 if root.media-loaded : UiText {
                     text: "Субтитры";
@@ -498,6 +562,7 @@ export component MediaInspector inherits Rectangle {
                         text: "Настроить горячие клавиши";
                         clicked => root.edit-shortcuts();
                     }
+                }
                 }
             }
         }

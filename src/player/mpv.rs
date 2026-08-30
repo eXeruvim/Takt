@@ -359,6 +359,14 @@ fn handle_command(
             mpv_error(mpv.set_property("chapter", index))?;
             let _ = tx.send(Event::ChapterChanged(index));
         }
+        Command::SetAspectRatio(aspect_ratio) => {
+            if options.media_available {
+                mpv_error(
+                    mpv.set_property("video-aspect-override", aspect_ratio.mpv_value().to_owned()),
+                )?;
+                let _ = tx.send(Event::AspectRatioChanged(aspect_ratio));
+            }
+        }
         Command::SetDarkTheme(dark_theme) => {
             mpv_error(mpv.set_property(
                 "background-color",
@@ -478,7 +486,10 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
             // Keep the audio device open for compatible consecutive tracks without
             // forcing unlike files into the first track's output format.
             initializer.set_property("gapless-audio", "weak".to_owned())?;
-            initializer.set_property("reset-on-next-file", "audio-delay,sub-delay".to_owned())?;
+            initializer.set_property(
+                "reset-on-next-file",
+                "audio-delay,sub-delay,video-aspect-override".to_owned(),
+            )?;
             #[cfg(target_os = "windows")]
             {
                 initializer.set_property("vo", "libmpv".to_owned())?;
@@ -624,6 +635,16 @@ mod tests {
         adjusted_delay, loop_value_is_enabled, quote_mpv_command_arg, should_restart_current,
         video_background_color,
     };
+    use crate::ipc::AspectRatio;
+
+    #[test]
+    fn maps_aspect_ratio_presets_to_mpv_values() {
+        assert_eq!(AspectRatio::Original.mpv_value(), "no");
+        assert_eq!(AspectRatio::Wide.mpv_value(), "16:9");
+        assert_eq!(AspectRatio::Standard.mpv_value(), "4:3");
+        assert_eq!(AspectRatio::Flat.mpv_value(), "1.85:1");
+        assert_eq!(AspectRatio::Scope.mpv_value(), "2.39:1");
+    }
 
     #[test]
     fn recognizes_normalized_mpv_loop_values() {
