@@ -43,6 +43,8 @@ export component AppWindow inherits Window {
     in property <[ChapterEntry]> chapters;
     in-out property <int> current_chapter_index: -1;
     in-out property <int> aspect_ratio_index: 0;
+    in-out property <bool> hardware_decoding_enabled: false;
+    in-out property <string> hardware_decoder: "no";
     in-out property <image> album_art;
     in-out property <bool> album_art_available: false;
     in-out property <bool> audio_visualization_enabled: true;
@@ -154,6 +156,7 @@ export component AppWindow inherits Window {
     callback reset_subtitle_delay();
     callback select_chapter(int);
     callback set_aspect_ratio(int);
+    callback set_hardware_decoding(bool);
     callback toggle_loop();
     callback toggle_folder_loop();
     callback toggle_shuffle();
@@ -515,6 +518,8 @@ export component AppWindow inherits Window {
                 chapters: root.chapters;
                 current-chapter-index: root.current_chapter_index;
                 aspect-ratio-index: root.aspect_ratio_index;
+                hardware-decoding-enabled: root.hardware_decoding_enabled;
+                hardware-decoder: root.hardware_decoder;
                 speed: root.speed;
                 folder-loop-enabled: root.folder_loop_enabled;
                 shuffle-enabled: root.shuffle_enabled;
@@ -540,6 +545,7 @@ export component AppWindow inherits Window {
                 reset-subtitle-delay => root.reset_subtitle_delay();
                 select-chapter(index) => root.select_chapter(index);
                 set-aspect-ratio(index) => root.set_aspect_ratio(index);
+                set-hardware-decoding(enabled) => root.set_hardware_decoding(enabled);
                 toggle-folder-loop => root.toggle_folder_loop();
                 toggle-shuffle => root.toggle_shuffle();
                 toggle-audio-visualization => {

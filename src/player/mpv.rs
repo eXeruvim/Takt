@@ -54,6 +54,34 @@ fn adjusted_delay(current: f64, delta: f64) -> f64 {
     ((current + delta).clamp(-MAX_SYNC_DELAY_SECONDS, MAX_SYNC_DELAY_SECONDS) * 10.0).round() / 10.0
 }
 
+fn hwdec_is_enabled(value: &str) -> bool {
+    !matches!(value, "" | "no" | "false" | "0")
+}
+
+fn automatic_hwdec_mode() -> &'static str {
+    // Oxide's Windows renderer presents libmpv frames through OpenGL. Copy-back
+    // avoids driver-specific D3D11VA/OpenGL interop corruption while keeping the
+    // decode stage on the GPU. Other platforms can use direct safe interop.
+    if cfg!(target_os = "windows") {
+        "auto-copy-safe"
+    } else {
+        "auto-safe"
+    }
+}
+
+fn send_hardware_decoding(mpv: &Mpv, tx: &Sender<Event>) {
+    let requested = mpv
+        .get_property::<String>("hwdec")
+        .unwrap_or_else(|_| "no".to_owned());
+    let decoder = mpv
+        .get_property::<String>("hwdec-current")
+        .unwrap_or_else(|_| "no".to_owned());
+    let _ = tx.send(Event::HardwareDecoding {
+        enabled: hwdec_is_enabled(&requested),
+        decoder,
+    });
+}
+
 fn send_playlist(tx: &Sender<Event>, playlist: &DirectoryPlaylist) {
     let _ = tx.send(Event::Playlist {
         items: playlist.items(),
@@ -81,6 +109,7 @@ fn send_media_ready(mpv: &Mpv, tx: &Sender<Event>) {
         items: read_chapters(mpv),
         current_index: mpv.get_property::<i64>("chapter").unwrap_or(-1),
     });
+    send_hardware_decoding(mpv, tx);
     let _ = tx.send(Event::MediaAvailable(true));
     let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
     let _ = tx.send(Event::PlaybackState(!paused));
@@ -367,6 +396,20 @@ fn handle_command(
                 let _ = tx.send(Event::AspectRatioChanged(aspect_ratio));
             }
         }
+        Command::SetHardwareDecoding(enabled) => {
+            mpv_error(
+                mpv.set_property(
+                    "hwdec",
+                    if enabled {
+                        automatic_hwdec_mode()
+                    } else {
+                        "no"
+                    }
+                    .to_owned(),
+                ),
+            )?;
+            send_hardware_decoding(mpv, tx);
+        }
         Command::SetDarkTheme(dark_theme) => {
             mpv_error(mpv.set_property(
                 "background-color",
@@ -486,6 +529,9 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
             // Keep the audio device open for compatible consecutive tracks without
             // forcing unlike files into the first track's output format.
             initializer.set_property("gapless-audio", "weak".to_owned())?;
+            // Software decoding is the reliable default. Hardware decoding can
+            // be enabled at runtime for demanding files on compatible drivers.
+            initializer.set_property("hwdec", "no".to_owned())?;
             initializer.set_property(
                 "reset-on-next-file",
                 "audio-delay,sub-delay,video-aspect-override".to_owned(),
@@ -632,8 +678,8 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        adjusted_delay, loop_value_is_enabled, quote_mpv_command_arg, should_restart_current,
-        video_background_color,
+        adjusted_delay, automatic_hwdec_mode, hwdec_is_enabled, loop_value_is_enabled,
+        quote_mpv_command_arg, should_restart_current, video_background_color,
     };
     use crate::ipc::AspectRatio;
 
@@ -644,6 +690,27 @@ mod tests {
         assert_eq!(AspectRatio::Standard.mpv_value(), "4:3");
         assert_eq!(AspectRatio::Flat.mpv_value(), "1.85:1");
         assert_eq!(AspectRatio::Scope.mpv_value(), "2.39:1");
+    }
+
+    #[test]
+    fn recognizes_enabled_hardware_decoding_modes() {
+        assert!(hwdec_is_enabled("auto-safe"));
+        assert!(hwdec_is_enabled("d3d11va"));
+        assert!(!hwdec_is_enabled("no"));
+        assert!(!hwdec_is_enabled("false"));
+        assert!(!hwdec_is_enabled("0"));
+    }
+
+    #[test]
+    fn chooses_copy_back_hardware_decoding_for_windows_opengl() {
+        assert_eq!(
+            automatic_hwdec_mode(),
+            if cfg!(target_os = "windows") {
+                "auto-copy-safe"
+            } else {
+                "auto-safe"
+            }
+        );
     }
 
     #[test]

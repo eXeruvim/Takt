@@ -65,6 +65,7 @@ pub enum Command {
     ResetSubtitleDelay,
     SelectChapter(i64),
     SetAspectRatio(AspectRatio),
+    SetHardwareDecoding(bool),
     SetDarkTheme(bool),
 
     NextVideo,
@@ -157,6 +158,10 @@ pub enum Event {
     },
     ChapterChanged(i64),
     AspectRatioChanged(AspectRatio),
+    HardwareDecoding {
+        enabled: bool,
+        decoder: String,
+    },
 
     LoopEnabled(bool),
     FolderLoopEnabled(bool),

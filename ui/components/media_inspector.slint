@@ -104,6 +104,8 @@ export component MediaInspector inherits Rectangle {
     in property <[ChapterEntry]> chapters;
     in property <int> current-chapter-index: -1;
     in property <int> aspect-ratio-index: 0;
+    in property <bool> hardware-decoding-enabled: false;
+    in property <string> hardware-decoder: "no";
     in property <float> audio-delay;
     in property <float> subtitle-delay;
     in-out property <float> speed;
@@ -119,6 +121,7 @@ export component MediaInspector inherits Rectangle {
         + max(0, audio-tracks.length - 1) * 44px
         + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
         + (media-loaded && !audio-media ? 116px : 0px)
+        + (media-loaded && !audio-media ? 64px : 0px)
         + (media-loaded ? 168px + subtitle-tracks.length * 48px : 0px)
         + (media-loaded && !audio-media ? 144px : 0px)
         + (subtitle-tracks.length > 0 ? 144px : 0px);
@@ -137,6 +140,7 @@ export component MediaInspector inherits Rectangle {
     callback reset-subtitle-delay();
     callback select-chapter(int);
     callback set-aspect-ratio(int);
+    callback set-hardware-decoding(bool);
     callback toggle-folder-loop();
     callback toggle-shuffle();
     callback toggle-audio-visualization();
@@ -453,6 +457,22 @@ export component MediaInspector inherits Rectangle {
                             selected: root.aspect-ratio-index == index + 3;
                             clicked => root.set-aspect-ratio(index + 3);
                         }
+                    }
+                }
+
+                if root.media-loaded && !root.audio-media : Divider { }
+
+                if root.media-loaded && !root.audio-media : SettingsRow {
+                    height: Theme.space-12;
+                    title: "Аппаратное декодирование";
+                    description: !root.hardware-decoding-enabled
+                        ? "Надёжный режим · программное"
+                        : root.hardware-decoder == "" || root.hardware-decoder == "no"
+                            ? "Автовыбор · сейчас программное"
+                            : "Активно · " + root.hardware-decoder;
+                    Toggle {
+                        checked: root.hardware-decoding-enabled;
+                        toggled(checked) => root.set-hardware-decoding(checked);
                     }
                 }
 

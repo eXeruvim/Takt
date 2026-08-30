@@ -1327,6 +1327,13 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
     {
         let tx = tx.clone();
+        app.on_set_hardware_decoding(move |enabled| {
+            let _ = tx.send(Command::SetHardwareDecoding(enabled));
+        });
+    }
+
+    {
+        let tx = tx.clone();
 
         app.on_next_video(move || {
             let _ = tx.send(Command::NextVideo);
@@ -2089,6 +2096,11 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
                     Event::AspectRatioChanged(aspect_ratio) => {
                         app.set_aspect_ratio_index(aspect_ratio.ui_index());
+                    }
+
+                    Event::HardwareDecoding { enabled, decoder } => {
+                        app.set_hardware_decoding_enabled(enabled);
+                        app.set_hardware_decoder(decoder.into());
                     }
 
                     Event::VideoOutputReady => {
