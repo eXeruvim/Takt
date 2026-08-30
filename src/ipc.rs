@@ -57,6 +57,7 @@ pub enum EqualizerPreset {
     Voice,
     Rock,
     Electronic,
+    Custom,
 }
 
 impl EqualizerPreset {
@@ -67,6 +68,7 @@ impl EqualizerPreset {
             2 => Some(Self::Voice),
             3 => Some(Self::Rock),
             4 => Some(Self::Electronic),
+            5 => Some(Self::Custom),
             _ => None,
         }
     }
@@ -78,6 +80,7 @@ impl EqualizerPreset {
             Self::Voice => 2,
             Self::Rock => 3,
             Self::Electronic => 4,
+            Self::Custom => 5,
         }
     }
 }
@@ -109,6 +112,7 @@ pub enum Command {
     SetEqualizerEnabled(bool),
     SetEqualizerPreset(EqualizerPreset),
     AdjustEqualizerPreamp(f64),
+    AdjustEqualizerBand { index: usize, delta_db: f64 },
     ResetEqualizer,
     SetDarkTheme(bool),
 
@@ -210,6 +214,7 @@ pub enum Event {
         enabled: bool,
         preset: EqualizerPreset,
         preamp_db: f64,
+        band_gains_db: [f64; 5],
     },
 
     LoopEnabled(bool),

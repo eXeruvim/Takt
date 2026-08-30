@@ -2,6 +2,8 @@ use crate::ipc::EqualizerPreset;
 
 pub const MIN_PREAMP_DB: f64 = -12.0;
 pub const MAX_PREAMP_DB: f64 = 6.0;
+pub const MIN_BAND_GAIN_DB: f64 = -6.0;
+pub const MAX_BAND_GAIN_DB: f64 = 6.0;
 
 const FREQUENCIES_HZ: [u32; 5] = [60, 230, 910, 3_600, 14_000];
 
@@ -10,6 +12,8 @@ pub struct EqualizerSettings {
     pub enabled: bool,
     pub preset: EqualizerPreset,
     pub preamp_db: f64,
+    pub custom_preamp_db: f64,
+    pub custom_gains_db: [f64; 5],
 }
 
 impl EqualizerSettings {
@@ -18,19 +22,49 @@ impl EqualizerSettings {
     }
 
     pub fn with_preset(self, preset: EqualizerPreset) -> Self {
+        if preset == EqualizerPreset::Custom {
+            return Self {
+                enabled: true,
+                preset,
+                preamp_db: self.custom_preamp_db,
+                ..self
+            };
+        }
+
         Self {
             enabled: true,
             preset,
             preamp_db: recommended_preamp_db(preset),
+            ..self
         }
     }
 
     pub fn adjusted_preamp(self, delta_db: f64) -> Self {
+        let preamp_db = normalize_preamp_db(self.preamp_db + delta_db);
         Self {
             enabled: true,
-            preamp_db: normalize_preamp_db(self.preamp_db + delta_db),
+            preamp_db,
+            custom_preamp_db: if self.preset == EqualizerPreset::Custom {
+                preamp_db
+            } else {
+                self.custom_preamp_db
+            },
             ..self
         }
+    }
+
+    pub fn adjusted_band(self, index: usize, delta_db: f64) -> Option<Self> {
+        let gain = self.custom_gains_db.get(index).copied()?;
+        let mut custom_gains_db = self.custom_gains_db;
+        custom_gains_db[index] = normalize_band_gain_db(gain + delta_db);
+
+        Some(Self {
+            enabled: true,
+            preset: EqualizerPreset::Custom,
+            preamp_db: self.custom_preamp_db,
+            custom_gains_db,
+            ..self
+        })
     }
 
     pub fn reset(self) -> Self {
@@ -45,20 +79,28 @@ impl EqualizerSettings {
             return None;
         }
 
-        let gains = preset_gains_db(self.preset);
+        let gains = self.band_gains_db();
         let mut filters = Vec::with_capacity(FREQUENCIES_HZ.len() + 2);
         filters.push(format!("volume=volume={:.0}dB", self.preamp_db));
         filters.extend(
             FREQUENCIES_HZ
                 .iter()
                 .zip(gains)
-                .map(|(frequency, gain)| format!("equalizer=f={frequency}:t=q:w=1:g={gain}")),
+                .map(|(frequency, gain)| format!("equalizer=f={frequency}:t=q:w=1:g={gain:.0}")),
         );
         // Presets can boost neighboring bands at the same time. The limiter is
         // deliberately last so those overlaps cannot clip the output.
         filters.push("alimiter=limit=0.95:level=false:latency=true".to_owned());
 
         Some(format!("@oxide-eq:lavfi=[{}]", filters.join(",")))
+    }
+
+    pub fn band_gains_db(self) -> [f64; 5] {
+        if self.preset == EqualizerPreset::Custom {
+            self.custom_gains_db
+        } else {
+            preset_gains_db(self.preset)
+        }
     }
 }
 
@@ -69,21 +111,27 @@ pub const fn recommended_preamp_db(preset: EqualizerPreset) -> f64 {
         EqualizerPreset::Voice => -3.0,
         EqualizerPreset::Rock => -3.0,
         EqualizerPreset::Electronic => -4.0,
+        EqualizerPreset::Custom => 0.0,
     }
 }
 
-pub const fn preset_gains_db(preset: EqualizerPreset) -> [i8; 5] {
+pub const fn preset_gains_db(preset: EqualizerPreset) -> [f64; 5] {
     match preset {
-        EqualizerPreset::Flat => [0, 0, 0, 0, 0],
-        EqualizerPreset::Bass => [4, 3, 0, -1, -2],
-        EqualizerPreset::Voice => [-3, -1, 2, 3, 1],
-        EqualizerPreset::Rock => [3, 1, -1, 2, 3],
-        EqualizerPreset::Electronic => [4, 2, -1, 1, 4],
+        EqualizerPreset::Flat => [0.0, 0.0, 0.0, 0.0, 0.0],
+        EqualizerPreset::Bass => [4.0, 3.0, 0.0, -1.0, -2.0],
+        EqualizerPreset::Voice => [-3.0, -1.0, 2.0, 3.0, 1.0],
+        EqualizerPreset::Rock => [3.0, 1.0, -1.0, 2.0, 3.0],
+        EqualizerPreset::Electronic => [4.0, 2.0, -1.0, 1.0, 4.0],
+        EqualizerPreset::Custom => [0.0, 0.0, 0.0, 0.0, 0.0],
     }
 }
 
 fn normalize_preamp_db(value: f64) -> f64 {
     value.clamp(MIN_PREAMP_DB, MAX_PREAMP_DB).round()
+}
+
+fn normalize_band_gain_db(value: f64) -> f64 {
+    value.clamp(MIN_BAND_GAIN_DB, MAX_BAND_GAIN_DB).round()
 }
 
 #[cfg(test)]
@@ -128,5 +176,35 @@ mod tests {
         assert!(!settings.enabled);
         assert_eq!(settings.preset, EqualizerPreset::Flat);
         assert_eq!(settings.preamp_db, 0.0);
+        assert_eq!(settings.custom_preamp_db, 0.0);
+        assert_eq!(settings.custom_gains_db, [0.0; 5]);
+    }
+
+    #[test]
+    fn custom_profile_is_independent_from_builtin_presets() {
+        let settings = EqualizerSettings::default()
+            .with_preset(EqualizerPreset::Custom)
+            .adjusted_band(0, 2.0)
+            .expect("known band")
+            .adjusted_preamp(-2.0)
+            .with_preset(EqualizerPreset::Bass)
+            .with_preset(EqualizerPreset::Custom);
+
+        assert_eq!(settings.custom_gains_db, [2.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(settings.preamp_db, -2.0);
+        assert_eq!(settings.custom_preamp_db, -2.0);
+    }
+
+    #[test]
+    fn band_adjustment_selects_custom_and_clamps_gain() {
+        let settings = EqualizerSettings::default()
+            .with_preset(EqualizerPreset::Custom)
+            .adjusted_band(0, 100.0)
+            .expect("known band");
+
+        assert_eq!(settings.preset, EqualizerPreset::Custom);
+        assert_eq!(settings.custom_gains_db, [6.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(settings.preamp_db, 0.0);
+        assert_eq!(settings.adjusted_band(5, 1.0), None);
     }
 }

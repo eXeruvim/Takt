@@ -89,6 +89,7 @@ fn send_equalizer(settings: EqualizerSettings, tx: &Sender<Event>) {
         enabled: settings.enabled,
         preset: settings.preset,
         preamp_db: settings.preamp_db,
+        band_gains_db: settings.band_gains_db(),
     });
 }
 
@@ -483,6 +484,12 @@ fn handle_command(
         }
         Command::AdjustEqualizerPreamp(delta_db) => {
             let next = options.equalizer.adjusted_preamp(delta_db);
+            update_equalizer(mpv, tx, options, next)?;
+        }
+        Command::AdjustEqualizerBand { index, delta_db } => {
+            let Some(next) = options.equalizer.adjusted_band(index, delta_db) else {
+                anyhow::bail!("Полоса эквалайзера {index} отсутствует");
+            };
             update_equalizer(mpv, tx, options, next)?;
         }
         Command::ResetEqualizer => {

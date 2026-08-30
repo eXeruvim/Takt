@@ -20,6 +20,11 @@ export struct ChapterEntry {
     label: string,
 }
 
+export struct EqualizerBandEntry {
+    label: string,
+    gain-db: float,
+}
+
 component PropertyRow inherits Rectangle {
     in property <string> label;
     in property <string> value;
@@ -126,6 +131,57 @@ component PreampControl inherits Rectangle {
     }
 }
 
+component EqualizerBandControl inherits Rectangle {
+    in property <string> label;
+    in property <float> gain-db;
+    callback adjust(float);
+
+    height: Theme.space-10;
+    background: transparent;
+
+    HorizontalLayout {
+        spacing: Theme.space-2;
+        alignment: center;
+
+        UiText {
+            width: 68px;
+            text: root.label;
+            variant: TextVariant.caption;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+        }
+        Button {
+            width: 56px;
+            text: "−";
+            enabled: root.gain-db > -6;
+            clicked => root.adjust(-1);
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            height: Theme.space-8;
+            border-radius: Theme.radius-medium;
+            background: Theme.surface-control;
+
+            UiText {
+                width: parent.width;
+                height: parent.height;
+                text: (root.gain-db > 0 ? "+" : "")
+                    + Math.round(root.gain-db) + " дБ";
+                variant: TextVariant.label;
+                color: root.gain-db == 0 ? Theme.text-secondary : Theme.accent;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Button {
+            width: 56px;
+            text: "+";
+            enabled: root.gain-db < 6;
+            clicked => root.adjust(1);
+        }
+    }
+}
+
 export component MediaInspector inherits Rectangle {
     private property <bool> prewarming: true;
     private property <bool> sound-selected: false;
@@ -153,6 +209,7 @@ export component MediaInspector inherits Rectangle {
     in property <bool> equalizer-enabled: false;
     in property <int> equalizer-preset-index: 0;
     in property <float> equalizer-preamp-db: 0;
+    in property <[EqualizerBandEntry]> equalizer-bands;
     in property <float> audio-delay;
     in property <float> subtitle-delay;
     in-out property <float> speed;
@@ -175,6 +232,7 @@ export component MediaInspector inherits Rectangle {
             + (audio-tracks.length > 0 ? 88px : 0px)
             + max(0, audio-tracks.length - 1) * 48px
             + (!audio-media ? 144px : 64px)
+            + (equalizer-preset-index == 5 ? 288px : 0px)
         : 120px;
     callback show-playlist();
     callback show-info();
@@ -196,6 +254,7 @@ export component MediaInspector inherits Rectangle {
     callback set-equalizer-enabled(bool);
     callback set-equalizer-preset(int);
     callback adjust-equalizer-preamp(float);
+    callback adjust-equalizer-band(int, float);
     callback reset-equalizer();
     callback toggle-folder-loop();
     callback toggle-shuffle();
@@ -702,7 +761,7 @@ export component MediaInspector inherits Rectangle {
                                 height: Theme.space-10;
                                 spacing: Theme.space-2;
 
-                                for preset[index] in ["Рок", "Электро"] : Button {
+                                for preset[index] in ["Рок", "Электро", "Свой"] : Button {
                                     horizontal-stretch: 1;
                                     min-width: 0px;
                                     text: preset;
@@ -725,6 +784,27 @@ export component MediaInspector inherits Rectangle {
                                 || root.equalizer-preamp-db != 0;
                             adjust(delta) => root.adjust-equalizer-preamp(delta);
                             reset => root.reset-equalizer();
+                        }
+
+                        if root.media-loaded && root.equalizer-preset-index == 5 : UiText {
+                            text: "Ручные полосы";
+                            variant: TextVariant.label;
+                        }
+
+                        if root.media-loaded && root.equalizer-preset-index == 5 : UiText {
+                            text: "Шаг 1 дБ · диапазон от −6 до +6 дБ";
+                            variant: TextVariant.caption;
+                            color: Theme.text-muted;
+                        }
+
+                        if root.media-loaded && root.equalizer-preset-index == 5 : VerticalLayout {
+                            spacing: Theme.space-2;
+
+                            for band[index] in root.equalizer-bands : EqualizerBandControl {
+                                label: band.label;
+                                gain-db: band.gain-db;
+                                adjust(delta) => root.adjust-equalizer-band(index, delta);
+                            }
                         }
 
                         if root.media-loaded : Divider { }

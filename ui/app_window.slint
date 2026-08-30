@@ -2,7 +2,7 @@ import { Theme } from "theme.slint";
 import { PlayerControls } from "components/player_controls.slint";
 import { AudioCanvas } from "components/audio_canvas.slint";
 import { CommandEntry, CommandPaletteOverlay } from "components/command_palette.slint";
-import { AudioTrackEntry, ChapterEntry, MediaInspector, SubtitleTrackEntry } from "components/media_inspector.slint";
+import { AudioTrackEntry, ChapterEntry, EqualizerBandEntry, MediaInspector, SubtitleTrackEntry } from "components/media_inspector.slint";
 import { ShortcutEditorOverlay, ShortcutEntry } from "components/shortcut_editor.slint";
 import { Toast } from "design_system/composites.slint";
 import { CaptionButton, EmptyState, Icon, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
@@ -49,6 +49,7 @@ export component AppWindow inherits Window {
     in-out property <bool> equalizer_enabled: false;
     in-out property <int> equalizer_preset_index: 0;
     in-out property <float> equalizer_preamp_db: 0;
+    in property <[EqualizerBandEntry]> equalizer_bands;
     in-out property <image> album_art;
     in-out property <bool> album_art_available: false;
     in-out property <bool> audio_visualization_enabled: true;
@@ -165,6 +166,7 @@ export component AppWindow inherits Window {
     callback set_equalizer_enabled(bool);
     callback set_equalizer_preset(int);
     callback adjust_equalizer_preamp(float);
+    callback adjust_equalizer_band(int, float);
     callback reset_equalizer();
     callback toggle_loop();
     callback toggle_folder_loop();
@@ -545,6 +547,7 @@ export component AppWindow inherits Window {
                 equalizer-enabled: root.equalizer_enabled;
                 equalizer-preset-index: root.equalizer_preset_index;
                 equalizer-preamp-db: root.equalizer_preamp_db;
+                equalizer-bands: root.equalizer_bands;
                 speed: root.speed;
                 folder-loop-enabled: root.folder_loop_enabled;
                 shuffle-enabled: root.shuffle_enabled;
@@ -575,6 +578,7 @@ export component AppWindow inherits Window {
                 set-equalizer-enabled(enabled) => root.set_equalizer_enabled(enabled);
                 set-equalizer-preset(index) => root.set_equalizer_preset(index);
                 adjust-equalizer-preamp(delta) => root.adjust_equalizer_preamp(delta);
+                adjust-equalizer-band(index, delta) => root.adjust_equalizer_band(index, delta);
                 reset-equalizer => root.reset_equalizer();
                 toggle-folder-loop => root.toggle_folder_loop();
                 toggle-shuffle => root.toggle_shuffle();

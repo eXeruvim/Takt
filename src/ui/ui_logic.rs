@@ -1503,6 +1503,19 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
     {
         let tx = tx.clone();
+        app.on_adjust_equalizer_band(move |index, delta| {
+            let Ok(index) = usize::try_from(index) else {
+                return;
+            };
+            let _ = tx.send(Command::AdjustEqualizerBand {
+                index,
+                delta_db: f64::from(delta),
+            });
+        });
+    }
+
+    {
+        let tx = tx.clone();
         app.on_reset_equalizer(move || {
             let _ = tx.send(Command::ResetEqualizer);
         });
@@ -2329,10 +2342,20 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         enabled,
                         preset,
                         preamp_db,
+                        band_gains_db,
                     } => {
                         app.set_equalizer_enabled(enabled);
                         app.set_equalizer_preset_index(preset.ui_index());
                         app.set_equalizer_preamp_db(preamp_db as f32);
+                        let bands = ["60 Гц", "230 Гц", "910 Гц", "3,6 кГц", "14 кГц"]
+                            .into_iter()
+                            .zip(band_gains_db)
+                            .map(|(label, gain_db)| EqualizerBandEntry {
+                                label: label.into(),
+                                gain_db: gain_db as f32,
+                            })
+                            .collect::<Vec<_>>();
+                        app.set_equalizer_bands(ModelRc::new(VecModel::from(bands)));
                     }
 
                     Event::VideoOutputReady => {
