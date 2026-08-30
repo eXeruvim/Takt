@@ -14,7 +14,7 @@ use crossbeam_channel::{Receiver, Sender};
 #[cfg(target_os = "windows")]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use crate::ipc::{AspectRatio, Command, Event};
+use crate::ipc::{AspectRatio, Command, Event, FrameStepDirection};
 use crate::player::playlist::{
     AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, is_media_file,
 };
@@ -81,6 +81,8 @@ enum ShortcutAction {
     SeekBackwardShort = 22,
     SeekForwardShort = 23,
     ToggleCommandPalette = 24,
+    FrameBackward = 25,
+    FrameForward = 26,
 }
 
 #[derive(Clone, Copy)]
@@ -91,7 +93,7 @@ enum DrawerSwipeTarget {
 }
 
 impl ShortcutAction {
-    const ALL: [Self; 19] = [
+    const ALL: [Self; 21] = [
         Self::ToggleCommandPalette,
         Self::OpenFile,
         Self::OpenFolder,
@@ -104,6 +106,8 @@ impl ShortcutAction {
         Self::SeekForwardLong,
         Self::SeekBackwardShort,
         Self::SeekForwardShort,
+        Self::FrameBackward,
+        Self::FrameForward,
         Self::VolumeDown,
         Self::VolumeUp,
         Self::ToggleMute,
@@ -135,6 +139,8 @@ impl ShortcutAction {
             14 => Some(Self::SeekForwardLong),
             15 => Some(Self::VolumeDown),
             16 => Some(Self::VolumeUp),
+            25 => Some(Self::FrameBackward),
+            26 => Some(Self::FrameForward),
             _ => None,
         }
     }
@@ -151,6 +157,8 @@ impl ShortcutAction {
             Self::SeekForwardShort => "Вперёд на 5 секунд",
             Self::SeekBackwardLong => "Назад на 10 секунд",
             Self::SeekForwardLong => "Вперёд на 10 секунд",
+            Self::FrameBackward => "Предыдущий кадр",
+            Self::FrameForward => "Следующий кадр",
             Self::VolumeDown => "Уменьшить громкость",
             Self::VolumeUp => "Увеличить громкость",
             Self::ToggleMute => "Выключить / включить звук",
@@ -181,6 +189,8 @@ impl ShortcutAction {
             Self::SeekForwardShort => vec![plain(KeyCode::ArrowRight)],
             Self::SeekBackwardLong => vec![plain(KeyCode::KeyJ)],
             Self::SeekForwardLong => vec![plain(KeyCode::KeyL)],
+            Self::FrameBackward => vec![plain(KeyCode::Comma)],
+            Self::FrameForward => vec![plain(KeyCode::Period)],
             Self::VolumeDown => vec![plain(KeyCode::ArrowDown)],
             Self::VolumeUp => vec![plain(KeyCode::ArrowUp)],
             Self::ToggleMute => vec![plain(KeyCode::KeyM)],
@@ -317,6 +327,8 @@ fn key_code_label(code: KeyCode) -> String {
         KeyCode::ArrowRight => "→".to_string(),
         KeyCode::ArrowUp => "↑".to_string(),
         KeyCode::ArrowDown => "↓".to_string(),
+        KeyCode::Comma => ",".to_string(),
+        KeyCode::Period => ".".to_string(),
         KeyCode::Enter => "Enter".to_string(),
         KeyCode::Tab => "Tab".to_string(),
         KeyCode::Backspace => "Backspace".to_string(),
@@ -356,6 +368,8 @@ fn dispatch_shortcut(app: &AppWindow, action: ShortcutAction) {
         ShortcutAction::SeekForwardShort => app.invoke_seek_relative(5.0),
         ShortcutAction::SeekBackwardLong => app.invoke_seek_relative(-10.0),
         ShortcutAction::SeekForwardLong => app.invoke_seek_relative(10.0),
+        ShortcutAction::FrameBackward => app.invoke_step_frame(-1),
+        ShortcutAction::FrameForward => app.invoke_step_frame(1),
         ShortcutAction::VolumeDown => app.invoke_adjust_volume(-5.0),
         ShortcutAction::VolumeUp => app.invoke_adjust_volume(5.0),
         ShortcutAction::ToggleMute => app.invoke_toggle_mute(),
@@ -434,6 +448,22 @@ const PALETTE_COMMANDS: &[PaletteCommandSpec] = &[
         description: "Перемотать текущий файл вперёд",
         shortcut: "L",
         keywords: "seek forward перемотка вперед вперёд",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 25,
+        title: "Предыдущий кадр",
+        description: "Поставить видео на паузу и перейти на кадр назад",
+        shortcut: ",",
+        keywords: "frame back previous кадр назад предыдущий покадрово",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 26,
+        title: "Следующий кадр",
+        description: "Поставить видео на паузу и перейти на кадр вперёд",
+        shortcut: ".",
+        keywords: "frame forward next кадр вперед вперёд следующий покадрово",
         requires_media: true,
     },
     PaletteCommandSpec {
@@ -1634,6 +1664,19 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
         app.on_seek_relative(move |value| {
             let _ = tx.send(Command::SeekRelative(value as f64));
+        });
+    }
+
+    {
+        let tx = tx.clone();
+
+        app.on_step_frame(move |direction| {
+            let direction = if direction < 0 {
+                FrameStepDirection::Backward
+            } else {
+                FrameStepDirection::Forward
+            };
+            let _ = tx.send(Command::StepFrame(direction));
         });
     }
 

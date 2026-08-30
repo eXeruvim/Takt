@@ -103,8 +103,43 @@ export component Spinner inherits Rectangle {
     }
 }
 
+export component ShortcutBadge inherits Rectangle {
+    in property <string> shortcut;
+
+    min-width: Theme.space-8;
+    preferred-width: max(
+        Theme.space-8,
+        root.shortcut.character-count * 8px + Theme.space-4
+    );
+    max-width: 160px;
+    min-height: Theme.space-6;
+    vertical-stretch: 1;
+    background: transparent;
+
+    badge := Rectangle {
+        y: (parent.height - self.height) / 2;
+        width: parent.width;
+        height: Theme.space-6;
+        border-radius: Theme.radius-small;
+        background: Theme.surface-control;
+        border-width: 1px;
+        border-color: Theme.border-default;
+
+        UiText {
+            width: parent.width;
+            height: parent.height;
+            text: root.shortcut;
+            variant: TextVariant.label;
+            color: Theme.text-secondary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
 export component Button inherits Rectangle {
     in property <string> text;
+    in property <string> shortcut;
     in property <bool> primary: false;
     in property <bool> enabled: true;
     in property <bool> selected: false;
@@ -147,6 +182,10 @@ export component Button inherits Rectangle {
 
         if root.loading : Spinner {
             spinner-color: root.primary ? Theme.on-accent : Theme.text-secondary;
+        }
+
+        if root.shortcut != "" : ShortcutBadge {
+            shortcut: root.shortcut;
         }
 
         UiText {
@@ -438,40 +477,6 @@ export component Toggle inherits Rectangle {
     animate background, opacity {
         duration: Theme.motion-fast;
         easing: cubic-bezier(0.2, 0, 0, 1);
-    }
-}
-
-export component ShortcutBadge inherits Rectangle {
-    in property <string> shortcut;
-
-    min-width: Theme.space-8;
-    preferred-width: max(
-        Theme.space-8,
-        root.shortcut.character-count * 8px + Theme.space-4
-    );
-    max-width: 160px;
-    min-height: Theme.space-6;
-    vertical-stretch: 1;
-    background: transparent;
-
-    badge := Rectangle {
-        y: (parent.height - self.height) / 2;
-        width: parent.width;
-        height: Theme.space-6;
-        border-radius: Theme.radius-small;
-        background: Theme.surface-control;
-        border-width: 1px;
-        border-color: Theme.border-default;
-
-        UiText {
-            width: parent.width;
-            height: parent.height;
-            text: root.shortcut;
-            variant: TextVariant.label;
-            color: Theme.text-secondary;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-        }
     }
 }
 

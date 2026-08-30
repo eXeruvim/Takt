@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use crate::ipc::{Command, Event};
+use crate::ipc::{Command, Event, FrameStepDirection};
 use crate::player::{
     audio_metadata::AudioMetadata,
     media_info::{MediaInfo, read_audio_tracks, read_chapters, read_subtitle_tracks},
@@ -409,6 +409,15 @@ fn handle_command(
                 ),
             )?;
             send_hardware_decoding(mpv, tx);
+        }
+        Command::StepFrame(direction) => {
+            if options.media_available && MediaInfo::read(mpv).width > 0 {
+                let command = match direction {
+                    FrameStepDirection::Backward => "frame-back-step",
+                    FrameStepDirection::Forward => "frame-step",
+                };
+                mpv_error(mpv.command(command, &[]))?;
+            }
         }
         Command::SetDarkTheme(dark_theme) => {
             mpv_error(mpv.set_property(

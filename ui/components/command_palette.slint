@@ -72,6 +72,7 @@ export component CommandPaletteOverlay inherits Rectangle {
     in-out property <string> query;
     in property <[CommandEntry]> commands;
     in property <bool> media-loaded;
+    in property <bool> audio-media;
     private property <int> selected-index: 0;
     callback query-changed(string);
     callback execute(int);
@@ -168,9 +169,13 @@ export component CommandPaletteOverlay inherits Rectangle {
                     for command[index] in root.commands : CommandRow {
                         entry: command;
                         selected: index == root.selected-index;
-                        enabled: !command.requires-media || root.media-loaded;
+                        enabled: (!command.requires-media || root.media-loaded)
+                            && (!(command.action == 25 || command.action == 26)
+                                || !root.audio-media);
                         activated => {
-                            if (!command.requires-media || root.media-loaded) {
+                            if ((!command.requires-media || root.media-loaded)
+                                && (!(command.action == 25 || command.action == 26)
+                                    || !root.audio-media)) {
                                 root.execute(command.action);
                             }
                         }
@@ -196,7 +201,9 @@ export component CommandPaletteOverlay inherits Rectangle {
     function activate-selected() {
         if (commands.length > 0) {
             let command = commands[selected-index];
-            if (!command.requires-media || media-loaded) {
+            if ((!command.requires-media || media-loaded)
+                && (!(command.action == 25 || command.action == 26)
+                    || !audio-media)) {
                 execute(command.action);
             }
         }

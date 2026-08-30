@@ -43,6 +43,12 @@ impl AspectRatio {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrameStepDirection {
+    Backward,
+    Forward,
+}
+
 #[derive(Debug)]
 pub enum Command {
     OpenFile(String),
@@ -66,6 +72,7 @@ pub enum Command {
     SelectChapter(i64),
     SetAspectRatio(AspectRatio),
     SetHardwareDecoding(bool),
+    StepFrame(FrameStepDirection),
     SetDarkTheme(bool),
 
     NextVideo,

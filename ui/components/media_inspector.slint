@@ -122,6 +122,7 @@ export component MediaInspector inherits Rectangle {
         + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
         + (media-loaded && !audio-media ? 116px : 0px)
         + (media-loaded && !audio-media ? 64px : 0px)
+        + (media-loaded && !audio-media ? 96px : 0px)
         + (media-loaded ? 168px + subtitle-tracks.length * 48px : 0px)
         + (media-loaded && !audio-media ? 144px : 0px)
         + (subtitle-tracks.length > 0 ? 144px : 0px);
@@ -141,6 +142,7 @@ export component MediaInspector inherits Rectangle {
     callback select-chapter(int);
     callback set-aspect-ratio(int);
     callback set-hardware-decoding(bool);
+    callback step-frame(int);
     callback toggle-folder-loop();
     callback toggle-shuffle();
     callback toggle-audio-visualization();
@@ -473,6 +475,33 @@ export component MediaInspector inherits Rectangle {
                     Toggle {
                         checked: root.hardware-decoding-enabled;
                         toggled(checked) => root.set-hardware-decoding(checked);
+                    }
+                }
+
+                if root.media-loaded && !root.audio-media : Divider { }
+
+                if root.media-loaded && !root.audio-media : UiText {
+                    text: "Покадровая навигация";
+                    variant: TextVariant.label;
+                }
+
+                if root.media-loaded && !root.audio-media : HorizontalLayout {
+                    height: Theme.space-10;
+                    spacing: Theme.space-2;
+
+                    Button {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        shortcut: ",";
+                        text: "Назад";
+                        clicked => root.step-frame(-1);
+                    }
+                    Button {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        shortcut: ".";
+                        text: "Вперёд";
+                        clicked => root.step-frame(1);
                     }
                 }
 

@@ -170,6 +170,7 @@ export component AppWindow inherits Window {
     callback toggle_command_palette();
     callback command_query_changed(string);
     callback seek_relative(float);
+    callback step_frame(int);
     callback adjust_volume(float);
     callback toggle_mute();
     callback play_playlist_index(int);
@@ -546,6 +547,7 @@ export component AppWindow inherits Window {
                 select-chapter(index) => root.select_chapter(index);
                 set-aspect-ratio(index) => root.set_aspect_ratio(index);
                 set-hardware-decoding(enabled) => root.set_hardware_decoding(enabled);
+                step-frame(direction) => root.step_frame(direction);
                 toggle-folder-loop => root.toggle_folder_loop();
                 toggle-shuffle => root.toggle_shuffle();
                 toggle-audio-visualization => {
@@ -576,6 +578,7 @@ export component AppWindow inherits Window {
                 query <=> root.command_query;
                 commands: root.command_items;
                 media-loaded: root.media_loaded;
+                audio-media: root.audio_media;
                 query-changed(query) => root.command_query_changed(query);
                 close => {
                     root.command_palette_visible = false;
@@ -648,5 +651,7 @@ export component AppWindow inherits Window {
         else if (action == 14) { seek_relative(10.0); }
         else if (action == 15) { adjust_volume(-5.0); }
         else if (action == 16) { adjust_volume(5.0); }
+        else if (action == 25) { step_frame(-1); }
+        else if (action == 26) { step_frame(1); }
     }
 }
