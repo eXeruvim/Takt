@@ -8,6 +8,7 @@ use std::{
 use crate::ipc::{Command, Event, FrameStepDirection};
 use crate::player::{
     audio_metadata::AudioMetadata,
+    equalizer::EqualizerSettings,
     media_info::{MediaInfo, read_audio_tracks, read_chapters, read_subtitle_tracks},
     playlist::DirectoryPlaylist,
 };
@@ -28,6 +29,7 @@ struct PlaybackOptions {
     repeat_folder: bool,
     shuffled: bool,
     media_available: bool,
+    equalizer: EqualizerSettings,
 }
 
 fn mpv_error<T>(result: Result<T, libmpv::Error>) -> anyhow::Result<T> {
@@ -80,6 +82,58 @@ fn send_hardware_decoding(mpv: &Mpv, tx: &Sender<Event>) {
         enabled: hwdec_is_enabled(&requested),
         decoder,
     });
+}
+
+fn send_equalizer(settings: EqualizerSettings, tx: &Sender<Event>) {
+    let _ = tx.send(Event::EqualizerChanged {
+        enabled: settings.enabled,
+        preset: settings.preset,
+        preamp_db: settings.preamp_db,
+    });
+}
+
+fn remove_equalizer_filter(mpv: &Mpv) -> anyhow::Result<()> {
+    mpv_error(mpv.command("change-list", &["af", "remove", "@oxide-eq"]))
+        .context("Не удалось удалить аудиофильтр Oxide")
+}
+
+fn append_equalizer_filter(mpv: &Mpv, settings: EqualizerSettings) -> anyhow::Result<()> {
+    let Some(filter) = settings.mpv_filter() else {
+        return Ok(());
+    };
+
+    // `append` accepts one unescaped object-list item, so commas inside the
+    // lavfi graph stay part of this named filter instead of splitting `af`.
+    mpv_error(mpv.command("change-list", &["af", "append", &filter]))
+        .context("Не удалось применить аудиофильтр Oxide")
+}
+
+fn replace_equalizer_filter(
+    mpv: &Mpv,
+    previous: EqualizerSettings,
+    next: EqualizerSettings,
+) -> anyhow::Result<()> {
+    remove_equalizer_filter(mpv)?;
+    if let Err(error) = append_equalizer_filter(mpv, next) {
+        // Keep the audible state and the UI state in sync if a preset cannot
+        // be constructed by the libavfilter build bundled with mpv.
+        let _ = remove_equalizer_filter(mpv);
+        let _ = append_equalizer_filter(mpv, previous);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn update_equalizer(
+    mpv: &Mpv,
+    tx: &Sender<Event>,
+    options: &mut PlaybackOptions,
+    next: EqualizerSettings,
+) -> anyhow::Result<()> {
+    replace_equalizer_filter(mpv, options.equalizer, next)?;
+    options.equalizer = next;
+    send_equalizer(next, tx);
+    Ok(())
 }
 
 fn send_playlist(tx: &Sender<Event>, playlist: &DirectoryPlaylist) {
@@ -419,6 +473,22 @@ fn handle_command(
                 mpv_error(mpv.command(command, &[]))?;
             }
         }
+        Command::SetEqualizerEnabled(enabled) => {
+            let next = options.equalizer.with_enabled(enabled);
+            update_equalizer(mpv, tx, options, next)?;
+        }
+        Command::SetEqualizerPreset(preset) => {
+            let next = options.equalizer.with_preset(preset);
+            update_equalizer(mpv, tx, options, next)?;
+        }
+        Command::AdjustEqualizerPreamp(delta_db) => {
+            let next = options.equalizer.adjusted_preamp(delta_db);
+            update_equalizer(mpv, tx, options, next)?;
+        }
+        Command::ResetEqualizer => {
+            let next = options.equalizer.reset();
+            update_equalizer(mpv, tx, options, next)?;
+        }
         Command::SetDarkTheme(dark_theme) => {
             mpv_error(mpv.set_property(
                 "background-color",
@@ -563,6 +633,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
     let mut pending_media_commands = VecDeque::new();
 
     let _ = tx.send(Event::RenderSource(MpvRenderSource::new(Arc::clone(&mpv))));
+    send_equalizer(options.equalizer, &tx);
 
     mpv_error(events.disable_deprecated_events())?;
     for (id, name, format) in [

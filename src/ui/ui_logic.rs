@@ -14,7 +14,7 @@ use crossbeam_channel::{Receiver, Sender};
 #[cfg(target_os = "windows")]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use crate::ipc::{AspectRatio, Command, Event, FrameStepDirection};
+use crate::ipc::{AspectRatio, Command, EqualizerPreset, Event, FrameStepDirection};
 use crate::player::playlist::{
     AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, is_media_file,
 };
@@ -1480,6 +1480,36 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
     {
         let tx = tx.clone();
+        app.on_set_equalizer_enabled(move |enabled| {
+            let _ = tx.send(Command::SetEqualizerEnabled(enabled));
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        app.on_set_equalizer_preset(move |index| {
+            if let Some(preset) = EqualizerPreset::from_ui_index(index) {
+                let _ = tx.send(Command::SetEqualizerPreset(preset));
+            }
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        app.on_adjust_equalizer_preamp(move |delta| {
+            let _ = tx.send(Command::AdjustEqualizerPreamp(f64::from(delta)));
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        app.on_reset_equalizer(move || {
+            let _ = tx.send(Command::ResetEqualizer);
+        });
+    }
+
+    {
+        let tx = tx.clone();
 
         app.on_next_video(move || {
             let _ = tx.send(Command::NextVideo);
@@ -2293,6 +2323,16 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     Event::HardwareDecoding { enabled, decoder } => {
                         app.set_hardware_decoding_enabled(enabled);
                         app.set_hardware_decoder(decoder.into());
+                    }
+
+                    Event::EqualizerChanged {
+                        enabled,
+                        preset,
+                        preamp_db,
+                    } => {
+                        app.set_equalizer_enabled(enabled);
+                        app.set_equalizer_preset_index(preset.ui_index());
+                        app.set_equalizer_preamp_db(preamp_db as f32);
                     }
 
                     Event::VideoOutputReady => {

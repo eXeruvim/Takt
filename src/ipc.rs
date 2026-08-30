@@ -49,6 +49,39 @@ pub enum FrameStepDirection {
     Forward,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum EqualizerPreset {
+    #[default]
+    Flat,
+    Bass,
+    Voice,
+    Rock,
+    Electronic,
+}
+
+impl EqualizerPreset {
+    pub const fn from_ui_index(index: i32) -> Option<Self> {
+        match index {
+            0 => Some(Self::Flat),
+            1 => Some(Self::Bass),
+            2 => Some(Self::Voice),
+            3 => Some(Self::Rock),
+            4 => Some(Self::Electronic),
+            _ => None,
+        }
+    }
+
+    pub const fn ui_index(self) -> i32 {
+        match self {
+            Self::Flat => 0,
+            Self::Bass => 1,
+            Self::Voice => 2,
+            Self::Rock => 3,
+            Self::Electronic => 4,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum Command {
     OpenFile(String),
@@ -73,6 +106,10 @@ pub enum Command {
     SetAspectRatio(AspectRatio),
     SetHardwareDecoding(bool),
     StepFrame(FrameStepDirection),
+    SetEqualizerEnabled(bool),
+    SetEqualizerPreset(EqualizerPreset),
+    AdjustEqualizerPreamp(f64),
+    ResetEqualizer,
     SetDarkTheme(bool),
 
     NextVideo,
@@ -168,6 +205,11 @@ pub enum Event {
     HardwareDecoding {
         enabled: bool,
         decoder: String,
+    },
+    EqualizerChanged {
+        enabled: bool,
+        preset: EqualizerPreset,
+        preamp_db: f64,
     },
 
     LoopEnabled(bool),

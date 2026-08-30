@@ -46,6 +46,9 @@ export component AppWindow inherits Window {
     in-out property <int> aspect_ratio_index: 0;
     in-out property <bool> hardware_decoding_enabled: false;
     in-out property <string> hardware_decoder: "no";
+    in-out property <bool> equalizer_enabled: false;
+    in-out property <int> equalizer_preset_index: 0;
+    in-out property <float> equalizer_preamp_db: 0;
     in-out property <image> album_art;
     in-out property <bool> album_art_available: false;
     in-out property <bool> audio_visualization_enabled: true;
@@ -159,6 +162,10 @@ export component AppWindow inherits Window {
     callback select_chapter(int);
     callback set_aspect_ratio(int);
     callback set_hardware_decoding(bool);
+    callback set_equalizer_enabled(bool);
+    callback set_equalizer_preset(int);
+    callback adjust_equalizer_preamp(float);
+    callback reset_equalizer();
     callback toggle_loop();
     callback toggle_folder_loop();
     callback toggle_shuffle();
@@ -535,6 +542,9 @@ export component AppWindow inherits Window {
                 aspect-ratio-index: root.aspect_ratio_index;
                 hardware-decoding-enabled: root.hardware_decoding_enabled;
                 hardware-decoder: root.hardware_decoder;
+                equalizer-enabled: root.equalizer_enabled;
+                equalizer-preset-index: root.equalizer_preset_index;
+                equalizer-preamp-db: root.equalizer_preamp_db;
                 speed: root.speed;
                 folder-loop-enabled: root.folder_loop_enabled;
                 shuffle-enabled: root.shuffle_enabled;
@@ -562,6 +572,10 @@ export component AppWindow inherits Window {
                 set-aspect-ratio(index) => root.set_aspect_ratio(index);
                 set-hardware-decoding(enabled) => root.set_hardware_decoding(enabled);
                 step-frame(direction) => root.step_frame(direction);
+                set-equalizer-enabled(enabled) => root.set_equalizer_enabled(enabled);
+                set-equalizer-preset(index) => root.set_equalizer_preset(index);
+                adjust-equalizer-preamp(delta) => root.adjust_equalizer_preamp(delta);
+                reset-equalizer => root.reset_equalizer();
                 toggle-folder-loop => root.toggle_folder_loop();
                 toggle-shuffle => root.toggle_shuffle();
                 toggle-audio-visualization => {
