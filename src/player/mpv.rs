@@ -153,6 +153,13 @@ fn send_media_info(mpv: &Mpv, tx: &Sender<Event>) {
         fps: info.fps,
         codec: info.codec,
         audio_codec: info.audio_codec,
+        container: info.container,
+        file_size_bytes: info.file_size_bytes,
+        duration_seconds: info.duration_seconds,
+        average_bitrate_bps: info.average_bitrate_bps,
+        video_track_count: info.video_track_count,
+        audio_track_count: info.audio_track_count,
+        subtitle_track_count: info.subtitle_track_count,
     });
 }
 

@@ -30,6 +30,8 @@ component PropertyRow inherits Rectangle {
     in property <string> value;
 
     height: Theme.space-12;
+    min-width: 0px;
+    horizontal-stretch: 1;
     background: transparent;
 
     VerticalLayout {
@@ -194,6 +196,12 @@ export component MediaInspector inherits Rectangle {
     in property <string> file-name;
     in property <string> codec;
     in property <string> audio-codec;
+    in property <string> container-format;
+    in property <string> file-size-label;
+    in property <string> media-duration-label;
+    in property <string> media-bitrate-label;
+    in property <string> track-summary;
+    in property <string> app-version;
     in property <string> resolution;
     in property <string> fps;
     in property <bool> audio-media;
@@ -234,6 +242,7 @@ export component MediaInspector inherits Rectangle {
             + (!audio-media ? 144px : 64px)
             + (equalizer-preset-index == 5 ? 288px : 0px)
         : 120px;
+    private property <length> info-content-height: audio-media ? 320px : 416px;
     callback show-playlist();
     callback show-info();
     callback show-playback();
@@ -425,33 +434,83 @@ export component MediaInspector inherits Rectangle {
             }
         }
 
-            VerticalLayout {
-                x: root.info-open || root.prewarming
-                    ? 0px : parent.width + Theme.space-1;
+            info-scroll := ScrollView {
+                visible: root.info-open || root.prewarming;
+                x: 0px;
                 width: parent.width;
                 height: parent.height;
-                spacing: Theme.space-3;
+                viewport-width: self.visible-width;
+                viewport-height: max(self.visible-height, root.info-content-height);
 
-            UiText {
-                text: root.file-name;
-                color: Theme.text-secondary;
-                overflow: elide;
+                info-viewport := Rectangle {
+                    width: max(0px, info-scroll.visible-width
+                        - Theme.space-8 - Theme.space-1);
+                    height: root.info-content-height;
+                    background: transparent;
+                    clip: true;
+
+                    VerticalLayout {
+                        width: parent.width;
+                        height: parent.height;
+                        spacing: Theme.space-3;
+
+                        UiText {
+                            text: root.file-name;
+                            variant: TextVariant.label;
+                            color: Theme.text-secondary;
+                            overflow: elide;
+                        }
+
+                        Divider { }
+
+                        HorizontalLayout {
+                            height: Theme.space-12;
+                            spacing: Theme.space-3;
+                            PropertyRow { label: "Контейнер"; value: root.container-format; }
+                            PropertyRow { label: "Размер"; value: root.file-size-label; }
+                        }
+
+                        HorizontalLayout {
+                            height: Theme.space-12;
+                            spacing: Theme.space-3;
+                            PropertyRow { label: "Длительность"; value: root.media-duration-label; }
+                            PropertyRow { label: "Bitrate"; value: root.media-bitrate-label; }
+                        }
+
+                        if !root.audio-media : HorizontalLayout {
+                            height: Theme.space-12;
+                            spacing: Theme.space-3;
+                            PropertyRow { label: "Видео"; value: root.codec; }
+                            PropertyRow { label: "Разрешение"; value: root.resolution; }
+                        }
+
+                        if !root.audio-media : HorizontalLayout {
+                            height: Theme.space-12;
+                            spacing: Theme.space-3;
+                            PropertyRow { label: "Частота кадров"; value: root.fps; }
+                            PropertyRow { label: "Аудио"; value: root.audio-codec; }
+                        }
+
+                        if root.audio-media : PropertyRow {
+                            label: "Аудио";
+                            value: root.audio-codec;
+                        }
+
+                        PropertyRow {
+                            label: "Дорожки";
+                            value: root.track-summary;
+                        }
+
+                        Rectangle { vertical-stretch: 1; background: transparent; }
+                        UiText {
+                            text: "Oxide " + root.app-version
+                                + "  ·  I — открыть или закрыть Inspector";
+                            variant: TextVariant.caption;
+                            color: Theme.text-muted;
+                        }
+                    }
+                }
             }
-            if !root.audio-media : PropertyRow { label: "Видео"; value: root.codec; }
-            if !root.audio-media : PropertyRow { label: "Разрешение"; value: root.resolution; }
-            if !root.audio-media : PropertyRow {
-                label: "Частота кадров";
-                value: root.fps + " FPS";
-            }
-            if !root.audio-media : Divider { }
-            PropertyRow { label: "Аудио"; value: root.audio-codec; }
-            Rectangle { vertical-stretch: 1; background: transparent; }
-            UiText {
-                text: "I — открыть или закрыть Inspector";
-                variant: TextVariant.caption;
-                color: Theme.text-muted;
-            }
-        }
 
             playback-scroll := ScrollView {
                 visible: (root.playback-open && !root.sound-selected) || root.prewarming;

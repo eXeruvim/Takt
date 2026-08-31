@@ -189,6 +189,13 @@ pub enum Event {
         fps: f64,
         codec: String,
         audio_codec: String,
+        container: String,
+        file_size_bytes: u64,
+        duration_seconds: f64,
+        average_bitrate_bps: f64,
+        video_track_count: u32,
+        audio_track_count: u32,
+        subtitle_track_count: u32,
     },
     AudioMetadata {
         title: String,

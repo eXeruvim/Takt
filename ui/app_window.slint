@@ -33,6 +33,12 @@ export component AppWindow inherits Window {
     in-out property <string> file_name: "Не выбран файл";
     in-out property <string> codec: "—";
     in-out property <string> audio_codec: "—";
+    in-out property <string> container_format: "—";
+    in-out property <string> file_size_label: "—";
+    in-out property <string> media_duration_label: "—";
+    in-out property <string> media_bitrate_label: "—";
+    in-out property <string> track_summary: "—";
+    in property <string> app_version: "";
     in-out property <string> track_title: "";
     in-out property <string> track_artist: "";
     in-out property <string> album_title: "";
@@ -530,6 +536,12 @@ export component AppWindow inherits Window {
                 file-name: root.file_name;
                 codec: root.codec;
                 audio-codec: root.audio_codec;
+                container-format: root.container_format;
+                file-size-label: root.file_size_label;
+                media-duration-label: root.media_duration_label;
+                media-bitrate-label: root.media_bitrate_label;
+                track-summary: root.track_summary;
+                app-version: root.app_version;
                 resolution: root.resolution;
                 fps: root.fps;
                 audio-media: root.audio_media;

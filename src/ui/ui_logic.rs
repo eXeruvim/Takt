@@ -642,6 +642,63 @@ fn format_time(seconds: f64) -> String {
     }
 }
 
+fn format_container(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        return "—".to_owned();
+    }
+
+    let lower = value.to_ascii_lowercase();
+    if lower.contains("matroska") || lower.contains("webm") {
+        "Matroska / WebM".to_owned()
+    } else if lower.contains("mp4") || lower.contains("mov") {
+        "MPEG-4 / MOV".to_owned()
+    } else {
+        value.to_uppercase()
+    }
+}
+
+fn format_codec(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        "—".to_owned()
+    } else {
+        value.to_uppercase()
+    }
+}
+
+fn format_file_size(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+
+    if bytes == 0 {
+        "—".to_owned()
+    } else if bytes as f64 >= GIB {
+        format!("{:.2} ГБ", bytes as f64 / GIB).replace('.', ",")
+    } else if bytes as f64 >= MIB {
+        format!("{:.1} МБ", bytes as f64 / MIB).replace('.', ",")
+    } else if bytes as f64 >= KIB {
+        format!("{:.0} КБ", bytes as f64 / KIB)
+    } else {
+        format!("{bytes} Б")
+    }
+}
+
+fn format_bitrate(bits_per_second: f64) -> String {
+    if !bits_per_second.is_finite() || bits_per_second <= 0.0 {
+        "—".to_owned()
+    } else if bits_per_second >= 1_000_000.0 {
+        format!("{:.2} Мбит/с", bits_per_second / 1_000_000.0).replace('.', ",")
+    } else {
+        format!("{:.0} кбит/с", bits_per_second / 1_000.0)
+    }
+}
+
+fn format_track_summary(video: u32, audio: u32, subtitles: u32) -> String {
+    format!("Видео {video}  ·  Аудио {audio}  ·  Субтитры {subtitles}")
+}
+
 fn is_audio_only_media(width: u32, height: u32, video_codec: &str, audio_codec: &str) -> bool {
     width == 0 && height == 0 && video_codec.is_empty() && !audio_codec.is_empty()
 }
@@ -967,6 +1024,7 @@ fn toggle_picture_in_picture(
 
 pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
     let app = AppWindow::new()?;
+    app.set_app_version(format!("v{}", env!("CARGO_PKG_VERSION")).into());
     let shortcut_registry = Arc::new(Mutex::new(ShortcutRegistry::default()));
     let command_items = Rc::new(VecModel::default());
     app.set_command_items(ModelRc::from(command_items.clone()));
@@ -2117,6 +2175,11 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         app.set_total_time("00:00".into());
                         app.set_duration_seconds(0.0);
                         app.set_progress(0.0);
+                        app.set_container_format("—".into());
+                        app.set_file_size_label("—".into());
+                        app.set_media_duration_label("—".into());
+                        app.set_media_bitrate_label("—".into());
+                        app.set_track_summary("—".into());
                         app.set_error_visible(false);
                         if let Ok(mut duration) = current_duration.lock() {
                             *duration = 0.0;
@@ -2202,6 +2265,11 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         }
                         app.set_total_time(format_time(duration).into());
                         app.set_duration_seconds(duration as f32);
+                        app.set_media_duration_label(if duration.is_finite() && duration > 0.0 {
+                            format_time(duration).into()
+                        } else {
+                            "—".into()
+                        });
                     }
 
                     Event::Playlist {
@@ -2231,6 +2299,13 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         fps,
                         codec,
                         audio_codec,
+                        container,
+                        file_size_bytes,
+                        duration_seconds,
+                        average_bitrate_bps,
+                        video_track_count,
+                        audio_track_count,
+                        subtitle_track_count,
                     } => {
                         let audio_media = is_audio_only_media(width, height, &codec, &audio_codec);
                         let wait_for_video =
@@ -2239,10 +2314,36 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         if !wait_for_video {
                             app.set_audio_media(audio_media);
                         }
-                        app.set_resolution(format!("{}x{}", width, height).into());
-                        app.set_fps(format!("{:.2}", fps).into());
-                        app.set_codec(codec.into());
-                        app.set_audio_codec(audio_codec.into());
+                        app.set_resolution(if width > 0 && height > 0 {
+                            format!("{width}×{height}").into()
+                        } else {
+                            "—".into()
+                        });
+                        app.set_fps(if fps.is_finite() && fps > 0.0 {
+                            format!("{fps:.2} FPS").into()
+                        } else {
+                            "—".into()
+                        });
+                        app.set_codec(format_codec(&codec).into());
+                        app.set_audio_codec(format_codec(&audio_codec).into());
+                        app.set_container_format(format_container(&container).into());
+                        app.set_file_size_label(format_file_size(file_size_bytes).into());
+                        app.set_media_duration_label(
+                            if duration_seconds.is_finite() && duration_seconds > 0.0 {
+                                format_time(duration_seconds).into()
+                            } else {
+                                "—".into()
+                            },
+                        );
+                        app.set_media_bitrate_label(format_bitrate(average_bitrate_bps).into());
+                        app.set_track_summary(
+                            format_track_summary(
+                                video_track_count,
+                                audio_track_count,
+                                subtitle_track_count,
+                            )
+                            .into(),
+                        );
                     }
 
                     Event::AudioMetadata {
@@ -2399,7 +2500,8 @@ mod tests {
 
     use super::{
         PALETTE_COMMANDS, ShortcutAction, ShortcutBinding, ShortcutRegistry,
-        command_for_dropped_path, command_palette_items, format_time, is_audio_only_media,
+        command_for_dropped_path, command_palette_items, format_bitrate, format_container,
+        format_file_size, format_time, format_track_summary, is_audio_only_media,
     };
     use crate::ipc::Command;
     use slint::winit_030::winit::keyboard::{KeyCode, ModifiersState};
@@ -2414,6 +2516,20 @@ mod tests {
     #[test]
     fn clamps_negative_time_to_zero() {
         assert_eq!(format_time(-10.0), "00:00");
+    }
+
+    #[test]
+    fn formats_local_media_properties_for_the_inspector() {
+        assert_eq!(format_container("mov,mp4,m4a,3gp"), "MPEG-4 / MOV");
+        assert_eq!(format_container("matroska,webm"), "Matroska / WebM");
+        assert_eq!(format_file_size(1_048_576), "1,0 МБ");
+        assert_eq!(format_file_size(1_073_741_824), "1,00 ГБ");
+        assert_eq!(format_bitrate(800_000.0), "800 кбит/с");
+        assert_eq!(format_bitrate(2_500_000.0), "2,50 Мбит/с");
+        assert_eq!(
+            format_track_summary(1, 2, 3),
+            "Видео 1  ·  Аудио 2  ·  Субтитры 3"
+        );
     }
 
     #[test]

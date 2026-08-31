@@ -10,20 +10,48 @@ pub struct MediaInfo {
     pub fps: f64,
     pub codec: String,
     pub audio_codec: String,
+    pub container: String,
+    pub file_size_bytes: u64,
+    pub duration_seconds: f64,
+    pub average_bitrate_bps: f64,
+    pub video_track_count: u32,
+    pub audio_track_count: u32,
+    pub subtitle_track_count: u32,
 }
 
 impl MediaInfo {
     pub fn read(mpv: &Mpv) -> Self {
+        let file_size_bytes =
+            non_negative_u64(mpv.get_property::<i64>("file-size").unwrap_or_default());
+        let duration_seconds = mpv.get_property::<f64>("duration").unwrap_or_default();
+        let video_tracks = read_tracks(mpv, "video")
+            .into_iter()
+            .filter(|track| !track.album_art)
+            .count();
+        let audio_tracks = read_tracks(mpv, "audio").len();
+        let subtitle_tracks = read_tracks(mpv, "sub").len();
+
         Self {
             width: non_negative_u32(mpv.get_property::<i64>("width").unwrap_or_default()),
             height: non_negative_u32(mpv.get_property::<i64>("height").unwrap_or_default()),
             fps: mpv.get_property::<f64>("container-fps").unwrap_or_default(),
             codec: mpv
-                .get_property::<String>("video-format")
+                .get_property::<String>("current-tracks/video/codec")
+                .or_else(|_| mpv.get_property::<String>("video-format"))
                 .unwrap_or_default(),
             audio_codec: mpv
-                .get_property::<String>("audio-codec")
+                .get_property::<String>("current-tracks/audio/codec")
+                .or_else(|_| mpv.get_property::<String>("audio-codec"))
                 .unwrap_or_default(),
+            container: mpv
+                .get_property::<String>("file-format")
+                .unwrap_or_default(),
+            file_size_bytes,
+            duration_seconds,
+            average_bitrate_bps: average_bitrate_bps(file_size_bytes, duration_seconds),
+            video_track_count: u32::try_from(video_tracks).unwrap_or(u32::MAX),
+            audio_track_count: u32::try_from(audio_tracks).unwrap_or(u32::MAX),
+            subtitle_track_count: u32::try_from(subtitle_tracks).unwrap_or(u32::MAX),
         }
     }
 }
@@ -127,6 +155,7 @@ struct RawTrack {
     selected: bool,
     external: bool,
     external_filename: Option<String>,
+    album_art: bool,
 }
 
 fn read_tracks(mpv: &Mpv, track_type: &str) -> Vec<RawTrack> {
@@ -167,6 +196,9 @@ fn read_tracks(mpv: &Mpv, track_type: &str) -> Vec<RawTrack> {
         let external_filename = mpv
             .get_property::<String>(&property("external-filename"))
             .ok();
+        let album_art = mpv
+            .get_property::<bool>(&property("albumart"))
+            .unwrap_or(false);
 
         tracks.push(RawTrack {
             id,
@@ -176,6 +208,7 @@ fn read_tracks(mpv: &Mpv, track_type: &str) -> Vec<RawTrack> {
             selected,
             external,
             external_filename,
+            album_art,
         });
     }
 
@@ -218,14 +251,37 @@ fn non_negative_u32(value: i64) -> u32 {
     u32::try_from(value).unwrap_or_default()
 }
 
+fn non_negative_u64(value: i64) -> u64 {
+    u64::try_from(value).unwrap_or_default()
+}
+
+fn average_bitrate_bps(file_size_bytes: u64, duration_seconds: f64) -> f64 {
+    if file_size_bytes == 0 || !duration_seconds.is_finite() || duration_seconds <= 0.0 {
+        0.0
+    } else {
+        file_size_bytes as f64 * 8.0 / duration_seconds
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{format_chapter_time, non_negative_u32, track_label};
+    use super::{
+        average_bitrate_bps, format_chapter_time, non_negative_u32, non_negative_u64, track_label,
+    };
 
     #[test]
     fn rejects_negative_media_dimensions() {
         assert_eq!(non_negative_u32(-1), 0);
         assert_eq!(non_negative_u32(1_920), 1_920);
+    }
+
+    #[test]
+    fn rejects_negative_file_sizes_and_calculates_average_bitrate() {
+        assert_eq!(non_negative_u64(-1), 0);
+        assert_eq!(non_negative_u64(1_048_576), 1_048_576);
+        assert_eq!(average_bitrate_bps(1_000_000, 10.0), 800_000.0);
+        assert_eq!(average_bitrate_bps(1_000_000, 0.0), 0.0);
+        assert_eq!(average_bitrate_bps(0, 10.0), 0.0);
     }
 
     #[test]
