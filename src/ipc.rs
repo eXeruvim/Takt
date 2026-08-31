@@ -156,6 +156,13 @@ pub struct ChapterInfo {
     pub label: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecentFileInfo {
+    pub path: String,
+    pub name: String,
+    pub location: String,
+}
+
 #[derive(Debug)]
 pub enum Event {
     RenderSource(MpvRenderSource),
@@ -182,6 +189,7 @@ pub enum Event {
         items: Vec<String>,
         current_index: usize,
     },
+    RecentFiles(Vec<RecentFileInfo>),
 
     MediaInfo {
         width: u32,

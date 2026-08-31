@@ -25,6 +25,12 @@ export struct EqualizerBandEntry {
     gain-db: float,
 }
 
+export struct RecentFileEntry {
+    name: string,
+    path: string,
+    location: string,
+}
+
 component PropertyRow inherits Rectangle {
     in property <string> label;
     in property <string> value;
@@ -192,6 +198,7 @@ export component MediaInspector inherits Rectangle {
     in property <bool> info-open;
     in property <bool> playback-open;
     in property <[string]> items;
+    in property <[RecentFileEntry]> recent-files;
     in property <int> current-index: -1;
     in property <string> file-name;
     in property <string> codec;
@@ -248,6 +255,7 @@ export component MediaInspector inherits Rectangle {
     callback show-playback();
     callback close();
     callback play-index(int);
+    callback open-recent(string);
     callback set-speed(float);
     callback select-audio-track(int);
     callback select-subtitle-track(int);
@@ -427,10 +435,40 @@ export component MediaInspector inherits Rectangle {
                 vertical-stretch: root.items.length == 0 ? 1 : 0;
                 background: transparent;
             }
+
+            if root.recent-files.length > 0 : Divider { }
+
+            if root.recent-files.length > 0 : UiText {
+                text: "Недавние";
+                variant: TextVariant.caption;
+                color: Theme.text-secondary;
+            }
+
+            if root.recent-files.length > 0 : ListView {
+                height: min(root.recent-files.length, 3)
+                    * (Theme.space-12 + Theme.space-1);
+
+                for entry in root.recent-files : Rectangle {
+                    width: parent.width;
+                    height: Theme.space-12 + Theme.space-1;
+                    background: transparent;
+
+                    MediaListItem {
+                        width: parent.width;
+                        title: entry.name;
+                        subtitle: entry.location;
+                        activated => root.open-recent(entry.path);
+                    }
+                }
+            }
+
             UiText {
-                text: "Выберите файл, чтобы перейти к нему";
+                text: root.recent-files.length > 0
+                    ? "История и позиции хранятся только на этом устройстве"
+                    : "Выберите файл, чтобы перейти к нему";
                 variant: TextVariant.caption;
                 color: Theme.text-muted;
+                wrap: word-wrap;
             }
         }
 

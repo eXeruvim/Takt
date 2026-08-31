@@ -1372,6 +1372,13 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
 
     {
         let tx = tx.clone();
+        app.on_open_recent(move |path| {
+            let _ = tx.send(Command::OpenFile(path.to_string()));
+        });
+    }
+
+    {
+        let tx = tx.clone();
         let dialog_active = dialog_active.clone();
 
         app.on_load_subtitle(move || {
@@ -2291,6 +2298,18 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         } else {
                             app.set_next_card_visible(false);
                         }
+                    }
+
+                    Event::RecentFiles(files) => {
+                        let files = files
+                            .into_iter()
+                            .map(|file| RecentFileEntry {
+                                name: file.name.into(),
+                                path: file.path.into(),
+                                location: file.location.into(),
+                            })
+                            .collect::<Vec<_>>();
+                        app.set_recent_files(ModelRc::new(VecModel::from(files)));
                     }
 
                     Event::MediaInfo {
