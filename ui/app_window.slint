@@ -61,7 +61,6 @@ export component AppWindow inherits Window {
     in property <[EqualizerBandEntry]> equalizer_bands;
     in-out property <image> album_art;
     in-out property <bool> album_art_available: false;
-    in-out property <bool> audio_visualization_enabled: true;
     out property <bool> dark_theme: Theme.is-dark;
     in-out property <string> resolution: "—";
     in-out property <string> fps: "—";
@@ -301,7 +300,6 @@ export component AppWindow inherits Window {
                 shown: root.media_presented && root.audio_media;
                 expanded: root.maximized || root.fullscreen_mode;
                 controls-visible: root.controls_visible;
-                visualization-enabled: root.audio_visualization_enabled;
                 file-name: root.file_name;
                 audio-codec: root.audio_codec;
                 track-title: root.track_title;
@@ -632,7 +630,6 @@ export component AppWindow inherits Window {
                 speed: root.speed;
                 folder-loop-enabled: root.folder_loop_enabled;
                 shuffle-enabled: root.shuffle_enabled;
-                audio-visualization-enabled: root.audio_visualization_enabled;
                 parent-width: parent.width;
                 parent-height: parent.height;
                 show-playlist => root.toggle_playlist();
@@ -664,9 +661,6 @@ export component AppWindow inherits Window {
                 reset-equalizer => root.reset_equalizer();
                 toggle-folder-loop => root.toggle_folder_loop();
                 toggle-shuffle => root.toggle_shuffle();
-                toggle-audio-visualization => {
-                    root.audio_visualization_enabled = !root.audio_visualization_enabled;
-                }
                 edit-shortcuts => root.toggle_shortcuts();
             }
 

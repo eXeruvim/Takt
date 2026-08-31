@@ -230,7 +230,6 @@ export component MediaInspector inherits Rectangle {
     in-out property <float> speed;
     in-out property <bool> folder-loop-enabled;
     in-out property <bool> shuffle-enabled;
-    in-out property <bool> audio-visualization-enabled;
     in property <length> parent-width;
     in property <length> parent-height;
     out property <length> slide-offset: open || prewarming
@@ -275,7 +274,6 @@ export component MediaInspector inherits Rectangle {
     callback reset-equalizer();
     callback toggle-folder-loop();
     callback toggle-shuffle();
-    callback toggle-audio-visualization();
     callback edit-shortcuts();
 
     width: min(392px, parent-width - Theme.space-8);
@@ -949,15 +947,6 @@ export component MediaInspector inherits Rectangle {
 
                         if root.media-loaded && !root.audio-media : Divider { }
 
-                        if root.audio-media : SettingsRow {
-                            height: Theme.space-12;
-                            title: "Визуализация аудио";
-                            description: "Показывать ambient-слой за обложкой";
-                            Toggle {
-                                checked: root.audio-visualization-enabled;
-                                toggled => root.toggle-audio-visualization();
-                            }
-                        }
                     }
                 }
             }

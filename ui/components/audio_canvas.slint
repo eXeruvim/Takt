@@ -140,33 +140,13 @@ component VinylRecord inherits Rectangle {
     }
 }
 
-component AudioVisualizationLayer inherits Rectangle {
-    in property <bool> enabled;
-    in property <bool> active;
-
-    visible: enabled || self.opacity > 0.01;
-    opacity: enabled ? active ? 0.64 : 0.46 : 0;
-    border-radius: Theme.radius-xlarge;
-    background: @linear-gradient(110deg,
-        Theme.accent-subtle 0%,
-        transparent 42%,
-        Theme.surface-control 100%);
-
-    animate opacity {
-        duration: Theme.motion-gentle;
-        easing: cubic-bezier(0.2, 0, 0, 1);
-    }
-}
-
-// The audio scene deliberately has no fake spectrum. Artwork provides identity,
-// the partially revealed record communicates playback, and the ambient layer is
-// ready for real audio data from stage 6A.
+// Artwork provides the identity of the audio scene, while the partially revealed
+// record communicates playback without an additional visualization layer.
 export component AudioCanvas inherits Rectangle {
     in property <bool> shown;
     in property <bool> is-playing;
     in property <bool> expanded;
     in property <bool> controls-visible: true;
-    in property <bool> visualization-enabled: true;
     in property <string> file-name;
     in property <string> audio-codec;
     in property <string> track-title;
@@ -234,15 +214,6 @@ export component AudioCanvas inherits Rectangle {
         width: parent.width;
         height: parent.height;
         double-clicked => root.fullscreen();
-    }
-
-    AudioVisualizationLayer {
-        x: parent.width * 0.10;
-        y: root.content-top + root.content-height * 0.08 + root.visual-offset-y;
-        width: parent.width * 0.80;
-        height: root.content-height * 0.78;
-        enabled: root.visualization-enabled;
-        active: root.is-playing;
     }
 
     scene := Rectangle {
