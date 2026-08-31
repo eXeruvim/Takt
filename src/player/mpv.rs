@@ -620,6 +620,7 @@ fn handle_command(
                 send_media_info(mpv, tx);
             }
         }
+        Command::ResolveResume(_) => {}
         Command::Quit => return Ok(false),
     }
     Ok(true)
@@ -679,6 +680,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
     let mut session = SessionStore::load_default();
     let mut last_session_save = Instant::now();
     let mut pending_resume_path: Option<PathBuf> = None;
+    let mut pending_resume: Option<(PathBuf, f64)> = None;
     let mut events = mpv.create_event_context();
     let mut output_ready = !cfg!(target_os = "windows");
     let mut pending_media_commands = VecDeque::new();
@@ -710,6 +712,37 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
         }
 
         while let Some(command) = commands.pop_front() {
+            if let Command::ResolveResume(continue_saved) = &command {
+                let resolution = (|| -> anyhow::Result<()> {
+                    let Some((path, position)) = pending_resume.take() else {
+                        return Ok(());
+                    };
+                    pending_resume_path = None;
+                    let current_path = playlist.as_ref().and_then(DirectoryPlaylist::current_path);
+                    if current_path != Some(&path) {
+                        return Ok(());
+                    }
+
+                    if *continue_saved {
+                        mpv_error(mpv.set_property("time-pos", position))?;
+                        let _ = tx.send(Event::TimePos(position));
+                    } else {
+                        session.clear_position(&path);
+                        session.save_if_dirty()?;
+                        mpv_error(mpv.set_property("time-pos", 0.0))?;
+                        let _ = tx.send(Event::TimePos(0.0));
+                    }
+                    mpv_error(mpv.set_property("pause", false))?;
+                    Ok(())
+                })();
+                if let Err(error) = resolution {
+                    let _ = tx.send(Event::Error(format!(
+                        "Не удалось применить выбор продолжения: {error:#}"
+                    )));
+                }
+                continue;
+            }
+
             let previous_media_path = playlist
                 .as_ref()
                 .and_then(DirectoryPlaylist::current_path)
@@ -732,6 +765,8 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
             }
 
             if matches!(&command, Command::Stop) {
+                pending_resume = None;
+                pending_resume_path = None;
                 if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path) {
                     session.clear_position(path);
                     let _ = session.save_if_dirty();
@@ -748,6 +783,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
             match handle_command(command, &mpv, &tx, &mut playlist, &mut options) {
                 Ok(true) => {
                     if changes_media {
+                        pending_resume = None;
                         let current_media_path = playlist
                             .as_ref()
                             .and_then(DirectoryPlaylist::current_path)
@@ -767,6 +803,8 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                 Err(error) => {
                     eprintln!("Ошибка команды mpv: {error:#}");
                     if changes_media {
+                        pending_resume = None;
+                        pending_resume_path = None;
                         options.media_available = false;
                         send_playback_failed(&tx, error.to_string());
                     } else {
@@ -779,17 +817,26 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
         while let Some(event) = events.wait_event(0.0) {
             match event {
                 Ok(MpvEvent::FileLoaded) if options.media_available => {
+                    let mut resume_position = None;
                     if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path)
                     {
                         let duration = mpv.get_property::<f64>("duration").unwrap_or_default();
                         if let Some(position) = session.resume_position(path, duration) {
-                            let _ = mpv_error(mpv.set_property("time-pos", position));
-                            let _ = tx.send(Event::TimePos(position));
+                            if mpv_error(mpv.set_property("pause", true)).is_ok() {
+                                pending_resume = Some((path.clone(), position));
+                                resume_position = Some(position);
+                            }
                         }
                     }
-                    pending_resume_path = None;
+                    if resume_position.is_none() {
+                        pending_resume_path = None;
+                        pending_resume = None;
+                    }
                     record_current_media(&tx, &playlist, &mut session);
                     send_media_ready(&mpv, &tx);
+                    if let Some(position) = resume_position {
+                        let _ = tx.send(Event::ResumeAvailable(position));
+                    }
                 }
                 Ok(MpvEvent::EndFile(reason)) if reason == mpv_end_file_reason::Eof => {
                     if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path)
@@ -799,6 +846,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                     match load_adjacent(&mpv, &tx, &mut playlist, true, options.repeat_folder) {
                         Ok(true) => {
                             options.media_available = true;
+                            pending_resume = None;
                             pending_resume_path = playlist
                                 .as_ref()
                                 .and_then(DirectoryPlaylist::current_path)
@@ -818,6 +866,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                     match skip_failed_current(&mpv, &tx, &mut playlist, options.repeat_folder) {
                         Ok(true) => {
                             options.media_available = true;
+                            pending_resume = None;
                             pending_resume_path = playlist
                                 .as_ref()
                                 .and_then(DirectoryPlaylist::current_path)

@@ -1223,6 +1223,15 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         return EventResult::PreventDefault;
                     }
 
+                    if app.get_resume_prompt_visible() {
+                        if code == KeyCode::Enter {
+                            app.invoke_resume_saved_playback();
+                        } else if code == KeyCode::Escape {
+                            app.invoke_restart_saved_playback();
+                        }
+                        return EventResult::PreventDefault;
+                    }
+
                     if app.get_shortcut_editor_visible() {
                         if code == KeyCode::Escape {
                             if app.get_shortcut_capture_action() >= 0 {
@@ -1374,6 +1383,28 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         let tx = tx.clone();
         app.on_open_recent(move |path| {
             let _ = tx.send(Command::OpenFile(path.to_string()));
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        let app_weak = app.as_weak();
+        app.on_resume_saved_playback(move || {
+            if let Some(app) = app_weak.upgrade() {
+                app.set_resume_prompt_visible(false);
+            }
+            let _ = tx.send(Command::ResolveResume(true));
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        let app_weak = app.as_weak();
+        app.on_restart_saved_playback(move || {
+            if let Some(app) = app_weak.upgrade() {
+                app.set_resume_prompt_visible(false);
+            }
+            let _ = tx.send(Command::ResolveResume(false));
         });
     }
 
@@ -2144,6 +2175,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     Event::RenderSource(_) => {}
 
                     Event::LoadStarted(name) => {
+                        app.set_resume_prompt_visible(false);
                         let preserve_media_surface = app.get_media_presented();
                         app.set_file_name(name.into());
                         app.set_track_title("".into());
@@ -2216,16 +2248,19 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                     }
 
                     Event::PlaybackStopped => {
+                        app.set_resume_prompt_visible(false);
                         app.set_media_transitioning(false);
                         app.set_player_phase(PlayerPhase::Empty);
                     }
 
                     Event::PlaybackFinished => {
+                        app.set_resume_prompt_visible(false);
                         app.set_media_transitioning(false);
                         app.set_player_phase(PlayerPhase::Finished);
                     }
 
                     Event::PlaybackFailed(message) => {
+                        app.set_resume_prompt_visible(false);
                         app.set_media_transitioning(false);
                         app.set_waiting_for_video_surface(false);
                         app.set_media_loaded(false);
@@ -2310,6 +2345,11 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                             })
                             .collect::<Vec<_>>();
                         app.set_recent_files(ModelRc::new(VecModel::from(files)));
+                    }
+
+                    Event::ResumeAvailable(position) => {
+                        app.set_resume_position_label(format_time(position).into());
+                        app.set_resume_prompt_visible(true);
                     }
 
                     Event::MediaInfo {

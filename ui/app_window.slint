@@ -1,10 +1,12 @@
 import { Theme } from "theme.slint";
+import { ListView } from "std-widgets.slint";
 import { PlayerControls } from "components/player_controls.slint";
 import { AudioCanvas } from "components/audio_canvas.slint";
 import { CommandEntry, CommandPaletteOverlay } from "components/command_palette.slint";
 import { AudioTrackEntry, ChapterEntry, EqualizerBandEntry, MediaInspector, RecentFileEntry, SubtitleTrackEntry } from "components/media_inspector.slint";
+import { ResumePrompt } from "components/resume_prompt.slint";
 import { ShortcutEditorOverlay, ShortcutEntry } from "components/shortcut_editor.slint";
-import { Toast } from "design_system/composites.slint";
+import { MediaListItem, Toast } from "design_system/composites.slint";
 import { CaptionButton, EmptyState, Icon, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
 
 export enum PlayerPhase {
@@ -104,6 +106,8 @@ export component AppWindow inherits Window {
     in-out property <bool> command_palette_visible: false;
     in-out property <string> command_query: "";
     in property <[CommandEntry]> command_items;
+    in-out property <bool> resume_prompt_visible: false;
+    in-out property <string> resume_position_label: "00:00";
     in-out property <bool> controls_visible: true;
     in-out property <bool> controls_pointer_over: false;
     out property <bool> inspector_visible: info_drawer_visible
@@ -115,6 +119,7 @@ export component AppWindow inherits Window {
         && !controls_pointer_over
         && !inspector_visible
         && !shortcut_editor_visible && !command_palette_visible
+        && !resume_prompt_visible
         && !error_visible && !drop_target_visible;
     out property <length> controls_top_zone: Theme.top-bar-height + Theme.space-2;
     out property <length> controls_bottom_zone: media_presented
@@ -149,7 +154,8 @@ export component AppWindow inherits Window {
         : inspector_reserved
             ? 416px
             : edge_to_edge ? 0px : Theme.space-4;
-    out property <bool> modal_overlay_active: command-palette.visible || drop-overlay.visible;
+    out property <bool> modal_overlay_active: command-palette.visible
+        || resume-prompt.visible || drop-overlay.visible;
 
     callback open_file();
     callback open_folder();
@@ -194,6 +200,8 @@ export component AppWindow inherits Window {
     callback toggle_mute();
     callback play_playlist_index(int);
     callback open_recent(string);
+    callback resume_saved_playback();
+    callback restart_saved_playback();
     callback drag_window();
 
     animate player_controls_slide_offset {
@@ -316,17 +324,75 @@ export component AppWindow inherits Window {
                 }
             }
 
-            if root.player_phase == PlayerPhase.empty : EmptyState {
+            if root.player_phase == PlayerPhase.empty : Rectangle {
                 x: (parent.width - self.width) / 2;
                 y: Theme.top-bar-height;
-                width: min(parent.width - Theme.space-8 * 2, 440px);
+                width: min(parent.width - Theme.space-8 * 2, 520px);
                 height: parent.height - Theme.top-bar-height;
-                title: "Откройте медиафайл";
-                description: "Перетащите видео, аудио или папку в окно либо выберите их вручную";
-                action-text: "Открыть файл";
-                secondary-action-text: "Открыть папку";
-                action => root.open_file();
-                secondary-action => root.open_folder();
+                background: transparent;
+
+                VerticalLayout {
+                    alignment: center;
+                    spacing: Theme.space-5;
+
+                    EmptyState {
+                        width: parent.width;
+                        height: root.recent_files.length > 0 ? 180px : parent.height;
+                        title: "Откройте медиафайл";
+                        description: "Перетащите видео, аудио или папку в окно либо выберите их вручную";
+                        action-text: "Открыть файл";
+                        secondary-action-text: "Открыть папку";
+                        action => root.open_file();
+                        secondary-action => root.open_folder();
+                    }
+
+                    if root.recent_files.length > 0 : Rectangle {
+                        width: parent.width;
+                        height: Theme.space-10
+                            + min(root.recent_files.length, 3)
+                                * (Theme.space-12 + Theme.space-1)
+                            + Theme.space-4;
+                        border-radius: Theme.radius-large;
+                        border-width: 1px;
+                        border-color: Theme.border-default;
+                        background: Theme.surface-control;
+                        clip: true;
+
+                        VerticalLayout {
+                            padding-left: Theme.space-3;
+                            padding-right: Theme.space-3;
+                            padding-top: Theme.space-2;
+                            padding-bottom: Theme.space-2;
+                            spacing: Theme.space-1;
+
+                            UiText {
+                                height: Theme.space-6;
+                                text: "Недавние";
+                                variant: TextVariant.caption;
+                                color: Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+
+                            ListView {
+                                height: min(root.recent_files.length, 3)
+                                    * (Theme.space-12 + Theme.space-1);
+
+                                for entry in root.recent_files : Rectangle {
+                                    width: parent.width;
+                                    height: Theme.space-12 + Theme.space-1;
+                                    background: transparent;
+
+                                    MediaListItem {
+                                        width: parent.width;
+                                        title: entry.name;
+                                        subtitle: entry.location;
+                                        activated => root.open_recent(entry.path);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             if root.player_phase == PlayerPhase.loading : Rectangle {
@@ -634,6 +700,14 @@ export component AppWindow inherits Window {
                     root.command_query_changed("");
                 }
                 execute(action) => root.run-palette-command(action);
+            }
+
+            resume-prompt := ResumePrompt {
+                open: root.resume_prompt_visible;
+                file-name: root.file_name;
+                position-label: root.resume_position_label;
+                resume => root.resume_saved_playback();
+                restart => root.restart_saved_playback();
             }
 
             drop-overlay := Rectangle {

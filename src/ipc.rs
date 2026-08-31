@@ -132,6 +132,7 @@ pub enum Command {
     SetVideoWindow(usize),
 
     RequestMediaInfo,
+    ResolveResume(bool),
 
     Quit,
 }
@@ -190,6 +191,7 @@ pub enum Event {
         current_index: usize,
     },
     RecentFiles(Vec<RecentFileInfo>),
+    ResumeAvailable(f64),
 
     MediaInfo {
         width: u32,

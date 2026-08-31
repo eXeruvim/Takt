@@ -1,0 +1,86 @@
+import { Theme } from "../theme.slint";
+import { Button, UiText, TextVariant } from "../design_system/primitives.slint";
+
+export component ResumePrompt inherits Rectangle {
+    in property <bool> open: false;
+    in property <string> file-name;
+    in property <string> position-label;
+    callback resume();
+    callback restart();
+
+    visible: open || self.opacity > 0.01;
+    opacity: open ? 1 : 0;
+    background: Theme.backdrop;
+
+    animate opacity {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    TouchArea { }
+
+    dialog := Rectangle {
+        width: min(parent.width - Theme.space-8 * 2, Theme.space-12 * 10);
+        height: Theme.space-12 * 5;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2 + (root.open ? 0px : Theme.space-3);
+        border-radius: Theme.radius-xlarge;
+        border-width: 1px;
+        border-color: Theme.border-default;
+        background: Theme.surface-modal;
+        drop-shadow-color: Theme.shadow-high;
+        drop-shadow-blur: Theme.elevation-high-blur;
+        drop-shadow-offset-y: Theme.elevation-high-y;
+
+        animate y {
+            duration: Theme.motion-normal;
+            easing: cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        VerticalLayout {
+            padding: Theme.space-6;
+            spacing: Theme.space-3;
+
+            UiText {
+                text: "Продолжить с последнего места?";
+                variant: TextVariant.title;
+                horizontal-alignment: center;
+            }
+
+            UiText {
+                text: root.file-name;
+                color: Theme.text-secondary;
+                horizontal-alignment: center;
+                overflow: elide;
+            }
+
+            UiText {
+                text: "Вы остановились на " + root.position-label;
+                color: Theme.text-muted;
+                variant: TextVariant.caption;
+                horizontal-alignment: center;
+            }
+
+            Rectangle { vertical-stretch: 1; background: transparent; }
+
+            HorizontalLayout {
+                height: Theme.space-10;
+                spacing: Theme.space-2;
+                alignment: center;
+
+                Button {
+                    width: Theme.space-12 * 4;
+                    text: "Начать заново";
+                    clicked => root.restart();
+                }
+
+                Button {
+                    width: Theme.space-12 * 4;
+                    text: "Продолжить с " + root.position-label;
+                    primary: true;
+                    clicked => root.resume();
+                }
+            }
+        }
+    }
+}
