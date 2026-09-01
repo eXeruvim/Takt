@@ -182,7 +182,10 @@ pub enum Event {
     AudioDelay(f64),
     SubtitleDelay(f64),
 
-    FileLoaded(String),
+    FileLoaded {
+        name: String,
+        path: String,
+    },
     MediaAvailable(bool),
     VideoOutputReady,
 

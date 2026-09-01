@@ -285,7 +285,10 @@ fn load_current(mpv: &Mpv, tx: &Sender<Event>, playlist: &DirectoryPlaylist) -> 
     send_audio_metadata(path, tx);
 
     if let Some(file_name) = path.file_name() {
-        let _ = tx.send(Event::FileLoaded(file_name.to_string_lossy().into_owned()));
+        let _ = tx.send(Event::FileLoaded {
+            name: file_name.to_string_lossy().into_owned(),
+            path: path.to_string_lossy().into_owned(),
+        });
     }
     send_playlist(tx, playlist);
     Ok(())
@@ -821,11 +824,11 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                     if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path)
                     {
                         let duration = mpv.get_property::<f64>("duration").unwrap_or_default();
-                        if let Some(position) = session.resume_position(path, duration) {
-                            if mpv_error(mpv.set_property("pause", true)).is_ok() {
-                                pending_resume = Some((path.clone(), position));
-                                resume_position = Some(position);
-                            }
+                        if let Some(position) = session.resume_position(path, duration)
+                            && mpv_error(mpv.set_property("pause", true)).is_ok()
+                        {
+                            pending_resume = Some((path.clone(), position));
+                            resume_position = Some(position);
                         }
                     }
                     if resume_position.is_none() {

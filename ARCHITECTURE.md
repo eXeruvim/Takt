@@ -8,6 +8,9 @@ Oxide разделён на UI-поток и поток проигрывател
 ```text
 Slint UI -> ipc::Command -> player::mpv -> libmpv
 Slint UI <- ipc::Event   <- player::mpv <- libmpv events
+
+Slint UI -> converter::ConverterCommand -> converter -> FFmpeg process
+Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
 ```
 
 Такое разделение не позволяет медленным операциям декодирования или файловой
@@ -20,6 +23,8 @@ Slint UI <- ipc::Event   <- player::mpv <- libmpv events
 - `src/player/playlist.rs` — обнаружение и сортировка видео и аудио в папке;
 - `src/player/media_info.rs` — чтение свойств медиа;
 - `src/player/shortcuts.rs` — будущая модель переназначаемых клавиш;
+- `src/converter.rs` — обнаружение FFmpeg, профили, прогресс и жизненный цикл
+  отдельного процесса конвертации;
 - `src/render/` — интеграция поверхности видео с окном приложения;
 - `src/ui/ui_logic.rs` — связывание Slint callbacks с IPC;
 - `ui/` — декларативные компоненты Slint.

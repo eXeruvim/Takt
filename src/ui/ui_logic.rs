@@ -1,7 +1,7 @@
 #[cfg(target_os = "windows")]
 use std::time::Duration;
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::{
         Arc, Mutex,
@@ -14,6 +14,9 @@ use crossbeam_channel::{Receiver, Sender};
 #[cfg(target_os = "windows")]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
+use crate::converter::{
+    ConversionPreset, ConverterCommand, ConverterEvent, output_filter, suggested_output_path,
+};
 use crate::ipc::{AspectRatio, Command, EqualizerPreset, Event, FrameStepDirection};
 use crate::player::playlist::{
     AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, is_media_file,
@@ -571,6 +574,14 @@ const PALETTE_COMMANDS: &[PaletteCommandSpec] = &[
         keywords: "stop close остановить закрыть",
         requires_media: true,
     },
+    PaletteCommandSpec {
+        action: 28,
+        title: "Конвертировать файл",
+        description: "Создать копию в другом формате через FFmpeg",
+        shortcut: "—",
+        keywords: "convert export transcode ffmpeg конвертация экспорт формат кодек",
+        requires_media: true,
+    },
 ];
 
 fn command_palette_items_with_registry(
@@ -618,6 +629,159 @@ fn set_command_palette_items(
     model.set_vec(command_palette_items_with_registry(query, shortcuts));
 }
 
+fn conversion_preset_entries(audio_media: bool, audio_codec: &str) -> Vec<ConversionPresetEntry> {
+    if !audio_media {
+        return vec![
+            ConversionPresetEntry {
+                index: 0,
+                category: "Видео".into(),
+                show_category: true,
+                title: "MP4 · H.264".into(),
+                description: "Максимальная совместимость".into(),
+                summary: "MP4 · H.264 · AAC · CRF 20".into(),
+                size_note:
+                    "Точный размер зависит от содержимого видео и станет известен после кодирования"
+                        .into(),
+            },
+            ConversionPresetEntry {
+                index: 1,
+                category: "Видео".into(),
+                show_category: false,
+                title: "MP4 · H.265".into(),
+                description: "Меньше размер при высоком качестве".into(),
+                summary: "MP4 · H.265/HEVC · AAC · CRF 24".into(),
+                size_note:
+                    "Точный размер зависит от содержимого видео и станет известен после кодирования"
+                        .into(),
+            },
+            ConversionPresetEntry {
+                index: 2,
+                category: "Видео".into(),
+                show_category: false,
+                title: "WebM".into(),
+                description: "Открытый формат для веба".into(),
+                summary: "WebM · VP9 · Opus · CRF 30".into(),
+                size_note:
+                    "Точный размер зависит от содержимого видео и станет известен после кодирования"
+                        .into(),
+            },
+            ConversionPresetEntry {
+                index: 4,
+                category: "Видео".into(),
+                show_category: false,
+                title: "Компактный MP4".into(),
+                description: "Заметно уменьшить размер файла".into(),
+                summary: "MP4 · H.264 · AAC · CRF 28".into(),
+                size_note:
+                    "Профиль нацелен на уменьшение, но точный результат зависит от содержимого"
+                        .into(),
+            },
+            ConversionPresetEntry {
+                index: 3,
+                category: "Аудио".into(),
+                show_category: true,
+                title: "Извлечь MP3".into(),
+                description: "Оставить только звуковую дорожку".into(),
+                summary: "MP3 · VBR высокого качества".into(),
+                size_note:
+                    "VBR меняет bitrate по содержимому; точный размер появится во время работы"
+                        .into(),
+            },
+            ConversionPresetEntry {
+                index: 5,
+                category: "Без потерь".into(),
+                show_category: true,
+                title: "Скопировать потоки в MKV".into(),
+                description: "Быстро сменить контейнер без потери качества".into(),
+                summary: "MKV · исходные видео, аудио и субтитры".into(),
+                size_note: "Будет близок к исходнику; небольшая разница зависит от контейнера MKV"
+                    .into(),
+            },
+        ];
+    }
+
+    let codec = audio_codec.trim().to_ascii_lowercase();
+    let mut entries = Vec::new();
+    let mut add = |index, title: &str, description: &str, summary: &str, size_note: &str| {
+        let show_category = entries.is_empty();
+        entries.push(ConversionPresetEntry {
+            index,
+            category: "Аудио".into(),
+            show_category,
+            title: title.into(),
+            description: description.into(),
+            summary: summary.into(),
+            size_note: size_note.into(),
+        });
+    };
+
+    if !codec.contains("mp3") {
+        add(
+            3,
+            "MP3",
+            "Компактный и максимально совместимый",
+            "MP3 · VBR высокого качества",
+            "VBR меняет bitrate по содержимому; точный размер появится во время работы",
+        );
+    }
+    if !codec.contains("aac") {
+        add(
+            6,
+            "M4A · AAC",
+            "Эффективный формат для телефонов и плееров",
+            "M4A · AAC · 192 кбит/с",
+            "Аудиопоток кодируется в 192 кбит/с; итог дополнительно включает контейнер M4A",
+        );
+    }
+    if !codec.contains("flac") {
+        add(
+            7,
+            "FLAC",
+            "Сжатие без потери качества",
+            "FLAC · lossless · compression 8",
+            "Lossless-размер зависит от сжимаемости записи и заранее точно неизвестен",
+        );
+    }
+    if !codec.contains("pcm") {
+        add(
+            8,
+            "WAV",
+            "Несжатый PCM для монтажа и обработки",
+            "WAV · PCM 16-bit",
+            "Размер определяется частотой, каналами и длительностью исходной дорожки",
+        );
+    }
+    if !codec.contains("opus") {
+        add(
+            9,
+            "Opus",
+            "Небольшой размер при хорошем качестве",
+            "Opus · 128 кбит/с",
+            "Аудиопоток кодируется в 128 кбит/с; итог дополнительно включает контейнер",
+        );
+    }
+
+    entries
+}
+
+fn apply_conversion_presets(app: &AppWindow, audio_media: bool, audio_codec: &str) {
+    let presets = conversion_preset_entries(audio_media, audio_codec);
+    let selected = presets
+        .iter()
+        .find(|preset| preset.index == app.get_conversion_preset_index())
+        .or_else(|| presets.first())
+        .cloned();
+
+    if let Some(preset) = selected {
+        app.set_conversion_preset_index(preset.index);
+        app.set_conversion_preset_title(preset.title);
+        app.set_conversion_preset_description(preset.description);
+        app.set_conversion_preset_summary(preset.summary);
+        app.set_conversion_preset_size_note(preset.size_note);
+    }
+    app.set_conversion_presets(ModelRc::new(VecModel::from(presets)));
+}
+
 fn set_shortcut_items(app: &AppWindow, shortcuts: &ShortcutRegistry) {
     let items = ShortcutAction::ALL
         .into_iter()
@@ -639,6 +803,20 @@ fn format_time(seconds: f64) -> String {
         format!("{hours:02}:{minutes:02}:{seconds:02}")
     } else {
         format!("{minutes:02}:{seconds:02}")
+    }
+}
+
+fn format_remaining_time(seconds: f64) -> String {
+    if !seconds.is_finite() || seconds < 0.0 {
+        return "—".to_owned();
+    }
+    let rounded = seconds.round() as u64;
+    if rounded < 60 {
+        format!("{rounded} сек")
+    } else {
+        let minutes = rounded / 60;
+        let seconds = rounded % 60;
+        format!("{minutes} мин {seconds:02} сек")
     }
 }
 
@@ -682,6 +860,38 @@ fn format_file_size(bytes: u64) -> String {
         format!("{:.0} КБ", bytes as f64 / KIB)
     } else {
         format!("{bytes} Б")
+    }
+}
+
+fn format_precise_file_size(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+
+    if bytes as f64 >= GIB {
+        format!("{:.2} ГБ", bytes as f64 / GIB).replace('.', ",")
+    } else if bytes as f64 >= MIB {
+        format!("{:.2} МБ", bytes as f64 / MIB).replace('.', ",")
+    } else if bytes as f64 >= KIB {
+        format!("{:.1} КБ", bytes as f64 / KIB).replace('.', ",")
+    } else {
+        format!("{bytes} Б")
+    }
+}
+
+fn format_size_change(source_bytes: u64, output_bytes: u64) -> String {
+    let output = format_precise_file_size(output_bytes);
+    if source_bytes == 0 {
+        return format!("Результат: {output}");
+    }
+    let difference = output_bytes as f64 / source_bytes as f64 - 1.0;
+    let percentage = (difference.abs() * 100.0).round() as u64;
+    if difference < -0.005 {
+        format!("Результат: {output} · на {percentage}% меньше")
+    } else if difference > 0.005 {
+        format!("Результат: {output} · на {percentage}% больше")
+    } else {
+        format!("Результат: {output} · почти без изменения")
     }
 }
 
@@ -1022,9 +1232,15 @@ fn toggle_picture_in_picture(
     app.invoke_reveal_controls();
 }
 
-pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
+pub fn run(
+    tx: Sender<Command>,
+    rx: Receiver<Event>,
+    converter_tx: Sender<ConverterCommand>,
+    converter_rx: Receiver<ConverterEvent>,
+) -> Result<()> {
     let app = AppWindow::new()?;
     app.set_app_version(format!("v{}", env!("CARGO_PKG_VERSION")).into());
+    apply_conversion_presets(&app, false, "");
     let shortcut_registry = Arc::new(Mutex::new(ShortcutRegistry::default()));
     let command_items = Rc::new(VecModel::default());
     app.set_command_items(ModelRc::from(command_items.clone()));
@@ -1228,6 +1444,13 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                             app.invoke_resume_saved_playback();
                         } else if code == KeyCode::Escape {
                             app.invoke_restart_saved_playback();
+                        }
+                        return EventResult::PreventDefault;
+                    }
+
+                    if app.get_converter_visible() {
+                        if code == KeyCode::Escape {
+                            app.set_converter_visible(false);
                         }
                         return EventResult::PreventDefault;
                     }
@@ -1880,6 +2103,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_shortcut_editor_visible();
                 app.set_command_palette_visible(false);
+                app.set_converter_visible(false);
                 app.set_shortcut_capture_action(-1);
                 app.set_shortcut_editor_error("".into());
                 app.set_shortcut_editor_visible(opening);
@@ -1900,6 +2124,7 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_command_palette_visible();
                 app.set_shortcut_editor_visible(false);
+                app.set_converter_visible(false);
                 app.set_shortcut_capture_action(-1);
                 app.set_shortcut_editor_error("".into());
                 app.set_command_query("".into());
@@ -1908,6 +2133,112 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                 }
                 app.set_command_palette_visible(opening);
             }
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+        let converter_tx = converter_tx.clone();
+
+        app.on_open_converter(move || {
+            if let Some(app) = app_weak.upgrade() {
+                app.set_command_palette_visible(false);
+                app.set_shortcut_editor_visible(false);
+                app.set_info_drawer_visible(false);
+                app.set_playlist_drawer_visible(false);
+                app.set_settings_drawer_visible(false);
+                app.set_inspector_reserved(false);
+                app.set_converter_visible(true);
+                let _ = converter_tx.send(ConverterCommand::RefreshAvailability);
+            }
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+        let dialog_active = dialog_active.clone();
+
+        app.on_choose_conversion_output(move |index| {
+            if dialog_active
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
+                return;
+            }
+
+            let Some(app) = app_weak.upgrade() else {
+                dialog_active.store(false, Ordering::Release);
+                return;
+            };
+            let Some(preset) = ConversionPreset::from_ui_index(index) else {
+                dialog_active.store(false, Ordering::Release);
+                return;
+            };
+            app.set_conversion_preset_index(index);
+            let source = PathBuf::from(app.get_current_media_path().as_str());
+            let app_weak = app.as_weak();
+            let dialog_active = dialog_active.clone();
+
+            std::thread::spawn(move || {
+                let suggested = suggested_output_path(&source, preset);
+                let (filter_name, extensions) = output_filter(preset);
+                let mut dialog = rfd::FileDialog::new().add_filter(filter_name, extensions);
+                if let Some(path) = suggested.as_ref() {
+                    if let Some(parent) = path.parent() {
+                        dialog = dialog.set_directory(parent);
+                    }
+                    if let Some(file_name) = path.file_name() {
+                        dialog = dialog.set_file_name(file_name.to_string_lossy());
+                    }
+                }
+                let path = dialog.save_file();
+                dialog_active.store(false, Ordering::Release);
+
+                if let Some(path) = path {
+                    let value = path.to_string_lossy().into_owned();
+                    let weak = app_weak.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(app) = weak.upgrade() {
+                            app.set_conversion_output_path(value.into());
+                            app.set_conversion_progress(0.0);
+                            app.set_conversion_status("Готово к запуску".into());
+                        }
+                    });
+                }
+            });
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+        let converter_tx = converter_tx.clone();
+
+        app.on_start_conversion(move |index| {
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
+            let Some(preset) = ConversionPreset::from_ui_index(index) else {
+                app.set_error_message("Неизвестный профиль конвертации".into());
+                app.set_error_visible(true);
+                return;
+            };
+            let source = PathBuf::from(app.get_current_media_path().as_str());
+            let output = PathBuf::from(app.get_conversion_output_path().as_str());
+            app.set_conversion_status("Подготовка FFmpeg…".into());
+            app.set_conversion_size_status("Ожидание данных FFmpeg…".into());
+            let _ = converter_tx.send(ConverterCommand::Start {
+                source,
+                output,
+                preset,
+                duration_seconds: app.get_duration_seconds() as f64,
+            });
+        });
+    }
+
+    {
+        let converter_tx = converter_tx.clone();
+        app.on_cancel_conversion(move || {
+            let _ = converter_tx.send(ConverterCommand::Cancel);
         });
     }
 
@@ -2208,8 +2539,15 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         app.set_error_message("".into());
                     }
 
-                    Event::FileLoaded(name) => {
+                    Event::FileLoaded { name, path } => {
                         app.set_file_name(name.into());
+                        app.set_current_media_path(path.into());
+                        if !app.get_conversion_running() {
+                            app.set_conversion_output_path("".into());
+                            app.set_conversion_progress(0.0);
+                            app.set_conversion_status("".into());
+                            app.set_conversion_size_status("".into());
+                        }
                         app.set_current_time("00:00".into());
                         app.set_total_time("00:00".into());
                         app.set_duration_seconds(0.0);
@@ -2385,8 +2723,14 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
                         });
                         app.set_codec(format_codec(&codec).into());
                         app.set_audio_codec(format_codec(&audio_codec).into());
+                        if !app.get_conversion_running() {
+                            apply_conversion_presets(&app, audio_media, &audio_codec);
+                        }
                         app.set_container_format(format_container(&container).into());
                         app.set_file_size_label(format_file_size(file_size_bytes).into());
+                        app.set_conversion_source_size(
+                            format_precise_file_size(file_size_bytes).into(),
+                        );
                         app.set_media_duration_label(
                             if duration_seconds.is_finite() && duration_seconds > 0.0 {
                                 format_time(duration_seconds).into()
@@ -2548,6 +2892,108 @@ pub fn run(tx: Sender<Command>, rx: Receiver<Event>) -> Result<()> {
         }
     });
 
+    let converter_weak = app.as_weak();
+    std::thread::spawn(move || {
+        while let Ok(event) = converter_rx.recv() {
+            let weak = converter_weak.clone();
+            slint::invoke_from_event_loop(move || {
+                let Some(app) = weak.upgrade() else {
+                    return;
+                };
+
+                match event {
+                    ConverterEvent::Availability { available, details } => {
+                        app.set_ffmpeg_available(available);
+                        app.set_ffmpeg_details(details.into());
+                        if !available && !app.get_conversion_running() {
+                            app.set_conversion_status("Установите FFmpeg для продолжения".into());
+                        }
+                    }
+                    ConverterEvent::Started { output } => {
+                        app.set_conversion_running(true);
+                        app.set_conversion_progress(0.0);
+                        app.set_conversion_output_path(
+                            output.to_string_lossy().into_owned().into(),
+                        );
+                        app.set_conversion_status("Конвертация началась".into());
+                        app.set_conversion_size_status("Записано: 0 Б".into());
+                    }
+                    ConverterEvent::Progress {
+                        fraction,
+                        remaining_seconds,
+                        current_size_bytes,
+                    } => {
+                        app.set_conversion_progress(fraction.clamp(0.0, 1.0) as f32);
+                        let percent = (fraction.clamp(0.0, 1.0) * 100.0).round() as u32;
+                        app.set_conversion_status(
+                            remaining_seconds
+                                .map(|seconds| {
+                                    format!(
+                                        "{percent}% · осталось {}",
+                                        format_remaining_time(seconds)
+                                    )
+                                })
+                                .unwrap_or_else(|| format!("{percent}%"))
+                                .into(),
+                        );
+                        app.set_conversion_size_status(
+                            format!(
+                                "Записано сейчас: {}",
+                                format_precise_file_size(current_size_bytes)
+                            )
+                            .into(),
+                        );
+                    }
+                    ConverterEvent::Completed {
+                        output,
+                        source_size_bytes,
+                        output_size_bytes,
+                    } => {
+                        app.set_conversion_running(false);
+                        apply_conversion_presets(
+                            &app,
+                            app.get_audio_media(),
+                            app.get_audio_codec().as_str(),
+                        );
+                        app.set_conversion_progress(1.0);
+                        app.set_conversion_status(format!("Готово: {}", output.display()).into());
+                        app.set_conversion_size_status(
+                            format_size_change(source_size_bytes, output_size_bytes).into(),
+                        );
+                    }
+                    ConverterEvent::Canceled => {
+                        app.set_conversion_running(false);
+                        apply_conversion_presets(
+                            &app,
+                            app.get_audio_media(),
+                            app.get_audio_codec().as_str(),
+                        );
+                        app.set_conversion_progress(0.0);
+                        app.set_conversion_status("Конвертация отменена".into());
+                        app.set_conversion_size_status(
+                            "Временный файл удалён; исходник не изменён".into(),
+                        );
+                    }
+                    ConverterEvent::Failed(message) => {
+                        app.set_conversion_running(false);
+                        apply_conversion_presets(
+                            &app,
+                            app.get_audio_media(),
+                            app.get_audio_codec().as_str(),
+                        );
+                        app.set_conversion_status("Ошибка конвертации".into());
+                        app.set_conversion_size_status(
+                            "Итоговый файл не создан; исходник не изменён".into(),
+                        );
+                        app.set_error_message(message.into());
+                        app.set_error_visible(true);
+                    }
+                }
+            })
+            .ok();
+        }
+    });
+
     app.run()?;
 
     Ok(())
@@ -2559,8 +3005,9 @@ mod tests {
 
     use super::{
         PALETTE_COMMANDS, ShortcutAction, ShortcutBinding, ShortcutRegistry,
-        command_for_dropped_path, command_palette_items, format_bitrate, format_container,
-        format_file_size, format_time, format_track_summary, is_audio_only_media,
+        command_for_dropped_path, command_palette_items, conversion_preset_entries, format_bitrate,
+        format_container, format_file_size, format_size_change, format_time, format_track_summary,
+        is_audio_only_media,
     };
     use crate::ipc::Command;
     use slint::winit_030::winit::keyboard::{KeyCode, ModifiersState};
@@ -2592,10 +3039,38 @@ mod tests {
     }
 
     #[test]
+    fn reports_actual_conversion_size_change() {
+        assert_eq!(
+            format_size_change(100 * 1024 * 1024, 60 * 1024 * 1024),
+            "Результат: 60,00 МБ · на 40% меньше"
+        );
+        assert_eq!(
+            format_size_change(100 * 1024 * 1024, 125 * 1024 * 1024),
+            "Результат: 125,00 МБ · на 25% больше"
+        );
+    }
+
+    #[test]
     fn detects_audio_only_media_from_actual_tracks_not_file_extension() {
         assert!(is_audio_only_media(0, 0, "", "MP3 (MPEG audio layer 3)"));
         assert!(!is_audio_only_media(1920, 1080, "yuv420p", "AAC"));
         assert!(!is_audio_only_media(0, 0, "", ""));
+    }
+
+    #[test]
+    fn conversion_presets_follow_actual_media_type_and_codec() {
+        let video = conversion_preset_entries(false, "aac");
+        assert!(video.iter().any(|preset| preset.index == 0));
+        assert!(video.iter().any(|preset| preset.index == 3));
+
+        let mp3 = conversion_preset_entries(true, "mp3");
+        assert!(!mp3.iter().any(|preset| preset.index == 0));
+        assert!(!mp3.iter().any(|preset| preset.index == 3));
+        assert!(mp3.iter().any(|preset| preset.index == 7));
+
+        let flac = conversion_preset_entries(true, "flac");
+        assert!(!flac.iter().any(|preset| preset.index == 7));
+        assert!(flac.iter().any(|preset| preset.index == 3));
     }
 
     #[test]
