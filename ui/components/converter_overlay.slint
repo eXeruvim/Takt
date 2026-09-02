@@ -47,6 +47,124 @@ component MarqueeText inherits Rectangle {
     }
 }
 
+component ChoiceChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected: false;
+    in property <bool> enabled: true;
+    callback activated();
+
+    min-width: 44px;
+    height: Theme.space-8;
+    border-radius: Theme.radius-medium;
+    background: selected ? Theme.surface-selected
+        : hit.pressed ? Theme.surface-pressed
+        : hit.has-hover ? Theme.surface-hover
+        : transparent;
+    border-width: selected ? 1px : 0px;
+    border-color: Theme.accent;
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: radio-button;
+    accessible-label: text;
+    accessible-checked: selected;
+    accessible-enabled: enabled;
+    accessible-action-default => { if (enabled) { root.activated(); } }
+
+    hit := TouchArea {
+        enabled: root.enabled;
+        clicked => root.activated();
+    }
+
+    UiText {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        variant: TextVariant.label;
+        color: root.selected ? Theme.accent : Theme.text-secondary;
+        font-size: Theme.text-small + 1px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    animate background, opacity {
+        duration: Theme.motion-fast;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
+}
+
+component VideoOptionsHelp inherits Rectangle {
+    out property <bool> hovered: hit.has-hover;
+    callback hover-changed(bool);
+
+    width: Theme.space-6;
+    height: Theme.space-5;
+    background: transparent;
+    accessible-role: button;
+    accessible-label: "Справка о разрешении и качестве";
+
+    changed hovered => root.hover-changed(hovered);
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: Theme.space-5;
+        height: Theme.space-5;
+        border-radius: Theme.radius-full;
+        background: hit.has-hover ? Theme.surface-hover : Theme.surface-control;
+        border-width: 1px;
+        border-color: hit.has-hover ? Theme.accent : Theme.border-default;
+
+        UiText {
+            width: parent.width;
+            height: parent.height;
+            text: "?";
+            variant: TextVariant.label;
+            color: hit.has-hover ? Theme.accent : Theme.text-secondary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    hit := TouchArea { }
+}
+
+component HelpRow inherits Rectangle {
+    in property <string> title;
+    in property <string> description;
+
+    background: transparent;
+
+    HorizontalLayout {
+        spacing: Theme.space-3;
+
+        Rectangle {
+            width: 96px;
+            height: Theme.space-7;
+            border-radius: Theme.radius-medium;
+            background: Theme.accent-subtle;
+
+            UiText {
+                width: parent.width;
+                height: parent.height;
+                text: root.title;
+                variant: TextVariant.label;
+                color: Theme.accent;
+                font-size: Theme.text-small + 1px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        UiText {
+            horizontal-stretch: 1;
+            text: root.description;
+            variant: TextVariant.body;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+            vertical-alignment: top;
+        }
+    }
+}
+
 component PresetRow inherits Rectangle {
     in property <ConversionPresetEntry> entry;
     in property <bool> selected;
@@ -128,6 +246,8 @@ export component ConverterOverlay inherits Rectangle {
     in-out property <string> preset-description;
     in-out property <string> preset-summary;
     in-out property <string> preset-size-note;
+    in-out property <int> resolution-index: 0;
+    in-out property <int> bitrate-index: 0;
     in property <string> size-status;
     in property <bool> ffmpeg-available: false;
     in property <string> ffmpeg-details;
@@ -136,6 +256,74 @@ export component ConverterOverlay inherits Rectangle {
     in property <string> status-text;
     private property <length> body-height: audio-media ? 304px : 440px;
     private property <length> desired-panel-height: body-height + 201px;
+    private property <bool> video-options-available:
+        !audio-media && preset-index != 3 && preset-index != 5;
+    private property <bool> options-open: false;
+    private property <bool> video-help-visible: false;
+    private property <string> resolution-label:
+        resolution-index == 1 ? "до 2160p"
+        : resolution-index == 2 ? "до 1440p"
+        : resolution-index == 3 ? "до 1080p"
+        : resolution-index == 4 ? "до 720p"
+        : resolution-index == 5 ? "до 480p"
+        : "исходное разрешение";
+    private property <string> bitrate-label:
+        bitrate-index == 1 ? "2 Мбит/с"
+        : bitrate-index == 2 ? "4 Мбит/с"
+        : bitrate-index == 3 ? "8 Мбит/с"
+        : bitrate-index == 4 ? "12 Мбит/с"
+        : bitrate-index == 5 ? "20 Мбит/с"
+        : "авто (CRF)";
+    private property <string> resolution-help-title:
+        resolution-index == 0 ? "Исходное"
+        : resolution-index == 1 ? "2160p"
+        : resolution-index == 2 ? "1440p"
+        : resolution-index == 3 ? "1080p"
+        : resolution-index == 4 ? "720p"
+        : "480p";
+    private property <string> resolution-help-description:
+        resolution-index == 0
+            ? "Разрешение не изменится: видео не будет ни уменьшено, ни увеличено."
+            : "Видео станет не выше " + resolution-help-title
+                + ". Если оно уже меньше, Oxide не будет его растягивать.";
+    private property <string> bitrate-help-description:
+        bitrate-index == 0
+            ? "Качество подбирается автоматически. Обычно это лучший выбор без лишних настроек."
+        : bitrate-index == 1
+            ? "Сильное сжатие: файл будет меньше, но мелкие детали могут потеряться."
+        : bitrate-index == 2
+            ? "Компактный файл с умеренным качеством изображения."
+        : bitrate-index == 3
+            ? "Хороший баланс качества и размера для большинства видео."
+        : bitrate-index == 4
+            ? "Высокое качество, но файл получится заметно больше."
+            : "Самое высокое качество среди вариантов и самый большой файл.";
+    private property <int> recommended-bitrate-index:
+        resolution-index == 1 ? 5
+        : resolution-index == 2 ? 4
+        : resolution-index == 3 ? 3
+        : resolution-index == 4 ? 2
+        : resolution-index == 5 ? 1
+        : 0;
+    private property <string> recommended-bitrate-label:
+        recommended-bitrate-index == 1 ? "2 Мбит/с"
+        : recommended-bitrate-index == 2 ? "4 Мбит/с"
+        : recommended-bitrate-index == 3 ? "8 Мбит/с"
+        : recommended-bitrate-index == 4 ? "12 Мбит/с"
+        : recommended-bitrate-index == 5 ? "20 Мбит/с"
+        : "Авто";
+    private property <string> recommendation-help-description:
+        bitrate-index == 0
+            ? "Хороший выбор: Oxide сам подберёт качество. Итоговый размер файла заранее не фиксирован."
+        : resolution-index == 0
+            ? "Если вам не нужен заданный размер файла, выберите «Авто» — так проще сохранить качество."
+        : bitrate-index < recommended-bitrate-index
+            ? "Для " + resolution-help-title + " этого мало. Выберите «Авто» или хотя бы "
+                + recommended-bitrate-label + ", иначе изображение может потерять чёткость."
+        : bitrate-index == recommended-bitrate-index
+            ? "Настройки хорошо сочетаются: разумный баланс качества и размера файла."
+            : "Это больше, чем обычно нужно для " + resolution-help-title
+                + ". Качество будет высоким, но файл заметно увеличится.";
     callback choose-output(int);
     callback start(int);
     callback cancel();
@@ -413,6 +601,126 @@ export component ConverterOverlay inherits Rectangle {
                             wrap: word-wrap;
                         }
 
+                        if root.video-options-available && !root.options-open : HorizontalLayout {
+                            height: Theme.space-10;
+                            vertical-stretch: 0;
+                            spacing: Theme.space-2;
+
+                            UiText {
+                                horizontal-stretch: 1;
+                                text: root.resolution-label + "  ·  " + root.bitrate-label;
+                                variant: TextVariant.caption;
+                                color: Theme.text-secondary;
+                                font-size: Theme.text-small + 1px;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+
+                            Button {
+                                width: 116px;
+                                text: "Настроить";
+                                enabled: !root.running;
+                                clicked => { root.options-open = true; }
+                            }
+                        }
+
+                        if root.video-options-available && root.options-open : Rectangle {
+                            height: 152px;
+                            vertical-stretch: 0;
+                            border-radius: Theme.radius-medium;
+                            background: Theme.surface-control;
+                            border-width: 1px;
+                            border-color: Theme.border-default;
+
+                            VerticalLayout {
+                                padding: Theme.space-2;
+                                spacing: Theme.space-1;
+
+                                HorizontalLayout {
+                                    height: Theme.space-5;
+                                    vertical-stretch: 0;
+                                    spacing: Theme.space-2;
+                                    UiText {
+                                        text: "Параметры видео";
+                                        variant: TextVariant.label;
+                                    }
+                                    VideoOptionsHelp {
+                                        hover-changed(visible) => {
+                                            root.video-help-visible = visible;
+                                        }
+                                    }
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        background: transparent;
+                                    }
+                                    Rectangle {
+                                        width: 52px;
+                                        background: transparent;
+                                        UiText {
+                                            width: parent.width;
+                                            height: parent.height;
+                                            text: "Скрыть";
+                                            variant: TextVariant.caption;
+                                            color: close-options.has-hover
+                                                ? Theme.accent
+                                                : Theme.text-secondary;
+                                            font-size: Theme.text-small + 1px;
+                                            horizontal-alignment: right;
+                                            vertical-alignment: center;
+                                        }
+                                        close-options := TouchArea {
+                                            clicked => {
+                                                root.options-open = false;
+                                                root.video-help-visible = false;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                UiText {
+                                    height: Theme.space-5;
+                                    vertical-stretch: 0;
+                                    text: "Разрешение · выбранное значение — максимум";
+                                    variant: TextVariant.caption;
+                                    color: Theme.text-secondary;
+                                    font-size: Theme.text-small + 1px;
+                                    vertical-alignment: center;
+                                }
+                                HorizontalLayout {
+                                    height: Theme.space-8;
+                                    vertical-stretch: 0;
+                                    spacing: Theme.space-1;
+                                    for option[index] in ["Исходное", "2160p", "1440p", "1080p", "720p", "480p"] : ChoiceChip {
+                                        text: option;
+                                        selected: root.resolution-index == index;
+                                        enabled: !root.running;
+                                        activated => { root.resolution-index = index; }
+                                    }
+                                }
+
+                                UiText {
+                                    height: Theme.space-5;
+                                    vertical-stretch: 0;
+                                    text: "Качество и размер файла · Авто рекомендуется";
+                                    variant: TextVariant.caption;
+                                    color: Theme.text-secondary;
+                                    font-size: Theme.text-small + 1px;
+                                    vertical-alignment: center;
+                                }
+                                HorizontalLayout {
+                                    height: Theme.space-8;
+                                    vertical-stretch: 0;
+                                    spacing: Theme.space-1;
+                                    for option[index] in ["Авто", "2", "4", "8", "12", "20"] : ChoiceChip {
+                                        text: index == 0 ? option : option + " М";
+                                        selected: root.bitrate-index == index;
+                                        enabled: !root.running;
+                                        activated => { root.bitrate-index = index; }
+                                    }
+                                }
+                            }
+                        }
+
                         Rectangle { vertical-stretch: 1; background: transparent; }
 
                         destination := Rectangle {
@@ -563,6 +871,54 @@ export component ConverterOverlay inherits Rectangle {
                     primary: true;
                     enabled: root.ffmpeg-available && root.output-path != "";
                     clicked => root.start(root.preset-index);
+                }
+            }
+        }
+
+        if root.video-help-visible : Rectangle {
+            z: 1000;
+            x: parent.width - self.width - Theme.space-4;
+            y: 48px;
+            width: min(456px, parent.width - Theme.space-8);
+            height: 244px;
+            border-radius: Theme.radius-large;
+            background: Theme.surface-canvas-opaque;
+            border-width: 1px;
+            border-color: Theme.border-strong;
+            drop-shadow-color: Theme.shadow-high;
+            drop-shadow-blur: Theme.elevation-high-blur;
+            drop-shadow-offset-y: Theme.elevation-high-y;
+
+            VerticalLayout {
+                padding: Theme.space-4;
+                spacing: Theme.space-2;
+
+                UiText {
+                    height: Theme.space-6;
+                    vertical-stretch: 0;
+                    text: "Что дадут выбранные параметры";
+                    variant: TextVariant.heading;
+                }
+
+                HelpRow {
+                    height: 48px;
+                    vertical-stretch: 0;
+                    title: "Разрешение";
+                    description: root.resolution-help-description;
+                }
+
+                HelpRow {
+                    height: 56px;
+                    vertical-stretch: 0;
+                    title: "Качество";
+                    description: root.bitrate-help-description;
+                }
+
+                HelpRow {
+                    height: 56px;
+                    vertical-stretch: 0;
+                    title: "Совет";
+                    description: root.recommendation-help-description;
                 }
             }
         }

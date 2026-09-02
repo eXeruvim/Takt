@@ -15,7 +15,8 @@ use crossbeam_channel::{Receiver, Sender};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::converter::{
-    ConversionPreset, ConverterCommand, ConverterEvent, output_filter, suggested_output_path,
+    ConversionOptions, ConversionPreset, ConverterCommand, ConverterEvent, output_filter,
+    suggested_output_path,
 };
 use crate::ipc::{AspectRatio, Command, EqualizerPreset, Event, FrameStepDirection};
 use crate::player::playlist::{
@@ -2224,12 +2225,17 @@ pub fn run(
             };
             let source = PathBuf::from(app.get_current_media_path().as_str());
             let output = PathBuf::from(app.get_conversion_output_path().as_str());
+            let options = ConversionOptions::from_ui_indices(
+                app.get_conversion_resolution_index(),
+                app.get_conversion_bitrate_index(),
+            );
             app.set_conversion_status("Подготовка FFmpeg…".into());
             app.set_conversion_size_status("Ожидание данных FFmpeg…".into());
             let _ = converter_tx.send(ConverterCommand::Start {
                 source,
                 output,
                 preset,
+                options,
                 duration_seconds: app.get_duration_seconds() as f64,
             });
         });

@@ -61,50 +61,41 @@ impl ConversionPreset {
         }
     }
 
-    fn arguments(self) -> &'static [&'static str] {
-        match self {
-            Self::Mp4H264 => &[
-                "-map", "0:v:0?", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium", "-crf",
-                "20", "-c:a", "aac", "-b:a", "192k",
-            ],
-            Self::Mp4H265 => &[
-                "-map", "0:v:0?", "-map", "0:a?", "-c:v", "libx265", "-preset", "medium", "-crf",
-                "24", "-tag:v", "hvc1", "-c:a", "aac", "-b:a", "192k",
-            ],
-            Self::WebM => &[
-                "-map",
-                "0:v:0?",
-                "-map",
-                "0:a?",
-                "-c:v",
-                "libvpx-vp9",
-                "-crf",
-                "30",
-                "-b:v",
-                "0",
-                "-c:a",
-                "libopus",
-                "-b:a",
-                "128k",
-            ],
-            Self::ExtractAudio => &["-vn", "-map", "0:a:0?", "-c:a", "libmp3lame", "-q:a", "2"],
-            Self::SmallerFile => &[
-                "-map", "0:v:0?", "-map", "0:a?", "-c:v", "libx264", "-preset", "slow", "-crf",
-                "28", "-c:a", "aac", "-b:a", "128k",
-            ],
-            Self::OriginalQuality => &["-map", "0", "-c", "copy"],
-            Self::AudioAac => &["-vn", "-map", "0:a:0?", "-c:a", "aac", "-b:a", "192k"],
-            Self::AudioFlac => &[
-                "-vn",
-                "-map",
-                "0:a:0?",
-                "-c:a",
-                "flac",
-                "-compression_level",
-                "8",
-            ],
-            Self::AudioWav => &["-vn", "-map", "0:a:0?", "-c:a", "pcm_s16le"],
-            Self::AudioOpus => &["-vn", "-map", "0:a:0?", "-c:a", "libopus", "-b:a", "128k"],
+    const fn supports_video_options(self) -> bool {
+        matches!(
+            self,
+            Self::Mp4H264 | Self::Mp4H265 | Self::WebM | Self::SmallerFile
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ConversionOptions {
+    pub max_height: Option<u32>,
+    pub video_bitrate_kbps: Option<u32>,
+}
+
+impl ConversionOptions {
+    pub const fn from_ui_indices(resolution_index: i32, bitrate_index: i32) -> Self {
+        let max_height = match resolution_index {
+            1 => Some(2_160),
+            2 => Some(1_440),
+            3 => Some(1_080),
+            4 => Some(720),
+            5 => Some(480),
+            _ => None,
+        };
+        let video_bitrate_kbps = match bitrate_index {
+            1 => Some(2_000),
+            2 => Some(4_000),
+            3 => Some(8_000),
+            4 => Some(12_000),
+            5 => Some(20_000),
+            _ => None,
+        };
+        Self {
+            max_height,
+            video_bitrate_kbps,
         }
     }
 }
@@ -116,6 +107,7 @@ pub enum ConverterCommand {
         source: PathBuf,
         output: PathBuf,
         preset: ConversionPreset,
+        options: ConversionOptions,
         duration_seconds: f64,
     },
     Cancel,
@@ -156,6 +148,14 @@ struct ActiveJob {
     finished: Receiver<()>,
 }
 
+struct JobSpec {
+    source: PathBuf,
+    output: PathBuf,
+    preset: ConversionPreset,
+    options: ConversionOptions,
+    duration_seconds: f64,
+}
+
 struct JobMonitor<'a> {
     output: &'a Path,
     working_output: &'a Path,
@@ -191,6 +191,7 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>) {
                 source,
                 output,
                 preset,
+                options,
                 duration_seconds,
             }) => {
                 if active_job.is_some() {
@@ -215,10 +216,13 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>) {
                 thread::spawn(move || {
                     run_job(
                         &executable,
-                        &source,
-                        &output,
-                        preset,
-                        duration_seconds,
+                        JobSpec {
+                            source,
+                            output,
+                            preset,
+                            options,
+                            duration_seconds,
+                        },
                         &worker_cancel,
                         &worker_tx,
                     );
@@ -307,15 +311,16 @@ const fn ffmpeg_binary_name() -> &'static str {
     }
 }
 
-fn run_job(
-    executable: &Path,
-    source: &Path,
-    output: &Path,
-    preset: ConversionPreset,
-    duration_seconds: f64,
-    cancel: &AtomicBool,
-    tx: &Sender<ConverterEvent>,
-) {
+fn run_job(executable: &Path, job: JobSpec, cancel: &AtomicBool, tx: &Sender<ConverterEvent>) {
+    let JobSpec {
+        source,
+        output,
+        preset,
+        options,
+        duration_seconds,
+    } = job;
+    let source = source.as_path();
+    let output = output.as_path();
     if let Err(message) = validate_job(source, output) {
         let _ = tx.send(ConverterEvent::Failed(message));
         return;
@@ -328,7 +333,7 @@ fn run_job(
 
     let mut command = converter_process(executable);
     command
-        .args(ffmpeg_arguments(source, &working_output, preset))
+        .args(ffmpeg_arguments(source, &working_output, preset, options))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -379,13 +384,125 @@ fn run_job(
     );
 }
 
-fn ffmpeg_arguments(source: &Path, output: &Path, preset: ConversionPreset) -> Vec<OsString> {
+fn append_arguments(arguments: &mut Vec<OsString>, values: &[&str]) {
+    arguments.extend(values.iter().map(OsString::from));
+}
+
+fn append_rate_control(
+    arguments: &mut Vec<OsString>,
+    default_crf: &str,
+    options: ConversionOptions,
+    constant_quality_requires_zero_bitrate: bool,
+) {
+    if let Some(bitrate) = options.video_bitrate_kbps {
+        append_arguments(arguments, &["-b:v"]);
+        arguments.push(format!("{bitrate}k").into());
+    } else {
+        append_arguments(arguments, &["-crf", default_crf]);
+        if constant_quality_requires_zero_bitrate {
+            append_arguments(arguments, &["-b:v", "0"]);
+        }
+    }
+}
+
+fn preset_arguments(preset: ConversionPreset, options: ConversionOptions) -> Vec<OsString> {
+    let mut arguments = Vec::new();
+    match preset {
+        ConversionPreset::Mp4H264 => {
+            append_arguments(
+                &mut arguments,
+                &[
+                    "-map", "0:v:0?", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium",
+                ],
+            );
+            append_rate_control(&mut arguments, "20", options, false);
+            append_arguments(&mut arguments, &["-c:a", "aac", "-b:a", "192k"]);
+        }
+        ConversionPreset::Mp4H265 => {
+            append_arguments(
+                &mut arguments,
+                &[
+                    "-map", "0:v:0?", "-map", "0:a?", "-c:v", "libx265", "-preset", "medium",
+                ],
+            );
+            append_rate_control(&mut arguments, "24", options, false);
+            append_arguments(
+                &mut arguments,
+                &["-tag:v", "hvc1", "-c:a", "aac", "-b:a", "192k"],
+            );
+        }
+        ConversionPreset::WebM => {
+            append_arguments(
+                &mut arguments,
+                &["-map", "0:v:0?", "-map", "0:a?", "-c:v", "libvpx-vp9"],
+            );
+            append_rate_control(&mut arguments, "30", options, true);
+            append_arguments(&mut arguments, &["-c:a", "libopus", "-b:a", "128k"]);
+        }
+        ConversionPreset::ExtractAudio => append_arguments(
+            &mut arguments,
+            &["-vn", "-map", "0:a:0?", "-c:a", "libmp3lame", "-q:a", "2"],
+        ),
+        ConversionPreset::SmallerFile => {
+            append_arguments(
+                &mut arguments,
+                &[
+                    "-map", "0:v:0?", "-map", "0:a?", "-c:v", "libx264", "-preset", "slow",
+                ],
+            );
+            append_rate_control(&mut arguments, "28", options, false);
+            append_arguments(&mut arguments, &["-c:a", "aac", "-b:a", "128k"]);
+        }
+        ConversionPreset::OriginalQuality => {
+            append_arguments(&mut arguments, &["-map", "0", "-c", "copy"]);
+        }
+        ConversionPreset::AudioAac => append_arguments(
+            &mut arguments,
+            &["-vn", "-map", "0:a:0?", "-c:a", "aac", "-b:a", "192k"],
+        ),
+        ConversionPreset::AudioFlac => append_arguments(
+            &mut arguments,
+            &[
+                "-vn",
+                "-map",
+                "0:a:0?",
+                "-c:a",
+                "flac",
+                "-compression_level",
+                "8",
+            ],
+        ),
+        ConversionPreset::AudioWav => append_arguments(
+            &mut arguments,
+            &["-vn", "-map", "0:a:0?", "-c:a", "pcm_s16le"],
+        ),
+        ConversionPreset::AudioOpus => append_arguments(
+            &mut arguments,
+            &["-vn", "-map", "0:a:0?", "-c:a", "libopus", "-b:a", "128k"],
+        ),
+    }
+
+    if preset.supports_video_options()
+        && let Some(max_height) = options.max_height
+    {
+        append_arguments(&mut arguments, &["-vf"]);
+        arguments.push(format!("scale=-2:min(ih\\,{max_height})").into());
+    }
+    arguments
+}
+
+fn ffmpeg_arguments(
+    source: &Path,
+    output: &Path,
+    preset: ConversionPreset,
+    options: ConversionOptions,
+) -> Vec<OsString> {
     let mut arguments = ["-nostdin", "-hide_banner", "-n", "-i"]
         .into_iter()
         .map(OsString::from)
         .collect::<Vec<_>>();
     arguments.push(source.as_os_str().to_owned());
-    arguments.extend(preset.arguments().iter().map(OsString::from));
+    arguments.extend(preset_arguments(preset, options));
     arguments.extend(["-progress", "pipe:1", "-nostats"].map(OsString::from));
     arguments.push(output.as_os_str().to_owned());
     arguments
@@ -632,8 +749,9 @@ pub fn output_filter(preset: ConversionPreset) -> (&'static str, &'static [&'sta
 #[cfg(test)]
 mod tests {
     use super::{
-        ConversionPreset, estimate_remaining, ffmpeg_arguments, last_error_lines,
-        parse_progress_seconds, parse_progress_size, suggested_output_path, working_output_path,
+        ConversionOptions, ConversionPreset, estimate_remaining, ffmpeg_arguments,
+        last_error_lines, parse_progress_seconds, parse_progress_size, suggested_output_path,
+        working_output_path,
     };
     use std::{path::Path, time::Duration};
 
@@ -662,6 +780,7 @@ mod tests {
             Path::new("C:/video/input file.mov"),
             Path::new("C:/video/.output.oxide-part-1.mp4"),
             ConversionPreset::Mp4H264,
+            ConversionOptions::default(),
         )
         .into_iter()
         .map(|value| value.to_string_lossy().into_owned())
@@ -684,6 +803,44 @@ mod tests {
             arguments.last().map(String::as_str),
             Some("C:/video/.output.oxide-part-1.mp4")
         );
+    }
+
+    #[test]
+    fn applies_resolution_and_explicit_video_bitrate_without_crf() {
+        let arguments = ffmpeg_arguments(
+            Path::new("C:/video/input.mov"),
+            Path::new("C:/video/output.mp4"),
+            ConversionPreset::Mp4H265,
+            ConversionOptions::from_ui_indices(3, 3),
+        )
+        .into_iter()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+
+        assert!(arguments.windows(2).any(|pair| pair == ["-b:v", "8000k"]));
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["-vf", "scale=-2:min(ih\\,1080)"])
+        );
+        assert!(!arguments.iter().any(|value| value == "-crf"));
+    }
+
+    #[test]
+    fn ignores_video_options_for_stream_copy() {
+        let arguments = ffmpeg_arguments(
+            Path::new("C:/video/input.mov"),
+            Path::new("C:/video/output.mkv"),
+            ConversionPreset::OriginalQuality,
+            ConversionOptions::from_ui_indices(3, 2),
+        )
+        .into_iter()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+
+        assert!(arguments.windows(2).any(|pair| pair == ["-c", "copy"]));
+        assert!(!arguments.iter().any(|value| value == "-vf"));
+        assert!(!arguments.iter().any(|value| value == "-b:v"));
     }
 
     #[test]
