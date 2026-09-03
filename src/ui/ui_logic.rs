@@ -2228,6 +2228,7 @@ pub fn run(
             let options = ConversionOptions::from_ui_indices(
                 app.get_conversion_resolution_index(),
                 app.get_conversion_bitrate_index(),
+                app.get_conversion_encoding_speed_index(),
             );
             app.set_conversion_status("Подготовка FFmpeg…".into());
             app.set_conversion_size_status("Ожидание данных FFmpeg…".into());

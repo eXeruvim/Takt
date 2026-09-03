@@ -73,10 +73,22 @@ impl ConversionPreset {
 pub struct ConversionOptions {
     pub max_height: Option<u32>,
     pub video_bitrate_kbps: Option<u32>,
+    pub encoding_speed: Option<EncodingSpeed>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EncodingSpeed {
+    Fast,
+    Balanced,
+    Thorough,
 }
 
 impl ConversionOptions {
-    pub const fn from_ui_indices(resolution_index: i32, bitrate_index: i32) -> Self {
+    pub const fn from_ui_indices(
+        resolution_index: i32,
+        bitrate_index: i32,
+        encoding_speed_index: i32,
+    ) -> Self {
         let max_height = match resolution_index {
             1 => Some(2_160),
             2 => Some(1_440),
@@ -93,9 +105,16 @@ impl ConversionOptions {
             5 => Some(20_000),
             _ => None,
         };
+        let encoding_speed = match encoding_speed_index {
+            1 => Some(EncodingSpeed::Fast),
+            2 => Some(EncodingSpeed::Balanced),
+            3 => Some(EncodingSpeed::Thorough),
+            _ => None,
+        };
         Self {
             max_height,
             video_bitrate_kbps,
+            encoding_speed,
         }
     }
 }
@@ -405,24 +424,61 @@ fn append_rate_control(
     }
 }
 
+const fn x26x_preset(options: ConversionOptions, profile_default: &'static str) -> &'static str {
+    match options.encoding_speed {
+        Some(EncodingSpeed::Fast) => "veryfast",
+        Some(EncodingSpeed::Balanced) => "medium",
+        Some(EncodingSpeed::Thorough) => "slow",
+        None => profile_default,
+    }
+}
+
+fn append_vp9_encoding_speed(arguments: &mut Vec<OsString>, options: ConversionOptions) {
+    let cpu_used = match options.encoding_speed {
+        Some(EncodingSpeed::Fast) => Some("5"),
+        Some(EncodingSpeed::Balanced) => Some("2"),
+        Some(EncodingSpeed::Thorough) => Some("0"),
+        None => None,
+    };
+    if let Some(cpu_used) = cpu_used {
+        append_arguments(arguments, &["-deadline", "good", "-cpu-used", cpu_used]);
+    }
+}
+
 fn preset_arguments(preset: ConversionPreset, options: ConversionOptions) -> Vec<OsString> {
     let mut arguments = Vec::new();
     match preset {
         ConversionPreset::Mp4H264 => {
+            let encoder_preset = x26x_preset(options, "medium");
             append_arguments(
                 &mut arguments,
                 &[
-                    "-map", "0:v:0?", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium",
+                    "-map",
+                    "0:v:0?",
+                    "-map",
+                    "0:a?",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    encoder_preset,
                 ],
             );
             append_rate_control(&mut arguments, "20", options, false);
             append_arguments(&mut arguments, &["-c:a", "aac", "-b:a", "192k"]);
         }
         ConversionPreset::Mp4H265 => {
+            let encoder_preset = x26x_preset(options, "medium");
             append_arguments(
                 &mut arguments,
                 &[
-                    "-map", "0:v:0?", "-map", "0:a?", "-c:v", "libx265", "-preset", "medium",
+                    "-map",
+                    "0:v:0?",
+                    "-map",
+                    "0:a?",
+                    "-c:v",
+                    "libx265",
+                    "-preset",
+                    encoder_preset,
                 ],
             );
             append_rate_control(&mut arguments, "24", options, false);
@@ -436,6 +492,7 @@ fn preset_arguments(preset: ConversionPreset, options: ConversionOptions) -> Vec
                 &mut arguments,
                 &["-map", "0:v:0?", "-map", "0:a?", "-c:v", "libvpx-vp9"],
             );
+            append_vp9_encoding_speed(&mut arguments, options);
             append_rate_control(&mut arguments, "30", options, true);
             append_arguments(&mut arguments, &["-c:a", "libopus", "-b:a", "128k"]);
         }
@@ -444,10 +501,18 @@ fn preset_arguments(preset: ConversionPreset, options: ConversionOptions) -> Vec
             &["-vn", "-map", "0:a:0?", "-c:a", "libmp3lame", "-q:a", "2"],
         ),
         ConversionPreset::SmallerFile => {
+            let encoder_preset = x26x_preset(options, "slow");
             append_arguments(
                 &mut arguments,
                 &[
-                    "-map", "0:v:0?", "-map", "0:a?", "-c:v", "libx264", "-preset", "slow",
+                    "-map",
+                    "0:v:0?",
+                    "-map",
+                    "0:a?",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    encoder_preset,
                 ],
             );
             append_rate_control(&mut arguments, "28", options, false);
@@ -811,13 +876,18 @@ mod tests {
             Path::new("C:/video/input.mov"),
             Path::new("C:/video/output.mp4"),
             ConversionPreset::Mp4H265,
-            ConversionOptions::from_ui_indices(3, 3),
+            ConversionOptions::from_ui_indices(3, 3, 1),
         )
         .into_iter()
         .map(|value| value.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
 
         assert!(arguments.windows(2).any(|pair| pair == ["-b:v", "8000k"]));
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["-preset", "veryfast"])
+        );
         assert!(
             arguments
                 .windows(2)
@@ -832,7 +902,7 @@ mod tests {
             Path::new("C:/video/input.mov"),
             Path::new("C:/video/output.mkv"),
             ConversionPreset::OriginalQuality,
-            ConversionOptions::from_ui_indices(3, 2),
+            ConversionOptions::from_ui_indices(3, 2, 3),
         )
         .into_iter()
         .map(|value| value.to_string_lossy().into_owned())
@@ -841,6 +911,27 @@ mod tests {
         assert!(arguments.windows(2).any(|pair| pair == ["-c", "copy"]));
         assert!(!arguments.iter().any(|value| value == "-vf"));
         assert!(!arguments.iter().any(|value| value == "-b:v"));
+        assert!(!arguments.iter().any(|value| value == "-preset"));
+    }
+
+    #[test]
+    fn maps_thorough_speed_to_vp9_encoder_effort() {
+        let arguments = ffmpeg_arguments(
+            Path::new("C:/video/input.mov"),
+            Path::new("C:/video/output.webm"),
+            ConversionPreset::WebM,
+            ConversionOptions::from_ui_indices(0, 0, 3),
+        )
+        .into_iter()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["-deadline", "good"])
+        );
+        assert!(arguments.windows(2).any(|pair| pair == ["-cpu-used", "0"]));
     }
 
     #[test]

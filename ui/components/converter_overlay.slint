@@ -248,32 +248,20 @@ export component ConverterOverlay inherits Rectangle {
     in-out property <string> preset-size-note;
     in-out property <int> resolution-index: 0;
     in-out property <int> bitrate-index: 0;
+    in-out property <int> encoding-speed-index: 0;
     in property <string> size-status;
     in property <bool> ffmpeg-available: false;
     in property <string> ffmpeg-details;
     in property <bool> running: false;
     in property <float> progress: 0;
     in property <string> status-text;
-    private property <length> body-height: audio-media ? 304px : 440px;
+    private property <length> body-height: audio-media ? 304px : 460px;
     private property <length> desired-panel-height: body-height + 201px;
     private property <bool> video-options-available:
         !audio-media && preset-index != 3 && preset-index != 5;
-    private property <bool> options-open: false;
     private property <bool> video-help-visible: false;
-    private property <string> resolution-label:
-        resolution-index == 1 ? "до 2160p"
-        : resolution-index == 2 ? "до 1440p"
-        : resolution-index == 3 ? "до 1080p"
-        : resolution-index == 4 ? "до 720p"
-        : resolution-index == 5 ? "до 480p"
-        : "исходное разрешение";
-    private property <string> bitrate-label:
-        bitrate-index == 1 ? "2 Мбит/с"
-        : bitrate-index == 2 ? "4 Мбит/с"
-        : bitrate-index == 3 ? "8 Мбит/с"
-        : bitrate-index == 4 ? "12 Мбит/с"
-        : bitrate-index == 5 ? "20 Мбит/с"
-        : "авто (CRF)";
+    private property <bool> status-area-visible:
+        ffmpeg-available && status-text != "" && status-text != "Готово к запуску";
     private property <string> resolution-help-title:
         resolution-index == 0 ? "Исходное"
         : resolution-index == 1 ? "2160p"
@@ -298,6 +286,14 @@ export component ConverterOverlay inherits Rectangle {
         : bitrate-index == 4
             ? "Высокое качество, но файл получится заметно больше."
             : "Самое высокое качество среди вариантов и самый большой файл.";
+    private property <string> encoding-speed-help-description:
+        encoding-speed-index == 1
+            ? "Конвертация закончится быстрее, но сжатие будет менее эффективным."
+        : encoding-speed-index == 2
+            ? "Разумный баланс между временем ожидания и качеством результата."
+        : encoding-speed-index == 3
+            ? "Конвертация займёт больше времени, зато кодек лучше сохранит детали."
+            : "Oxide использует скорость, которая лучше всего подходит выбранному профилю.";
     private property <int> recommended-bitrate-index:
         resolution-index == 1 ? 5
         : resolution-index == 2 ? 4
@@ -345,8 +341,8 @@ export component ConverterOverlay inherits Rectangle {
     }
 
     panel := Rectangle {
-        width: min(parent.width - Theme.space-8, 860px);
-        height: min(parent.height - Theme.space-4, root.desired-panel-height);
+        width: min(parent.width - Theme.space-4, 960px);
+        height: min(parent.height - Theme.space-3, root.desired-panel-height);
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         border-radius: Theme.radius-xlarge;
@@ -465,10 +461,10 @@ export component ConverterOverlay inherits Rectangle {
             HorizontalLayout {
                 height: min(root.body-height, panel.height - 201px);
                 vertical-stretch: 0;
-                spacing: Theme.space-3;
+                spacing: Theme.space-4;
 
                 catalog := Rectangle {
-                    width: 286px;
+                    width: max(224px, min(252px, parent.width * 0.29));
                     border-radius: Theme.radius-large;
                     background: Theme.surface-control;
                     border-width: 1px;
@@ -541,29 +537,46 @@ export component ConverterOverlay inherits Rectangle {
 
                 details := Rectangle {
                     horizontal-stretch: 1;
-                    border-radius: Theme.radius-large;
-                    background: Theme.surface-control;
-                    border-width: 1px;
-                    border-color: Theme.border-subtle;
+                    background: transparent;
 
                     VerticalLayout {
-                        padding: Theme.space-3;
+                        padding: Theme.space-1;
                         spacing: Theme.space-2;
 
-                        UiText {
-                            text: "Результат";
-                            variant: TextVariant.caption;
-                            color: Theme.text-secondary;
-                            font-size: Theme.text-small + 1px;
+                        HorizontalLayout {
+                            height: Theme.space-7;
+                            vertical-stretch: 0;
+                            spacing: Theme.space-3;
+
+                            UiText {
+                                horizontal-stretch: 1;
+                                text: root.preset-title;
+                                variant: TextVariant.heading;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+
+                            summary-line := Rectangle {
+                                width: 224px;
+                                background: transparent;
+
+                                MarqueeText {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    text: root.preset-summary;
+                                    variant: TextVariant.label;
+                                    text-color: Theme.accent;
+                                    text-size: Theme.text-body + 1px;
+                                    hovered: summary-hover.has-hover;
+                                }
+
+                                summary-hover := TouchArea { }
+                            }
                         }
 
-                        UiText {
-                            text: root.preset-title;
-                            variant: TextVariant.heading;
-                            overflow: elide;
-                        }
-
-                        UiText {
+                        if !root.status-area-visible : UiText {
+                            height: 36px;
+                            vertical-stretch: 0;
                             text: root.preset-description;
                             variant: TextVariant.body;
                             color: Theme.text-secondary;
@@ -571,27 +584,7 @@ export component ConverterOverlay inherits Rectangle {
                             wrap: word-wrap;
                         }
 
-                        Divider { }
-
-                        summary-line := Rectangle {
-                            height: Theme.space-6;
-                            vertical-stretch: 0;
-                            background: transparent;
-
-                            MarqueeText {
-                                width: parent.width;
-                                height: parent.height;
-                                text: root.preset-summary;
-                                variant: TextVariant.label;
-                                text-color: Theme.accent;
-                                text-size: Theme.text-body + 1px;
-                                hovered: summary-hover.has-hover;
-                            }
-
-                            summary-hover := TouchArea { }
-                        }
-
-                        UiText {
+                        if !root.status-area-visible : UiText {
                             height: Theme.space-8;
                             vertical-stretch: 0;
                             text: root.preset-size-note;
@@ -601,36 +594,15 @@ export component ConverterOverlay inherits Rectangle {
                             wrap: word-wrap;
                         }
 
-                        if root.video-options-available && !root.options-open : HorizontalLayout {
-                            height: Theme.space-10;
-                            vertical-stretch: 0;
-                            spacing: Theme.space-2;
+                        Divider { }
 
-                            UiText {
-                                horizontal-stretch: 1;
-                                text: root.resolution-label + "  ·  " + root.bitrate-label;
-                                variant: TextVariant.caption;
-                                color: Theme.text-secondary;
-                                font-size: Theme.text-small + 1px;
-                                overflow: elide;
-                                vertical-alignment: center;
-                            }
-
-                            Button {
-                                width: 116px;
-                                text: "Настроить";
-                                enabled: !root.running;
-                                clicked => { root.options-open = true; }
-                            }
-                        }
-
-                        if root.video-options-available && root.options-open : Rectangle {
-                            height: 152px;
+                        if root.video-options-available : Rectangle {
+                            height: 216px;
                             vertical-stretch: 0;
                             border-radius: Theme.radius-medium;
-                            background: Theme.surface-control;
+                            background: Theme.surface-hover;
                             border-width: 1px;
-                            border-color: Theme.border-default;
+                            border-color: Theme.border-subtle;
 
                             VerticalLayout {
                                 padding: Theme.space-2;
@@ -652,28 +624,6 @@ export component ConverterOverlay inherits Rectangle {
                                     Rectangle {
                                         horizontal-stretch: 1;
                                         background: transparent;
-                                    }
-                                    Rectangle {
-                                        width: 52px;
-                                        background: transparent;
-                                        UiText {
-                                            width: parent.width;
-                                            height: parent.height;
-                                            text: "Скрыть";
-                                            variant: TextVariant.caption;
-                                            color: close-options.has-hover
-                                                ? Theme.accent
-                                                : Theme.text-secondary;
-                                            font-size: Theme.text-small + 1px;
-                                            horizontal-alignment: right;
-                                            vertical-alignment: center;
-                                        }
-                                        close-options := TouchArea {
-                                            clicked => {
-                                                root.options-open = false;
-                                                root.video-help-visible = false;
-                                            }
-                                        }
                                     }
                                 }
 
@@ -718,6 +668,27 @@ export component ConverterOverlay inherits Rectangle {
                                         activated => { root.bitrate-index = index; }
                                     }
                                 }
+
+                                UiText {
+                                    height: Theme.space-5;
+                                    vertical-stretch: 0;
+                                    text: "Скорость кодирования · влияет на время ожидания";
+                                    variant: TextVariant.caption;
+                                    color: Theme.text-secondary;
+                                    font-size: Theme.text-small + 1px;
+                                    vertical-alignment: center;
+                                }
+                                HorizontalLayout {
+                                    height: Theme.space-8;
+                                    vertical-stretch: 0;
+                                    spacing: Theme.space-1;
+                                    for option[index] in ["По профилю", "Быстро", "Баланс", "Тщательно"] : ChoiceChip {
+                                        text: option;
+                                        selected: root.encoding-speed-index == index;
+                                        enabled: !root.running;
+                                        activated => { root.encoding-speed-index = index; }
+                                    }
+                                }
                             }
                         }
 
@@ -727,7 +698,7 @@ export component ConverterOverlay inherits Rectangle {
                             height: 56px;
                             vertical-stretch: 0;
                             border-radius: Theme.radius-medium;
-                            background: Theme.surface-control;
+                            background: Theme.surface-hover;
                             border-width: 1px;
                             border-color: Theme.border-default;
 
@@ -781,45 +752,7 @@ export component ConverterOverlay inherits Rectangle {
                             }
                         }
 
-                        if !root.ffmpeg-available : Rectangle {
-                            height: 44px;
-                            vertical-stretch: 0;
-                            border-radius: Theme.radius-medium;
-                            background: Theme.danger-subtle;
-                            border-width: 1px;
-                            border-color: Theme.danger;
-
-                            HorizontalLayout {
-                                padding-left: Theme.space-3;
-                                padding-right: Theme.space-3;
-                                spacing: Theme.space-2;
-
-                                UiText {
-                                    text: "FFmpeg не найден";
-                                    variant: TextVariant.label;
-                                    color: Theme.danger;
-                                    vertical-alignment: center;
-                                }
-                                details-text := Rectangle {
-                                    horizontal-stretch: 1;
-                                    background: transparent;
-
-                                    MarqueeText {
-                                        width: parent.width;
-                                        height: parent.height;
-                                        text: root.ffmpeg-details;
-                                        variant: TextVariant.caption;
-                                        text-color: Theme.text-secondary;
-                                        text-size: Theme.text-small + 1px;
-                                        hovered: ffmpeg-hover.has-hover;
-                                    }
-
-                                    ffmpeg-hover := TouchArea { }
-                                }
-                            }
-                        }
-
-                        if root.ffmpeg-available && (root.running || root.status-text != "") : VerticalLayout {
+                        if root.status-area-visible : VerticalLayout {
                             height: 44px;
                             vertical-stretch: 0;
                             spacing: Theme.space-2;
@@ -851,7 +784,7 @@ export component ConverterOverlay inherits Rectangle {
                 vertical-stretch: 0;
                 spacing: Theme.space-3;
 
-                UiText {
+                if root.ffmpeg-available : UiText {
                     horizontal-stretch: 1;
                     text: "Оригинальный файл останется без изменений";
                     variant: TextVariant.caption;
@@ -860,17 +793,53 @@ export component ConverterOverlay inherits Rectangle {
                     vertical-alignment: center;
                 }
 
+                if !root.ffmpeg-available : Rectangle {
+                    horizontal-stretch: 1;
+                    background: transparent;
+
+                    HorizontalLayout {
+                        spacing: Theme.space-2;
+
+                        UiText {
+                            text: "Конвертация недоступна";
+                            variant: TextVariant.label;
+                            color: Theme.danger;
+                            vertical-alignment: center;
+                        }
+
+                        ffmpeg-details-area := Rectangle {
+                            horizontal-stretch: 1;
+                            background: transparent;
+
+                            MarqueeText {
+                                width: parent.width;
+                                height: parent.height;
+                                text: root.ffmpeg-details;
+                                variant: TextVariant.caption;
+                                text-color: Theme.text-secondary;
+                                text-size: Theme.text-small + 1px;
+                                hovered: footer-ffmpeg-hover.has-hover;
+                            }
+
+                            footer-ffmpeg-hover := TouchArea { }
+                        }
+                    }
+                }
+
                 if root.running : Button {
                     text: "Отменить";
                     clicked => root.cancel();
                 }
 
-                if !root.running : Button {
+                if root.ffmpeg-available && !root.running : Button {
                     width: 164px;
                     text: "Конвертировать";
                     primary: true;
                     enabled: root.ffmpeg-available && root.output-path != "";
-                    clicked => root.start(root.preset-index);
+                    clicked => {
+                        root.video-help-visible = false;
+                        root.start(root.preset-index);
+                    }
                 }
             }
         }
@@ -880,7 +849,7 @@ export component ConverterOverlay inherits Rectangle {
             x: parent.width - self.width - Theme.space-4;
             y: 48px;
             width: min(456px, parent.width - Theme.space-8);
-            height: 244px;
+            height: 308px;
             border-radius: Theme.radius-large;
             background: Theme.surface-canvas-opaque;
             border-width: 1px;
@@ -912,6 +881,13 @@ export component ConverterOverlay inherits Rectangle {
                     vertical-stretch: 0;
                     title: "Качество";
                     description: root.bitrate-help-description;
+                }
+
+                HelpRow {
+                    height: 56px;
+                    vertical-stretch: 0;
+                    title: "Скорость";
+                    description: root.encoding-speed-help-description;
                 }
 
                 HelpRow {
