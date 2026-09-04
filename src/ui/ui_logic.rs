@@ -2229,6 +2229,8 @@ pub fn run(
                 app.get_conversion_resolution_index(),
                 app.get_conversion_bitrate_index(),
                 app.get_conversion_encoding_speed_index(),
+                app.get_conversion_keep_audio_tracks(),
+                app.get_conversion_keep_subtitle_tracks(),
             );
             app.set_conversion_status("Подготовка FFmpeg…".into());
             app.set_conversion_size_status("Ожидание данных FFmpeg…".into());

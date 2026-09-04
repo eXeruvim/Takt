@@ -1,6 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
-import { Button, Divider, Icon, IconButton, ProgressBar, UiText, TextVariant } from "../design_system/primitives.slint";
+import { Button, Divider, Icon, IconButton, ProgressBar, Toggle, UiText, TextVariant } from "../design_system/primitives.slint";
 
 export struct ConversionPresetEntry {
     index: int,
@@ -249,6 +249,8 @@ export component ConverterOverlay inherits Rectangle {
     in-out property <int> resolution-index: 0;
     in-out property <int> bitrate-index: 0;
     in-out property <int> encoding-speed-index: 0;
+    in-out property <bool> keep-audio-tracks: true;
+    in-out property <bool> keep-subtitle-tracks: true;
     in property <string> size-status;
     in property <bool> ffmpeg-available: false;
     in property <string> ffmpeg-details;
@@ -259,6 +261,7 @@ export component ConverterOverlay inherits Rectangle {
     private property <length> desired-panel-height: body-height + 201px;
     private property <bool> video-options-available:
         !audio-media && preset-index != 3 && preset-index != 5;
+    private property <bool> track-options-available: !audio-media && preset-index != 3;
     private property <bool> video-help-visible: false;
     private property <bool> status-area-visible:
         ffmpeg-available && status-text != "" && status-text != "Готово к запуску";
@@ -269,23 +272,16 @@ export component ConverterOverlay inherits Rectangle {
         : resolution-index == 3 ? "1080p"
         : resolution-index == 4 ? "720p"
         : "480p";
-    private property <string> resolution-help-description:
-        resolution-index == 0
-            ? "Разрешение не изменится: видео не будет ни уменьшено, ни увеличено."
-            : "Видео станет не выше " + resolution-help-title
-                + ". Если оно уже меньше, Oxide не будет его растягивать.";
-    private property <string> bitrate-help-description:
-        bitrate-index == 0
-            ? "Качество подбирается автоматически. Обычно это лучший выбор без лишних настроек."
-        : bitrate-index == 1
-            ? "Сильное сжатие: файл будет меньше, но мелкие детали могут потеряться."
-        : bitrate-index == 2
-            ? "Компактный файл с умеренным качеством изображения."
-        : bitrate-index == 3
-            ? "Хороший баланс качества и размера для большинства видео."
-        : bitrate-index == 4
-            ? "Высокое качество, но файл получится заметно больше."
-            : "Самое высокое качество среди вариантов и самый большой файл.";
+    private property <string> selected-bitrate-label:
+        bitrate-index == 1 ? "2 Мбит/с"
+        : bitrate-index == 2 ? "4 Мбит/с"
+        : bitrate-index == 3 ? "8 Мбит/с"
+        : bitrate-index == 4 ? "12 Мбит/с"
+        : bitrate-index == 5 ? "20 Мбит/с"
+        : "Авто";
+    private property <string> selected-video-settings-description:
+        "Разрешение: " + resolution-help-title + ". Качество: "
+            + selected-bitrate-label + ".";
     private property <string> encoding-speed-help-description:
         encoding-speed-index == 1
             ? "Конвертация закончится быстрее, но сжатие будет менее эффективным."
@@ -294,6 +290,14 @@ export component ConverterOverlay inherits Rectangle {
         : encoding-speed-index == 3
             ? "Конвертация займёт больше времени, зато кодек лучше сохранит детали."
             : "Oxide использует скорость, которая лучше всего подходит выбранному профилю.";
+    private property <string> track-help-description:
+        keep-audio-tracks && keep-subtitle-tracks
+            ? "В новый файл попадут все встроенные аудиодорожки и субтитры."
+        : keep-audio-tracks
+            ? "Аудиодорожки сохранятся, а встроенные субтитры будут удалены."
+        : keep-subtitle-tracks
+            ? "Встроенные субтитры сохранятся, а звук будет удалён."
+            : "Звук и встроенные субтитры будут удалены из нового файла.";
     private property <int> recommended-bitrate-index:
         resolution-index == 1 ? 5
         : resolution-index == 2 ? 4
@@ -458,7 +462,7 @@ export component ConverterOverlay inherits Rectangle {
                 source-hover := TouchArea { }
             }
 
-            HorizontalLayout {
+            body-row := HorizontalLayout {
                 height: min(root.body-height, panel.height - 201px);
                 vertical-stretch: 0;
                 spacing: Theme.space-4;
@@ -596,8 +600,8 @@ export component ConverterOverlay inherits Rectangle {
 
                         Divider { }
 
-                        if root.video-options-available : Rectangle {
-                            height: 216px;
+                        if root.track-options-available : Rectangle {
+                            height: root.video-options-available ? 224px : 52px;
                             vertical-stretch: 0;
                             border-radius: Theme.radius-medium;
                             background: Theme.surface-hover;
@@ -609,11 +613,13 @@ export component ConverterOverlay inherits Rectangle {
                                 spacing: Theme.space-1;
 
                                 HorizontalLayout {
-                                    height: Theme.space-5;
+                                    height: Theme.space-7;
                                     vertical-stretch: 0;
                                     spacing: Theme.space-2;
                                     UiText {
-                                        text: "Параметры видео";
+                                        text: root.video-options-available
+                                            ? "Параметры видео"
+                                            : "Содержимое файла";
                                         variant: TextVariant.label;
                                     }
                                     VideoOptionsHelp {
@@ -625,9 +631,41 @@ export component ConverterOverlay inherits Rectangle {
                                         horizontal-stretch: 1;
                                         background: transparent;
                                     }
+
+                                    UiText {
+                                        text: "В новый файл";
+                                        variant: TextVariant.caption;
+                                        color: Theme.text-secondary;
+                                        font-size: Theme.text-small + 1px;
+                                        vertical-alignment: center;
+                                    }
+
+                                    UiText {
+                                        text: "Звук";
+                                        variant: TextVariant.caption;
+                                        color: Theme.text-secondary;
+                                        font-size: Theme.text-small + 1px;
+                                        vertical-alignment: center;
+                                    }
+                                    Toggle {
+                                        checked <=> root.keep-audio-tracks;
+                                        enabled: !root.running;
+                                    }
+
+                                    UiText {
+                                        text: "Субтитры";
+                                        variant: TextVariant.caption;
+                                        color: Theme.text-secondary;
+                                        font-size: Theme.text-small + 1px;
+                                        vertical-alignment: center;
+                                    }
+                                    Toggle {
+                                        checked <=> root.keep-subtitle-tracks;
+                                        enabled: !root.running;
+                                    }
                                 }
 
-                                UiText {
+                                if root.video-options-available : UiText {
                                     height: Theme.space-5;
                                     vertical-stretch: 0;
                                     text: "Разрешение · выбранное значение — максимум";
@@ -636,7 +674,7 @@ export component ConverterOverlay inherits Rectangle {
                                     font-size: Theme.text-small + 1px;
                                     vertical-alignment: center;
                                 }
-                                HorizontalLayout {
+                                if root.video-options-available : HorizontalLayout {
                                     height: Theme.space-8;
                                     vertical-stretch: 0;
                                     spacing: Theme.space-1;
@@ -648,7 +686,7 @@ export component ConverterOverlay inherits Rectangle {
                                     }
                                 }
 
-                                UiText {
+                                if root.video-options-available : UiText {
                                     height: Theme.space-5;
                                     vertical-stretch: 0;
                                     text: "Качество и размер файла · Авто рекомендуется";
@@ -657,7 +695,7 @@ export component ConverterOverlay inherits Rectangle {
                                     font-size: Theme.text-small + 1px;
                                     vertical-alignment: center;
                                 }
-                                HorizontalLayout {
+                                if root.video-options-available : HorizontalLayout {
                                     height: Theme.space-8;
                                     vertical-stretch: 0;
                                     spacing: Theme.space-1;
@@ -669,7 +707,7 @@ export component ConverterOverlay inherits Rectangle {
                                     }
                                 }
 
-                                UiText {
+                                if root.video-options-available : UiText {
                                     height: Theme.space-5;
                                     vertical-stretch: 0;
                                     text: "Скорость кодирования · влияет на время ожидания";
@@ -678,7 +716,7 @@ export component ConverterOverlay inherits Rectangle {
                                     font-size: Theme.text-small + 1px;
                                     vertical-alignment: center;
                                 }
-                                HorizontalLayout {
+                                if root.video-options-available : HorizontalLayout {
                                     height: Theme.space-8;
                                     vertical-stretch: 0;
                                     spacing: Theme.space-1;
@@ -846,10 +884,23 @@ export component ConverterOverlay inherits Rectangle {
 
         if root.video-help-visible : Rectangle {
             z: 1000;
-            x: parent.width - self.width - Theme.space-4;
-            y: 48px;
-            width: min(456px, parent.width - Theme.space-8);
-            height: 308px;
+            x: root.video-options-available
+                ? body-row.x + details.x
+                : max(
+                    Theme.space-4,
+                    min(
+                        parent.width - self.width - Theme.space-4,
+                        body-row.x + details.x + 116px
+                    )
+                );
+            y: max(
+                Theme.space-4,
+                body-row.y + details.y + 132px - self.height - Theme.space-2
+            );
+            width: root.video-options-available
+                ? parent.width - body-row.x - details.x - Theme.space-4
+                : min(408px, parent.width - Theme.space-8);
+            height: root.video-options-available ? 208px : 124px;
             border-radius: Theme.radius-large;
             background: Theme.surface-canvas-opaque;
             border-width: 1px;
@@ -858,7 +909,26 @@ export component ConverterOverlay inherits Rectangle {
             drop-shadow-blur: Theme.elevation-high-blur;
             drop-shadow-offset-y: Theme.elevation-high-y;
 
-            VerticalLayout {
+            if !root.video-options-available : VerticalLayout {
+                padding: Theme.space-4;
+                spacing: Theme.space-2;
+
+                UiText {
+                    height: Theme.space-6;
+                    vertical-stretch: 0;
+                    text: "Что попадёт в новый файл";
+                    variant: TextVariant.heading;
+                }
+
+                HelpRow {
+                    height: 56px;
+                    vertical-stretch: 0;
+                    title: "Дорожки";
+                    description: root.track-help-description;
+                }
+            }
+
+            if root.video-options-available : VerticalLayout {
                 padding: Theme.space-4;
                 spacing: Theme.space-2;
 
@@ -869,32 +939,44 @@ export component ConverterOverlay inherits Rectangle {
                     variant: TextVariant.heading;
                 }
 
-                HelpRow {
-                    height: 48px;
-                    vertical-stretch: 0;
-                    title: "Разрешение";
-                    description: root.resolution-help-description;
-                }
+                HorizontalLayout {
+                    spacing: Theme.space-3;
 
-                HelpRow {
-                    height: 56px;
-                    vertical-stretch: 0;
-                    title: "Качество";
-                    description: root.bitrate-help-description;
-                }
+                    VerticalLayout {
+                        spacing: Theme.space-2;
 
-                HelpRow {
-                    height: 56px;
-                    vertical-stretch: 0;
-                    title: "Скорость";
-                    description: root.encoding-speed-help-description;
-                }
+                        HelpRow {
+                            height: 64px;
+                            vertical-stretch: 0;
+                            title: "Выбрано";
+                            description: root.selected-video-settings-description;
+                        }
 
-                HelpRow {
-                    height: 56px;
-                    vertical-stretch: 0;
-                    title: "Совет";
-                    description: root.recommendation-help-description;
+                        HelpRow {
+                            height: 72px;
+                            vertical-stretch: 0;
+                            title: "Совет";
+                            description: root.recommendation-help-description;
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: Theme.space-2;
+
+                        HelpRow {
+                            height: 64px;
+                            vertical-stretch: 0;
+                            title: "Скорость";
+                            description: root.encoding-speed-help-description;
+                        }
+
+                        HelpRow {
+                            height: 72px;
+                            vertical-stretch: 0;
+                            title: "Дорожки";
+                            description: root.track-help-description;
+                        }
+                    }
                 }
             }
         }

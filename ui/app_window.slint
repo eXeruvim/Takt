@@ -118,6 +118,8 @@ export component AppWindow inherits Window {
     in-out property <int> conversion_resolution_index: 0;
     in-out property <int> conversion_bitrate_index: 0;
     in-out property <int> conversion_encoding_speed_index: 0;
+    in-out property <bool> conversion_keep_audio_tracks: true;
+    in-out property <bool> conversion_keep_subtitle_tracks: true;
     in-out property <string> conversion_source_size: "—";
     in-out property <string> conversion_size_status: "";
     in-out property <bool> ffmpeg_available: false;
@@ -734,6 +736,8 @@ export component AppWindow inherits Window {
                 resolution-index <=> root.conversion_resolution_index;
                 bitrate-index <=> root.conversion_bitrate_index;
                 encoding-speed-index <=> root.conversion_encoding_speed_index;
+                keep-audio-tracks <=> root.conversion_keep_audio_tracks;
+                keep-subtitle-tracks <=> root.conversion_keep_subtitle_tracks;
                 source-size: root.conversion_source_size;
                 source-duration: root.media_duration_label;
                 source-format: root.audio_media ? root.audio_codec : root.container_format;

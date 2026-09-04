@@ -69,11 +69,13 @@ impl ConversionPreset {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ConversionOptions {
     pub max_height: Option<u32>,
     pub video_bitrate_kbps: Option<u32>,
     pub encoding_speed: Option<EncodingSpeed>,
+    pub keep_audio_tracks: bool,
+    pub keep_subtitle_tracks: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -88,6 +90,8 @@ impl ConversionOptions {
         resolution_index: i32,
         bitrate_index: i32,
         encoding_speed_index: i32,
+        keep_audio_tracks: bool,
+        keep_subtitle_tracks: bool,
     ) -> Self {
         let max_height = match resolution_index {
             1 => Some(2_160),
@@ -115,6 +119,20 @@ impl ConversionOptions {
             max_height,
             video_bitrate_kbps,
             encoding_speed,
+            keep_audio_tracks,
+            keep_subtitle_tracks,
+        }
+    }
+}
+
+impl Default for ConversionOptions {
+    fn default() -> Self {
+        Self {
+            max_height: None,
+            video_bitrate_kbps: None,
+            encoding_speed: None,
+            keep_audio_tracks: true,
+            keep_subtitle_tracks: true,
         }
     }
 }
@@ -445,56 +463,64 @@ fn append_vp9_encoding_speed(arguments: &mut Vec<OsString>, options: ConversionO
     }
 }
 
+fn append_video_stream_maps(arguments: &mut Vec<OsString>, options: ConversionOptions) {
+    append_arguments(arguments, &["-map", "0:v:0?"]);
+    if options.keep_audio_tracks {
+        append_arguments(arguments, &["-map", "0:a?"]);
+    }
+    if options.keep_subtitle_tracks {
+        append_arguments(arguments, &["-map", "0:s?"]);
+    }
+}
+
+fn append_mp4_auxiliary_codecs(
+    arguments: &mut Vec<OsString>,
+    options: ConversionOptions,
+    audio_bitrate: &str,
+) {
+    if options.keep_audio_tracks {
+        append_arguments(arguments, &["-c:a", "aac", "-b:a", audio_bitrate]);
+    }
+    if options.keep_subtitle_tracks {
+        append_arguments(arguments, &["-c:s", "mov_text"]);
+    }
+}
+
 fn preset_arguments(preset: ConversionPreset, options: ConversionOptions) -> Vec<OsString> {
     let mut arguments = Vec::new();
     match preset {
         ConversionPreset::Mp4H264 => {
             let encoder_preset = x26x_preset(options, "medium");
+            append_video_stream_maps(&mut arguments, options);
             append_arguments(
                 &mut arguments,
-                &[
-                    "-map",
-                    "0:v:0?",
-                    "-map",
-                    "0:a?",
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    encoder_preset,
-                ],
+                &["-c:v", "libx264", "-preset", encoder_preset],
             );
             append_rate_control(&mut arguments, "20", options, false);
-            append_arguments(&mut arguments, &["-c:a", "aac", "-b:a", "192k"]);
+            append_mp4_auxiliary_codecs(&mut arguments, options, "192k");
         }
         ConversionPreset::Mp4H265 => {
             let encoder_preset = x26x_preset(options, "medium");
+            append_video_stream_maps(&mut arguments, options);
             append_arguments(
                 &mut arguments,
-                &[
-                    "-map",
-                    "0:v:0?",
-                    "-map",
-                    "0:a?",
-                    "-c:v",
-                    "libx265",
-                    "-preset",
-                    encoder_preset,
-                ],
+                &["-c:v", "libx265", "-preset", encoder_preset],
             );
             append_rate_control(&mut arguments, "24", options, false);
-            append_arguments(
-                &mut arguments,
-                &["-tag:v", "hvc1", "-c:a", "aac", "-b:a", "192k"],
-            );
+            append_arguments(&mut arguments, &["-tag:v", "hvc1"]);
+            append_mp4_auxiliary_codecs(&mut arguments, options, "192k");
         }
         ConversionPreset::WebM => {
-            append_arguments(
-                &mut arguments,
-                &["-map", "0:v:0?", "-map", "0:a?", "-c:v", "libvpx-vp9"],
-            );
+            append_video_stream_maps(&mut arguments, options);
+            append_arguments(&mut arguments, &["-c:v", "libvpx-vp9"]);
             append_vp9_encoding_speed(&mut arguments, options);
             append_rate_control(&mut arguments, "30", options, true);
-            append_arguments(&mut arguments, &["-c:a", "libopus", "-b:a", "128k"]);
+            if options.keep_audio_tracks {
+                append_arguments(&mut arguments, &["-c:a", "libopus", "-b:a", "128k"]);
+            }
+            if options.keep_subtitle_tracks {
+                append_arguments(&mut arguments, &["-c:s", "webvtt"]);
+            }
         }
         ConversionPreset::ExtractAudio => append_arguments(
             &mut arguments,
@@ -502,24 +528,22 @@ fn preset_arguments(preset: ConversionPreset, options: ConversionOptions) -> Vec
         ),
         ConversionPreset::SmallerFile => {
             let encoder_preset = x26x_preset(options, "slow");
+            append_video_stream_maps(&mut arguments, options);
             append_arguments(
                 &mut arguments,
-                &[
-                    "-map",
-                    "0:v:0?",
-                    "-map",
-                    "0:a?",
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    encoder_preset,
-                ],
+                &["-c:v", "libx264", "-preset", encoder_preset],
             );
             append_rate_control(&mut arguments, "28", options, false);
-            append_arguments(&mut arguments, &["-c:a", "aac", "-b:a", "128k"]);
+            append_mp4_auxiliary_codecs(&mut arguments, options, "128k");
         }
         ConversionPreset::OriginalQuality => {
             append_arguments(&mut arguments, &["-map", "0", "-c", "copy"]);
+            if !options.keep_audio_tracks {
+                append_arguments(&mut arguments, &["-an"]);
+            }
+            if !options.keep_subtitle_tracks {
+                append_arguments(&mut arguments, &["-sn"]);
+            }
         }
         ConversionPreset::AudioAac => append_arguments(
             &mut arguments,
@@ -876,13 +900,20 @@ mod tests {
             Path::new("C:/video/input.mov"),
             Path::new("C:/video/output.mp4"),
             ConversionPreset::Mp4H265,
-            ConversionOptions::from_ui_indices(3, 3, 1),
+            ConversionOptions::from_ui_indices(3, 3, 1, true, true),
         )
         .into_iter()
         .map(|value| value.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
 
         assert!(arguments.windows(2).any(|pair| pair == ["-b:v", "8000k"]));
+        assert!(arguments.windows(2).any(|pair| pair == ["-map", "0:a?"]));
+        assert!(arguments.windows(2).any(|pair| pair == ["-map", "0:s?"]));
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["-c:s", "mov_text"])
+        );
         assert!(
             arguments
                 .windows(2)
@@ -902,7 +933,7 @@ mod tests {
             Path::new("C:/video/input.mov"),
             Path::new("C:/video/output.mkv"),
             ConversionPreset::OriginalQuality,
-            ConversionOptions::from_ui_indices(3, 2, 3),
+            ConversionOptions::from_ui_indices(3, 2, 3, false, false),
         )
         .into_iter()
         .map(|value| value.to_string_lossy().into_owned())
@@ -912,6 +943,8 @@ mod tests {
         assert!(!arguments.iter().any(|value| value == "-vf"));
         assert!(!arguments.iter().any(|value| value == "-b:v"));
         assert!(!arguments.iter().any(|value| value == "-preset"));
+        assert!(arguments.iter().any(|value| value == "-an"));
+        assert!(arguments.iter().any(|value| value == "-sn"));
     }
 
     #[test]
@@ -920,7 +953,7 @@ mod tests {
             Path::new("C:/video/input.mov"),
             Path::new("C:/video/output.webm"),
             ConversionPreset::WebM,
-            ConversionOptions::from_ui_indices(0, 0, 3),
+            ConversionOptions::from_ui_indices(0, 0, 3, true, true),
         )
         .into_iter()
         .map(|value| value.to_string_lossy().into_owned())
@@ -932,6 +965,25 @@ mod tests {
                 .any(|pair| pair == ["-deadline", "good"])
         );
         assert!(arguments.windows(2).any(|pair| pair == ["-cpu-used", "0"]));
+        assert!(arguments.windows(2).any(|pair| pair == ["-c:s", "webvtt"]));
+    }
+
+    #[test]
+    fn removes_audio_and_subtitle_maps_from_reencoded_video() {
+        let arguments = ffmpeg_arguments(
+            Path::new("C:/video/input.mkv"),
+            Path::new("C:/video/output.mp4"),
+            ConversionPreset::Mp4H264,
+            ConversionOptions::from_ui_indices(0, 0, 0, false, false),
+        )
+        .into_iter()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+
+        assert!(!arguments.iter().any(|value| value == "0:a?"));
+        assert!(!arguments.iter().any(|value| value == "0:s?"));
+        assert!(!arguments.iter().any(|value| value == "-c:a"));
+        assert!(!arguments.iter().any(|value| value == "-c:s"));
     }
 
     #[test]
