@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     ffi::OsString,
     fs,
     io::{BufRead, BufReader},
@@ -148,6 +149,7 @@ pub enum ConverterCommand {
         duration_seconds: f64,
     },
     Cancel,
+    ClearQueue,
     Quit,
 }
 
@@ -171,6 +173,13 @@ pub enum ConverterEvent {
         output_size_bytes: u64,
     },
     Canceled,
+    QueueUpdated {
+        pending: usize,
+    },
+    Rejected {
+        message: String,
+        active: bool,
+    },
     Failed(String),
 }
 
@@ -181,6 +190,7 @@ struct FfmpegInstallation {
 }
 
 struct ActiveJob {
+    output: PathBuf,
     cancel: Arc<AtomicBool>,
     finished: Receiver<()>,
 }
@@ -208,6 +218,7 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>) {
     let mut installation = discover_ffmpeg();
     send_availability(&tx, installation.as_ref());
     let mut active_job: Option<ActiveJob> = None;
+    let mut pending_jobs = VecDeque::new();
 
     loop {
         if active_job
@@ -215,6 +226,14 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>) {
             .is_some_and(|job| job.finished.try_recv().is_ok())
         {
             active_job = None;
+            if let (Some(installation), Some(job)) =
+                (installation.as_ref(), pending_jobs.pop_front())
+            {
+                let _ = tx.send(ConverterEvent::QueueUpdated {
+                    pending: pending_jobs.len(),
+                });
+                active_job = Some(spawn_job(installation, job, &tx));
+            }
         }
 
         match rx.recv_timeout(WORKER_POLL_INTERVAL) {
@@ -231,49 +250,58 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>) {
                 options,
                 duration_seconds,
             }) => {
-                if active_job.is_some() {
-                    let _ = tx.send(ConverterEvent::Failed(
-                        "Другая конвертация уже выполняется".to_owned(),
-                    ));
-                    continue;
-                }
                 let Some(installation) = installation.as_ref() else {
-                    let _ = tx.send(ConverterEvent::Failed(
-                        "FFmpeg не найден. Поместите ffmpeg.exe рядом с Oxide или добавьте его в PATH"
+                    let _ = tx.send(ConverterEvent::Rejected {
+                        message: "FFmpeg не найден. Поместите ffmpeg.exe рядом с Oxide или добавьте его в PATH"
                             .to_owned(),
-                    ));
+                        active: active_job.is_some(),
+                    });
                     continue;
                 };
+                if let Err(message) = validate_job(&source, &output) {
+                    let _ = tx.send(ConverterEvent::Rejected {
+                        message,
+                        active: active_job.is_some(),
+                    });
+                    continue;
+                }
+                if active_job.as_ref().is_some_and(|job| job.output == output)
+                    || pending_jobs.iter().any(|job| job.output == output)
+                {
+                    let _ = tx.send(ConverterEvent::Rejected {
+                        message: format!(
+                            "Этот выходной файл уже занят другой задачей: {}",
+                            output.display()
+                        ),
+                        active: true,
+                    });
+                    continue;
+                }
 
-                let cancel = Arc::new(AtomicBool::new(false));
-                let (finished_tx, finished_rx) = unbounded();
-                let executable = installation.executable.clone();
-                let worker_tx = tx.clone();
-                let worker_cancel = cancel.clone();
-                thread::spawn(move || {
-                    run_job(
-                        &executable,
-                        JobSpec {
-                            source,
-                            output,
-                            preset,
-                            options,
-                            duration_seconds,
-                        },
-                        &worker_cancel,
-                        &worker_tx,
-                    );
-                    let _ = finished_tx.send(());
-                });
-                active_job = Some(ActiveJob {
-                    cancel,
-                    finished: finished_rx,
-                });
+                let job = JobSpec {
+                    source,
+                    output,
+                    preset,
+                    options,
+                    duration_seconds,
+                };
+                if active_job.is_some() {
+                    pending_jobs.push_back(job);
+                    let _ = tx.send(ConverterEvent::QueueUpdated {
+                        pending: pending_jobs.len(),
+                    });
+                } else {
+                    active_job = Some(spawn_job(installation, job, &tx));
+                }
             }
             Ok(ConverterCommand::Cancel) => {
                 if let Some(job) = &active_job {
                     job.cancel.store(true, Ordering::Release);
                 }
+            }
+            Ok(ConverterCommand::ClearQueue) => {
+                pending_jobs.clear();
+                let _ = tx.send(ConverterEvent::QueueUpdated { pending: 0 });
             }
             Ok(ConverterCommand::Quit) | Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                 if let Some(job) = &active_job {
@@ -284,6 +312,28 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>) {
             }
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
         }
+    }
+}
+
+fn spawn_job(
+    installation: &FfmpegInstallation,
+    job: JobSpec,
+    tx: &Sender<ConverterEvent>,
+) -> ActiveJob {
+    let output = job.output.clone();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let (finished_tx, finished_rx) = unbounded();
+    let executable = installation.executable.clone();
+    let worker_tx = tx.clone();
+    let worker_cancel = cancel.clone();
+    thread::spawn(move || {
+        run_job(&executable, job, &worker_cancel, &worker_tx);
+        let _ = finished_tx.send(());
+    });
+    ActiveJob {
+        output,
+        cancel,
+        finished: finished_rx,
     }
 }
 

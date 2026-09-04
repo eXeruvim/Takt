@@ -255,6 +255,7 @@ export component ConverterOverlay inherits Rectangle {
     in property <bool> ffmpeg-available: false;
     in property <string> ffmpeg-details;
     in property <bool> running: false;
+    in property <int> pending-jobs: 0;
     in property <float> progress: 0;
     in property <string> status-text;
     private property <length> body-height: audio-media ? 304px : 460px;
@@ -327,6 +328,7 @@ export component ConverterOverlay inherits Rectangle {
     callback choose-output(int);
     callback start(int);
     callback cancel();
+    callback clear-queue();
     callback close();
 
     visible: open || self.opacity > 0.01;
@@ -341,7 +343,7 @@ export component ConverterOverlay inherits Rectangle {
     TouchArea {
         width: parent.width;
         height: parent.height;
-        clicked => { if (!root.running) { root.close(); } }
+        clicked => root.close();
     }
 
     panel := Rectangle {
@@ -386,7 +388,7 @@ export component ConverterOverlay inherits Rectangle {
                 IconButton {
                     icon: @image-url("../icons/window-close.svg");
                     accessible-name: "Закрыть конвертацию";
-                    enabled: !root.running;
+                    enabled: true;
                     clicked => root.close();
                 }
             }
@@ -500,7 +502,7 @@ export component ConverterOverlay inherits Rectangle {
                                 for preset in root.presets : PresetRow {
                                     entry: preset;
                                     selected: preset.index == root.preset-index;
-                                    enabled: !root.running;
+                                    enabled: true;
                                     activated => {
                                         root.preset-index = preset.index;
                                         root.preset-title = preset.title;
@@ -649,7 +651,7 @@ export component ConverterOverlay inherits Rectangle {
                                     }
                                     Toggle {
                                         checked <=> root.keep-audio-tracks;
-                                        enabled: !root.running;
+                                        enabled: true;
                                     }
 
                                     UiText {
@@ -661,7 +663,7 @@ export component ConverterOverlay inherits Rectangle {
                                     }
                                     Toggle {
                                         checked <=> root.keep-subtitle-tracks;
-                                        enabled: !root.running;
+                                        enabled: true;
                                     }
                                 }
 
@@ -681,7 +683,7 @@ export component ConverterOverlay inherits Rectangle {
                                     for option[index] in ["Исходное", "2160p", "1440p", "1080p", "720p", "480p"] : ChoiceChip {
                                         text: option;
                                         selected: root.resolution-index == index;
-                                        enabled: !root.running;
+                                        enabled: true;
                                         activated => { root.resolution-index = index; }
                                     }
                                 }
@@ -702,7 +704,7 @@ export component ConverterOverlay inherits Rectangle {
                                     for option[index] in ["Авто", "2", "4", "8", "12", "20"] : ChoiceChip {
                                         text: index == 0 ? option : option + " М";
                                         selected: root.bitrate-index == index;
-                                        enabled: !root.running;
+                                        enabled: true;
                                         activated => { root.bitrate-index = index; }
                                     }
                                 }
@@ -723,7 +725,7 @@ export component ConverterOverlay inherits Rectangle {
                                     for option[index] in ["По профилю", "Быстро", "Баланс", "Тщательно"] : ChoiceChip {
                                         text: option;
                                         selected: root.encoding-speed-index == index;
-                                        enabled: !root.running;
+                                        enabled: true;
                                         activated => { root.encoding-speed-index = index; }
                                     }
                                 }
@@ -783,7 +785,7 @@ export component ConverterOverlay inherits Rectangle {
                                         y: (parent.height - self.height) / 2;
                                         width: parent.width;
                                         text: root.output-path == "" ? "Выбрать…" : "Изменить…";
-                                        enabled: !root.running;
+                                        enabled: true;
                                         clicked => root.choose-output(root.preset-index);
                                     }
                                 }
@@ -824,7 +826,11 @@ export component ConverterOverlay inherits Rectangle {
 
                 if root.ffmpeg-available : UiText {
                     horizontal-stretch: 1;
-                    text: "Оригинальный файл останется без изменений";
+                    text: root.running
+                        ? root.pending-jobs > 0
+                            ? "В очереди: " + root.pending-jobs
+                            : "Можно подготовить следующую задачу"
+                        : "Оригинальный файл останется без изменений";
                     variant: TextVariant.caption;
                     color: Theme.text-secondary;
                     font-size: Theme.text-small + 1px;
@@ -865,13 +871,18 @@ export component ConverterOverlay inherits Rectangle {
                 }
 
                 if root.running : Button {
-                    text: "Отменить";
+                    text: "Отменить текущую";
                     clicked => root.cancel();
                 }
 
-                if root.ffmpeg-available && !root.running : Button {
+                if root.pending-jobs > 0 : Button {
+                    text: "Очистить очередь";
+                    clicked => root.clear-queue();
+                }
+
+                if root.ffmpeg-available : Button {
                     width: 164px;
-                    text: "Конвертировать";
+                    text: root.running ? "В очередь" : "Конвертировать";
                     primary: true;
                     enabled: root.ffmpeg-available && root.output-path != "";
                     clicked => {

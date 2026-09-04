@@ -2201,8 +2201,10 @@ pub fn run(
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(app) = weak.upgrade() {
                             app.set_conversion_output_path(value.into());
-                            app.set_conversion_progress(0.0);
-                            app.set_conversion_status("Готово к запуску".into());
+                            if !app.get_conversion_running() {
+                                app.set_conversion_progress(0.0);
+                                app.set_conversion_status("Готово к запуску".into());
+                            }
                         }
                     });
                 }
@@ -2232,15 +2234,22 @@ pub fn run(
                 app.get_conversion_keep_audio_tracks(),
                 app.get_conversion_keep_subtitle_tracks(),
             );
-            app.set_conversion_status("Подготовка FFmpeg…".into());
-            app.set_conversion_size_status("Ожидание данных FFmpeg…".into());
-            let _ = converter_tx.send(ConverterCommand::Start {
-                source,
-                output,
-                preset,
-                options,
-                duration_seconds: app.get_duration_seconds() as f64,
-            });
+            if !app.get_conversion_running() {
+                app.set_conversion_status("Подготовка FFmpeg…".into());
+                app.set_conversion_size_status("Ожидание данных FFmpeg…".into());
+            }
+            if converter_tx
+                .send(ConverterCommand::Start {
+                    source,
+                    output,
+                    preset,
+                    options,
+                    duration_seconds: app.get_duration_seconds() as f64,
+                })
+                .is_ok()
+            {
+                app.set_conversion_output_path("".into());
+            }
         });
     }
 
@@ -2248,6 +2257,13 @@ pub fn run(
         let converter_tx = converter_tx.clone();
         app.on_cancel_conversion(move || {
             let _ = converter_tx.send(ConverterCommand::Cancel);
+        });
+    }
+
+    {
+        let converter_tx = converter_tx.clone();
+        app.on_clear_conversion_queue(move || {
+            let _ = converter_tx.send(ConverterCommand::ClearQueue);
         });
     }
 
@@ -2921,11 +2937,13 @@ pub fn run(
                     ConverterEvent::Started { output } => {
                         app.set_conversion_running(true);
                         app.set_conversion_progress(0.0);
-                        app.set_conversion_output_path(
-                            output.to_string_lossy().into_owned().into(),
+                        app.set_conversion_status(
+                            format!("Конвертация: {}", output.display()).into(),
                         );
-                        app.set_conversion_status("Конвертация началась".into());
                         app.set_conversion_size_status("Записано: 0 Б".into());
+                    }
+                    ConverterEvent::QueueUpdated { pending } => {
+                        app.set_conversion_queue_count(i32::try_from(pending).unwrap_or(i32::MAX));
                     }
                     ConverterEvent::Progress {
                         fraction,
@@ -2958,39 +2976,74 @@ pub fn run(
                         source_size_bytes,
                         output_size_bytes,
                     } => {
-                        app.set_conversion_running(false);
+                        let has_next = app.get_conversion_queue_count() > 0;
+                        app.set_conversion_running(has_next);
                         apply_conversion_presets(
                             &app,
                             app.get_audio_media(),
                             app.get_audio_codec().as_str(),
                         );
                         app.set_conversion_progress(1.0);
-                        app.set_conversion_status(format!("Готово: {}", output.display()).into());
+                        app.set_conversion_status(
+                            if has_next {
+                                format!(
+                                    "Готово: {} · запускается следующая задача",
+                                    output.display()
+                                )
+                            } else {
+                                format!("Готово: {}", output.display())
+                            }
+                            .into(),
+                        );
                         app.set_conversion_size_status(
                             format_size_change(source_size_bytes, output_size_bytes).into(),
                         );
                     }
                     ConverterEvent::Canceled => {
-                        app.set_conversion_running(false);
+                        let has_next = app.get_conversion_queue_count() > 0;
+                        app.set_conversion_running(has_next);
                         apply_conversion_presets(
                             &app,
                             app.get_audio_media(),
                             app.get_audio_codec().as_str(),
                         );
                         app.set_conversion_progress(0.0);
-                        app.set_conversion_status("Конвертация отменена".into());
+                        app.set_conversion_status(
+                            if has_next {
+                                "Текущая задача отменена · запускается следующая"
+                            } else {
+                                "Конвертация отменена"
+                            }
+                            .into(),
+                        );
                         app.set_conversion_size_status(
                             "Временный файл удалён; исходник не изменён".into(),
                         );
                     }
+                    ConverterEvent::Rejected { message, active } => {
+                        if !active {
+                            app.set_conversion_running(false);
+                            app.set_conversion_status("Задача не запущена".into());
+                        }
+                        app.set_error_message(message.into());
+                        app.set_error_visible(true);
+                    }
                     ConverterEvent::Failed(message) => {
-                        app.set_conversion_running(false);
+                        let has_next = app.get_conversion_queue_count() > 0;
+                        app.set_conversion_running(has_next);
                         apply_conversion_presets(
                             &app,
                             app.get_audio_media(),
                             app.get_audio_codec().as_str(),
                         );
-                        app.set_conversion_status("Ошибка конвертации".into());
+                        app.set_conversion_status(
+                            if has_next {
+                                "Ошибка конвертации · запускается следующая задача"
+                            } else {
+                                "Ошибка конвертации"
+                            }
+                            .into(),
+                        );
                         app.set_conversion_size_status(
                             "Итоговый файл не создан; исходник не изменён".into(),
                         );

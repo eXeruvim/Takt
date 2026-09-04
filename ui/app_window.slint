@@ -125,6 +125,7 @@ export component AppWindow inherits Window {
     in-out property <bool> ffmpeg_available: false;
     in-out property <string> ffmpeg_details: "Проверка FFmpeg…";
     in-out property <bool> conversion_running: false;
+    in-out property <int> conversion_queue_count: 0;
     in-out property <float> conversion_progress: 0;
     in-out property <string> conversion_status: "";
     in-out property <bool> resume_prompt_visible: false;
@@ -219,6 +220,7 @@ export component AppWindow inherits Window {
     callback choose_conversion_output(int);
     callback start_conversion(int);
     callback cancel_conversion();
+    callback clear_conversion_queue();
     callback seek_relative(float);
     callback step_frame(int);
     callback adjust_volume(float);
@@ -745,11 +747,13 @@ export component AppWindow inherits Window {
                 ffmpeg-available: root.ffmpeg_available;
                 ffmpeg-details: root.ffmpeg_details;
                 running: root.conversion_running;
+                pending-jobs: root.conversion_queue_count;
                 progress: root.conversion_progress;
                 status-text: root.conversion_status;
                 choose-output(index) => root.choose_conversion_output(index);
                 start(index) => root.start_conversion(index);
                 cancel => root.cancel_conversion();
+                clear-queue => root.clear_conversion_queue();
                 close => { root.converter_visible = false; }
             }
 
