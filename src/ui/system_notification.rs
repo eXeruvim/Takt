@@ -1,0 +1,119 @@
+use std::{
+    mem::size_of,
+    sync::atomic::{AtomicU64, Ordering},
+    thread,
+    time::Duration,
+};
+
+use windows_sys::Win32::{
+    Foundation::HWND,
+    UI::{
+        Shell::{
+            NIF_ICON, NIF_INFO, NIF_TIP, NIIF_ERROR, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY,
+            NOTIFYICONDATAW, Shell_NotifyIconW,
+        },
+        WindowsAndMessaging::{IDI_APPLICATION, LoadIconW},
+    },
+};
+
+const OXIDE_NOTIFICATION_ID: u32 = 0x4f58_4944;
+const NOTIFICATION_LIFETIME: Duration = Duration::from_secs(10);
+static NOTIFICATION_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy)]
+pub enum NotificationKind {
+    Information,
+    Error,
+}
+
+pub fn show(hwnd: usize, title: &str, message: &str, kind: NotificationKind) -> bool {
+    if hwnd == 0 {
+        return false;
+    }
+
+    let mut data = notification_data(hwnd);
+    data.uFlags = NIF_ICON | NIF_TIP;
+    data.hIcon = unsafe { LoadIconW(std::ptr::null_mut(), IDI_APPLICATION) };
+    write_wide(&mut data.szTip, "Oxide");
+
+    // Adding an already registered id can fail while a previous notification is visible.
+    // NIM_MODIFY below intentionally updates that existing icon in this case.
+    unsafe {
+        Shell_NotifyIconW(NIM_ADD, &data);
+    }
+
+    data.uFlags = NIF_INFO;
+    data.dwInfoFlags = match kind {
+        NotificationKind::Information => NIIF_INFO,
+        NotificationKind::Error => NIIF_ERROR,
+    };
+    write_wide(&mut data.szInfoTitle, title);
+    write_wide(&mut data.szInfo, message);
+
+    let displayed = unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) } != 0;
+    if displayed {
+        let generation = NOTIFICATION_GENERATION.fetch_add(1, Ordering::AcqRel) + 1;
+        thread::spawn(move || {
+            thread::sleep(NOTIFICATION_LIFETIME);
+            if NOTIFICATION_GENERATION.load(Ordering::Acquire) == generation {
+                remove(hwnd);
+            }
+        });
+    } else {
+        remove(hwnd);
+    }
+
+    displayed
+}
+
+pub fn clear(hwnd: usize) {
+    NOTIFICATION_GENERATION.fetch_add(1, Ordering::AcqRel);
+    remove(hwnd);
+}
+
+fn notification_data(hwnd: usize) -> NOTIFYICONDATAW {
+    NOTIFYICONDATAW {
+        cbSize: size_of::<NOTIFYICONDATAW>() as u32,
+        hWnd: hwnd as HWND,
+        uID: OXIDE_NOTIFICATION_ID,
+        ..Default::default()
+    }
+}
+
+fn remove(hwnd: usize) {
+    if hwnd == 0 {
+        return;
+    }
+    let data = notification_data(hwnd);
+    unsafe {
+        Shell_NotifyIconW(NIM_DELETE, &data);
+    }
+}
+
+fn write_wide<const N: usize>(target: &mut [u16; N], value: &str) {
+    target.fill(0);
+    for (slot, code_unit) in target
+        .iter_mut()
+        .take(N.saturating_sub(1))
+        .zip(value.encode_utf16())
+    {
+        *slot = code_unit;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_wide;
+
+    #[test]
+    fn wide_notification_text_is_terminated_and_truncated_safely() {
+        let mut target = [0xffff; 5];
+        write_wide(&mut target, "Oxide player");
+
+        assert_eq!(
+            &target[..4],
+            &[b'O' as u16, b'x' as u16, b'i' as u16, b'd' as u16]
+        );
+        assert_eq!(target[4], 0);
+    }
+}

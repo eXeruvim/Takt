@@ -28,6 +28,8 @@ use crate::render::mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource};
 use crate::render::mpv_render::VideoHost;
 #[cfg(target_os = "windows")]
 use crate::ui::native_fullscreen::NativeFullscreen;
+#[cfg(target_os = "windows")]
+use crate::ui::system_notification::{self, NotificationKind};
 use slint::winit_030::{
     EventResult, WinitWindowAccessor,
     winit::{
@@ -3089,6 +3091,20 @@ pub fn run(
                         app.set_conversion_size_status(
                             format_size_change(source_size_bytes, output_size_bytes).into(),
                         );
+                        #[cfg(target_os = "windows")]
+                        if let Some(hwnd) = native_window_handle(app.window()) {
+                            let notification = format!(
+                                "{} · {}",
+                                conversion_output_title(&output),
+                                format_size_change(source_size_bytes, output_size_bytes)
+                            );
+                            system_notification::show(
+                                hwnd as usize,
+                                "Конвертация завершена",
+                                &notification,
+                                NotificationKind::Information,
+                            );
+                        }
                     }
                     ConverterEvent::Canceled { .. } => {
                         let has_next = app.get_conversion_queue_count() > 0;
@@ -3121,7 +3137,7 @@ pub fn run(
                         app.set_error_message(message.into());
                         app.set_error_visible(true);
                     }
-                    ConverterEvent::Failed { message, .. } => {
+                    ConverterEvent::Failed { output, message } => {
                         let has_next = app.get_conversion_queue_count() > 0;
                         app.set_conversion_running(has_next);
                         apply_conversion_presets(
@@ -3140,6 +3156,20 @@ pub fn run(
                         app.set_conversion_size_status(
                             "Итоговый файл не создан; исходник не изменён".into(),
                         );
+                        #[cfg(target_os = "windows")]
+                        if let Some(hwnd) = native_window_handle(app.window()) {
+                            let notification = format!(
+                                "{} · {}",
+                                conversion_output_title(&output),
+                                compact_error_message(&message)
+                            );
+                            system_notification::show(
+                                hwnd as usize,
+                                "Ошибка конвертации",
+                                &notification,
+                                NotificationKind::Error,
+                            );
+                        }
                         app.set_error_message(message.into());
                         app.set_error_visible(true);
                     }
@@ -3149,7 +3179,12 @@ pub fn run(
         }
     });
 
-    app.run()?;
+    let run_result = app.run();
+    #[cfg(target_os = "windows")]
+    if let Some(hwnd) = native_window_handle(app.window()) {
+        system_notification::clear(hwnd as usize);
+    }
+    run_result?;
 
     Ok(())
 }
