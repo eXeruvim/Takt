@@ -3,7 +3,7 @@ import { ListView } from "std-widgets.slint";
 import { PlayerControls } from "components/player_controls.slint";
 import { AudioCanvas } from "components/audio_canvas.slint";
 import { CommandEntry, CommandPaletteOverlay } from "components/command_palette.slint";
-import { ConversionPresetEntry, ConverterOverlay } from "components/converter_overlay.slint";
+import { ConversionHistoryEntry, ConversionPresetEntry, ConverterOverlay } from "components/converter_overlay.slint";
 import { AudioTrackEntry, ChapterEntry, EqualizerBandEntry, MediaInspector, RecentFileEntry, SubtitleTrackEntry } from "components/media_inspector.slint";
 import { ResumePrompt } from "components/resume_prompt.slint";
 import { ShortcutEditorOverlay, ShortcutEntry } from "components/shortcut_editor.slint";
@@ -126,6 +126,7 @@ export component AppWindow inherits Window {
     in-out property <string> ffmpeg_details: "Проверка FFmpeg…";
     in-out property <bool> conversion_running: false;
     in-out property <int> conversion_queue_count: 0;
+    in property <[ConversionHistoryEntry]> conversion_history;
     in-out property <float> conversion_progress: 0;
     in-out property <string> conversion_status: "";
     in-out property <bool> resume_prompt_visible: false;
@@ -748,6 +749,7 @@ export component AppWindow inherits Window {
                 ffmpeg-details: root.ffmpeg_details;
                 running: root.conversion_running;
                 pending-jobs: root.conversion_queue_count;
+                history: root.conversion_history;
                 progress: root.conversion_progress;
                 status-text: root.conversion_status;
                 choose-output(index) => root.choose_conversion_output(index);

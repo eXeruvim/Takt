@@ -172,15 +172,21 @@ pub enum ConverterEvent {
         source_size_bytes: u64,
         output_size_bytes: u64,
     },
-    Canceled,
+    Canceled {
+        output: PathBuf,
+    },
     QueueUpdated {
         pending: usize,
     },
     Rejected {
+        output: PathBuf,
         message: String,
         active: bool,
     },
-    Failed(String),
+    Failed {
+        output: PathBuf,
+        message: String,
+    },
 }
 
 #[derive(Debug)]
@@ -252,6 +258,7 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>) {
             }) => {
                 let Some(installation) = installation.as_ref() else {
                     let _ = tx.send(ConverterEvent::Rejected {
+                        output,
                         message: "FFmpeg не найден. Поместите ffmpeg.exe рядом с Oxide или добавьте его в PATH"
                             .to_owned(),
                         active: active_job.is_some(),
@@ -260,6 +267,7 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>) {
                 };
                 if let Err(message) = validate_job(&source, &output) {
                     let _ = tx.send(ConverterEvent::Rejected {
+                        output,
                         message,
                         active: active_job.is_some(),
                     });
@@ -274,6 +282,7 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>) {
                             output.display()
                         ),
                         active: true,
+                        output,
                     });
                     continue;
                 }
@@ -409,7 +418,10 @@ fn run_job(executable: &Path, job: JobSpec, cancel: &AtomicBool, tx: &Sender<Con
     let source = source.as_path();
     let output = output.as_path();
     if let Err(message) = validate_job(source, output) {
-        let _ = tx.send(ConverterEvent::Failed(message));
+        let _ = tx.send(ConverterEvent::Failed {
+            output: output.to_path_buf(),
+            message,
+        });
         return;
     }
 
@@ -427,9 +439,10 @@ fn run_job(executable: &Path, job: JobSpec, cancel: &AtomicBool, tx: &Sender<Con
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            let _ = tx.send(ConverterEvent::Failed(format!(
-                "Не удалось запустить FFmpeg: {error}"
-            )));
+            let _ = tx.send(ConverterEvent::Failed {
+                output: output.to_path_buf(),
+                message: format!("Не удалось запустить FFmpeg: {error}"),
+            });
             return;
         }
     };
@@ -657,7 +670,9 @@ fn monitor_child(child: &mut Child, monitor: JobMonitor<'_>) {
             let _ = child.kill();
             let _ = child.wait();
             remove_generated_output(monitor.working_output);
-            let _ = monitor.tx.send(ConverterEvent::Canceled);
+            let _ = monitor.tx.send(ConverterEvent::Canceled {
+                output: monitor.output.to_path_buf(),
+            });
             return;
         }
 
@@ -686,9 +701,10 @@ fn monitor_child(child: &mut Child, monitor: JobMonitor<'_>) {
             Ok(Some(status)) if status.success() => {
                 if let Err(error) = fs::rename(monitor.working_output, monitor.output) {
                     remove_generated_output(monitor.working_output);
-                    let _ = monitor.tx.send(ConverterEvent::Failed(format!(
-                        "Не удалось сохранить готовый файл: {error}"
-                    )));
+                    let _ = monitor.tx.send(ConverterEvent::Failed {
+                        output: monitor.output.to_path_buf(),
+                        message: format!("Не удалось сохранить готовый файл: {error}"),
+                    });
                     return;
                 }
                 let _ = monitor.tx.send(ConverterEvent::Progress {
@@ -714,21 +730,23 @@ fn monitor_child(child: &mut Child, monitor: JobMonitor<'_>) {
                     append_error_line(&mut error_log, &line);
                 }
                 let message = last_error_lines(&error_log, 8);
-                let _ = monitor
-                    .tx
-                    .send(ConverterEvent::Failed(if message.is_empty() {
+                let _ = monitor.tx.send(ConverterEvent::Failed {
+                    output: monitor.output.to_path_buf(),
+                    message: if message.is_empty() {
                         "FFmpeg завершился с ошибкой".to_owned()
                     } else {
                         format!("FFmpeg завершился с ошибкой:\n{message}")
-                    }));
+                    },
+                });
                 return;
             }
             Ok(None) => thread::sleep(WORKER_POLL_INTERVAL),
             Err(error) => {
                 remove_generated_output(monitor.working_output);
-                let _ = monitor.tx.send(ConverterEvent::Failed(format!(
-                    "Не удалось получить состояние FFmpeg: {error}"
-                )));
+                let _ = monitor.tx.send(ConverterEvent::Failed {
+                    output: monitor.output.to_path_buf(),
+                    message: format!("Не удалось получить состояние FFmpeg: {error}"),
+                });
                 return;
             }
         }

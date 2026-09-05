@@ -896,6 +896,85 @@ fn format_size_change(source_bytes: u64, output_bytes: u64) -> String {
     }
 }
 
+const MAX_CONVERSION_HISTORY_ENTRIES: usize = 50;
+
+#[derive(Clone, Debug)]
+struct ConversionHistoryRecord {
+    title: String,
+    path: String,
+    details: String,
+    status: String,
+    state: i32,
+}
+
+fn conversion_output_title(output: &Path) -> String {
+    output
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Файл конвертации".to_owned())
+}
+
+fn compact_error_message(message: &str) -> String {
+    message
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+fn conversion_history_record(event: &ConverterEvent) -> Option<ConversionHistoryRecord> {
+    let (output, details, status, state) = match event {
+        ConverterEvent::Completed {
+            output,
+            source_size_bytes,
+            output_size_bytes,
+        } => (
+            output,
+            format_size_change(*source_size_bytes, *output_size_bytes),
+            "Готово",
+            0,
+        ),
+        ConverterEvent::Canceled { output } => (
+            output,
+            "Временный файл удалён; исходник не изменён".to_owned(),
+            "Отменено",
+            2,
+        ),
+        ConverterEvent::Rejected {
+            output, message, ..
+        } => (output, compact_error_message(message), "Не запущено", 1),
+        ConverterEvent::Failed { output, message } => {
+            (output, compact_error_message(message), "Ошибка", 1)
+        }
+        _ => return None,
+    };
+
+    Some(ConversionHistoryRecord {
+        title: conversion_output_title(output),
+        path: output.display().to_string(),
+        details,
+        status: status.to_owned(),
+        state,
+    })
+}
+
+fn conversion_history_entries(
+    records: Vec<ConversionHistoryRecord>,
+) -> Vec<ConversionHistoryEntry> {
+    records
+        .into_iter()
+        .map(|record| ConversionHistoryEntry {
+            title: record.title.into(),
+            path: record.path.into(),
+            details: record.details.into(),
+            status: record.status.into(),
+            state: record.state,
+        })
+        .collect()
+}
+
 fn format_bitrate(bits_per_second: f64) -> String {
     if !bits_per_second.is_finite() || bits_per_second <= 0.0 {
         "—".to_owned()
@@ -2919,12 +2998,24 @@ pub fn run(
 
     let converter_weak = app.as_weak();
     std::thread::spawn(move || {
+        let mut conversion_history = Vec::new();
         while let Ok(event) = converter_rx.recv() {
+            let history_snapshot = conversion_history_record(&event).map(|entry| {
+                conversion_history.insert(0, entry);
+                conversion_history.truncate(MAX_CONVERSION_HISTORY_ENTRIES);
+                conversion_history.clone()
+            });
             let weak = converter_weak.clone();
             slint::invoke_from_event_loop(move || {
                 let Some(app) = weak.upgrade() else {
                     return;
                 };
+
+                if let Some(records) = history_snapshot {
+                    app.set_conversion_history(ModelRc::new(VecModel::from(
+                        conversion_history_entries(records),
+                    )));
+                }
 
                 match event {
                     ConverterEvent::Availability { available, details } => {
@@ -2999,7 +3090,7 @@ pub fn run(
                             format_size_change(source_size_bytes, output_size_bytes).into(),
                         );
                     }
-                    ConverterEvent::Canceled => {
+                    ConverterEvent::Canceled { .. } => {
                         let has_next = app.get_conversion_queue_count() > 0;
                         app.set_conversion_running(has_next);
                         apply_conversion_presets(
@@ -3020,7 +3111,9 @@ pub fn run(
                             "Временный файл удалён; исходник не изменён".into(),
                         );
                     }
-                    ConverterEvent::Rejected { message, active } => {
+                    ConverterEvent::Rejected {
+                        message, active, ..
+                    } => {
                         if !active {
                             app.set_conversion_running(false);
                             app.set_conversion_status("Задача не запущена".into());
@@ -3028,7 +3121,7 @@ pub fn run(
                         app.set_error_message(message.into());
                         app.set_error_visible(true);
                     }
-                    ConverterEvent::Failed(message) => {
+                    ConverterEvent::Failed { message, .. } => {
                         let has_next = app.get_conversion_queue_count() > 0;
                         app.set_conversion_running(has_next);
                         apply_conversion_presets(
@@ -3067,10 +3160,11 @@ mod tests {
 
     use super::{
         PALETTE_COMMANDS, ShortcutAction, ShortcutBinding, ShortcutRegistry,
-        command_for_dropped_path, command_palette_items, conversion_preset_entries, format_bitrate,
-        format_container, format_file_size, format_size_change, format_time, format_track_summary,
-        is_audio_only_media,
+        command_for_dropped_path, command_palette_items, conversion_history_record,
+        conversion_preset_entries, format_bitrate, format_container, format_file_size,
+        format_size_change, format_time, format_track_summary, is_audio_only_media,
     };
+    use crate::converter::ConverterEvent;
     use crate::ipc::Command;
     use slint::winit_030::winit::keyboard::{KeyCode, ModifiersState};
 
@@ -3109,6 +3203,37 @@ mod tests {
         assert_eq!(
             format_size_change(100 * 1024 * 1024, 125 * 1024 * 1024),
             "Результат: 125,00 МБ · на 25% больше"
+        );
+    }
+
+    #[test]
+    fn conversion_history_preserves_completed_result_details() {
+        let event = ConverterEvent::Completed {
+            output: Path::new("exports/clip.mp4").to_path_buf(),
+            source_size_bytes: 100 * 1024 * 1024,
+            output_size_bytes: 60 * 1024 * 1024,
+        };
+
+        let record = conversion_history_record(&event).expect("completed job must be recorded");
+        assert_eq!(record.title, "clip.mp4");
+        assert_eq!(record.status, "Готово");
+        assert_eq!(record.state, 0);
+        assert_eq!(record.details, "Результат: 60,00 МБ · на 40% меньше");
+    }
+
+    #[test]
+    fn conversion_history_compacts_multiline_ffmpeg_errors() {
+        let event = ConverterEvent::Failed {
+            output: Path::new("exports/clip.webm").to_path_buf(),
+            message: "FFmpeg завершился с ошибкой:\n  invalid codec  \n".to_owned(),
+        };
+
+        let record = conversion_history_record(&event).expect("failed job must be recorded");
+        assert_eq!(record.status, "Ошибка");
+        assert_eq!(record.state, 1);
+        assert_eq!(
+            record.details,
+            "FFmpeg завершился с ошибкой: · invalid codec"
         );
     }
 
