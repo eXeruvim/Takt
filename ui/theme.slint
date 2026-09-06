@@ -3,6 +3,7 @@ import { Palette } from "std-widgets.slint";
 export global Theme {
     // Color mode. `unknown` follows the system setting through Slint's palette.
     in-out property <ColorScheme> color-scheme <=> Palette.color-scheme;
+    in-out property <int> accent-mode: 0;
     out property <bool> is-dark: color-scheme == ColorScheme.dark;
 
     // Semantic surfaces. Canvas may reveal the desktop in a regular window;
@@ -37,11 +38,36 @@ export global Theme {
         ? @linear-gradient(145deg, #3a2721 0%, #242329 48%, #1b1b20 100%)
         : @linear-gradient(145deg, #f1d8ce 0%, #f7f5f4 48%, #ececf0 100%);
 
-    // Oxide copper accent: Rust-inspired without copying a brand palette.
-    out property <color> accent: is-dark ? #e07a4f : #c85f38;
-    out property <color> accent-hover: is-dark ? #eb906a : #b95330;
-    out property <color> accent-pressed: is-dark ? #c9653f : #a94729;
-    out property <color> accent-subtle: is-dark ? #e07a4f2b : #c85f3820;
+    // Curated accents keep contrast predictable in both themes. Copper remains
+    // the Oxide default and carries the Rust-inspired identity.
+    out property <color> accent: accent-mode == 1
+        ? (is-dark ? #e3a64b : #b96b13)
+        : accent-mode == 2
+            ? (is-dark ? #5fb38b : #2f8060)
+            : accent-mode == 3
+                ? (is-dark ? #6f9df5 : #3f72c8)
+                : (is-dark ? #e07a4f : #c85f38);
+    out property <color> accent-hover: accent-mode == 1
+        ? (is-dark ? #efb866 : #a75e0d)
+        : accent-mode == 2
+            ? (is-dark ? #73c69e : #277052)
+            : accent-mode == 3
+                ? (is-dark ? #83adff : #3565b5)
+                : (is-dark ? #eb906a : #b95330);
+    out property <color> accent-pressed: accent-mode == 1
+        ? (is-dark ? #c58b34 : #914f08)
+        : accent-mode == 2
+            ? (is-dark ? #459873 : #205e45)
+            : accent-mode == 3
+                ? (is-dark ? #567fcf : #2c559b)
+                : (is-dark ? #c9653f : #a94729);
+    out property <color> accent-subtle: accent-mode == 1
+        ? (is-dark ? #e3a64b2b : #b96b1320)
+        : accent-mode == 2
+            ? (is-dark ? #5fb38b2b : #2f806020)
+            : accent-mode == 3
+                ? (is-dark ? #6f9df52b : #3f72c820)
+                : (is-dark ? #e07a4f2b : #c85f3820);
     out property <color> on-accent: #ffffff;
 
     // Content colors.
@@ -63,7 +89,13 @@ export global Theme {
     out property <color> danger-subtle: is-dark ? #ff5f5724 : #d92d3a1a;
 
     // Focus and elevation.
-    out property <color> focus-ring: is-dark ? #f0a17d : #b95330;
+    out property <color> focus-ring: accent-mode == 1
+        ? (is-dark ? #f2c474 : #a75e0d)
+        : accent-mode == 2
+            ? (is-dark ? #86d4ae : #277052)
+            : accent-mode == 3
+                ? (is-dark ? #96bdff : #3565b5)
+                : (is-dark ? #f0a17d : #b95330);
     out property <length> focus-ring-width: 2px;
     out property <color> shadow-low: #00000026;
     out property <color> shadow-high: #00000052;

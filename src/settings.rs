@@ -15,6 +15,55 @@ pub enum ThemePreference {
     Light,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum AccentPreference {
+    #[default]
+    Copper,
+    Amber,
+    Sage,
+    Blue,
+}
+
+impl AccentPreference {
+    pub fn from_ui_index(index: i32) -> Option<Self> {
+        match index {
+            0 => Some(Self::Copper),
+            1 => Some(Self::Amber),
+            2 => Some(Self::Sage),
+            3 => Some(Self::Blue),
+            _ => None,
+        }
+    }
+
+    pub const fn ui_index(self) -> i32 {
+        match self {
+            Self::Copper => 0,
+            Self::Amber => 1,
+            Self::Sage => 2,
+            Self::Blue => 3,
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Copper => "copper",
+            Self::Amber => "amber",
+            Self::Sage => "sage",
+            Self::Blue => "blue",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "copper" => Some(Self::Copper),
+            "amber" => Some(Self::Amber),
+            "sage" => Some(Self::Sage),
+            "blue" => Some(Self::Blue),
+            _ => None,
+        }
+    }
+}
+
 impl ThemePreference {
     pub fn from_ui_index(index: i32) -> Option<Self> {
         match index {
@@ -54,6 +103,7 @@ impl ThemePreference {
 #[derive(Debug)]
 pub struct AppSettings {
     theme: ThemePreference,
+    accent: AccentPreference,
     storage_path: Option<PathBuf>,
     dirty: bool,
 }
@@ -62,6 +112,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             theme: ThemePreference::System,
+            accent: AccentPreference::Copper,
             storage_path: None,
             dirty: false,
         }
@@ -83,9 +134,20 @@ impl AppSettings {
         self.theme
     }
 
+    pub const fn accent(&self) -> AccentPreference {
+        self.accent
+    }
+
     pub fn set_theme(&mut self, theme: ThemePreference) {
         if self.theme != theme {
             self.theme = theme;
+            self.dirty = true;
+        }
+    }
+
+    pub fn set_accent(&mut self, accent: AccentPreference) {
+        if self.accent != accent {
+            self.accent = accent;
             self.dirty = true;
         }
     }
@@ -103,8 +165,9 @@ impl AppSettings {
         }
 
         let content = format!(
-            "{SETTINGS_FORMAT}\t{SETTINGS_VERSION}\ntheme\t{}\n",
-            self.theme.as_str()
+            "{SETTINGS_FORMAT}\t{SETTINGS_VERSION}\ntheme\t{}\naccent\t{}\n",
+            self.theme.as_str(),
+            self.accent.as_str()
         );
         fs::write(storage_path, content)?;
         self.dirty = false;
@@ -145,10 +208,18 @@ impl AppSettings {
         };
         for line in lines {
             let mut fields = line.splitn(2, '\t');
-            if let (Some("theme"), Some(value)) = (fields.next(), fields.next())
-                && let Some(theme) = ThemePreference::parse(value)
-            {
-                settings.theme = theme;
+            match (fields.next(), fields.next()) {
+                (Some("theme"), Some(value)) => {
+                    if let Some(theme) = ThemePreference::parse(value) {
+                        settings.theme = theme;
+                    }
+                }
+                (Some("accent"), Some(value)) => {
+                    if let Some(accent) = AccentPreference::parse(value) {
+                        settings.accent = accent;
+                    }
+                }
+                _ => {}
             }
         }
         Ok(settings)
@@ -180,7 +251,7 @@ fn default_storage_path() -> Option<PathBuf> {
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{AppSettings, ThemePreference};
+    use super::{AccentPreference, AppSettings, ThemePreference};
 
     fn temporary_settings_path() -> std::path::PathBuf {
         let nonce = SystemTime::now()
@@ -198,10 +269,12 @@ mod tests {
             ..AppSettings::default()
         };
         settings.set_theme(ThemePreference::Light);
+        settings.set_accent(AccentPreference::Sage);
         settings.save_if_dirty().expect("settings must be saved");
 
         let loaded = AppSettings::load_from(&path).expect("settings must be loaded");
         assert_eq!(loaded.theme(), ThemePreference::Light);
+        assert_eq!(loaded.accent(), AccentPreference::Sage);
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
     }

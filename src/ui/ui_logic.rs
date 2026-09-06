@@ -26,7 +26,7 @@ use crate::player::playlist::{
 use crate::render::mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource};
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
-use crate::settings::{AppSettings, ThemePreference};
+use crate::settings::{AccentPreference, AppSettings, ThemePreference};
 #[cfg(target_os = "windows")]
 use crate::ui::native_fullscreen::NativeFullscreen;
 #[cfg(target_os = "windows")]
@@ -43,8 +43,9 @@ use slint::winit_030::{
 use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::{
-    Foundation::{HWND, POINT},
+    Foundation::{ERROR_SUCCESS, HWND, POINT},
     Graphics::Gdi::{RDW_INTERNALPAINT, RedrawWindow},
+    System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW},
     UI::{
         Input::KeyboardAndMouse::{ReleaseCapture, SetCapture},
         WindowsAndMessaging::{GetCursorPos, GetWindowPlacement, WINDOWPLACEMENT},
@@ -55,6 +56,39 @@ slint::include_modules!();
 
 #[cfg(target_os = "windows")]
 const DRAWER_CLOSE_DELAY: Duration = Duration::from_millis(280);
+
+#[cfg(target_os = "windows")]
+fn windows_light_theme_flag(value_name: &str) -> Option<bool> {
+    let subkey = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\0"
+        .encode_utf16()
+        .collect::<Vec<_>>();
+    let value_name = format!("{value_name}\0").encode_utf16().collect::<Vec<_>>();
+    let mut value = 1_u32;
+    let mut value_size = std::mem::size_of::<u32>() as u32;
+
+    // SAFETY: Both strings are NUL-terminated for the duration of the call, and
+    // the output buffer points to a writable u32 with its exact byte length.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            subkey.as_ptr(),
+            value_name.as_ptr(),
+            RRF_RT_REG_DWORD,
+            std::ptr::null_mut(),
+            std::ptr::addr_of_mut!(value).cast(),
+            std::ptr::addr_of_mut!(value_size),
+        )
+    };
+
+    (status == ERROR_SUCCESS).then_some(value != 0)
+}
+
+#[cfg(target_os = "windows")]
+fn windows_prefers_dark_apps() -> Option<bool> {
+    windows_light_theme_flag("AppsUseLightTheme")
+        .or_else(|| windows_light_theme_flag("SystemUsesLightTheme"))
+        .map(|uses_light_theme| !uses_light_theme)
+}
 
 const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "ass", "ssa", "vtt", "sub", "idx", "sup"];
 
@@ -867,6 +901,14 @@ fn format_file_size(bytes: u64) -> String {
     }
 }
 
+fn media_name_without_extension(name: &str) -> String {
+    Path::new(name)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or_else(|| name.to_owned())
+}
+
 fn format_precise_file_size(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = KIB * 1024.0;
@@ -1324,8 +1366,11 @@ pub fn run(
     let app = AppWindow::new()?;
     app.set_app_version(format!("v{}", env!("CARGO_PKG_VERSION")).into());
     let settings = Arc::new(Mutex::new(AppSettings::load_default()));
+    #[cfg(target_os = "windows")]
+    app.set_system_dark_theme(windows_prefers_dark_apps().unwrap_or(false));
     if let Ok(settings) = settings.lock() {
         app.set_theme_mode(settings.theme().ui_index());
+        app.set_accent_mode(settings.accent().ui_index());
     }
     apply_conversion_presets(&app, false, "");
     let shortcut_registry = Arc::new(Mutex::new(ShortcutRegistry::default()));
@@ -1399,18 +1444,15 @@ pub fn run(
             };
 
             if !theme_initialized {
-                let dark_theme = if app.get_theme_mode() == ThemePreference::System.ui_index() {
-                    window
-                        .with_winit_window(|native_window| {
-                            native_window
-                                .theme()
-                                .map_or(app.get_dark_theme(), |theme| theme == WinitTheme::Dark)
-                        })
-                        .unwrap_or_else(|| app.get_dark_theme())
-                } else {
-                    app.get_dark_theme()
-                };
-                let _ = tx.send(Command::SetDarkTheme(dark_theme));
+                let system_dark_theme = window
+                    .with_winit_window(|native_window| {
+                        native_window.theme().map(|theme| theme == WinitTheme::Dark)
+                    })
+                    .flatten()
+                    .or_else(windows_prefers_dark_apps)
+                    .unwrap_or(app.get_system_dark_theme());
+                app.set_system_dark_theme(system_dark_theme);
+                let _ = tx.send(Command::SetDarkTheme(app.get_dark_theme()));
                 theme_initialized = true;
             }
 
@@ -1456,8 +1498,9 @@ pub fn run(
                     }
                 }
                 WindowEvent::ThemeChanged(theme) => {
+                    app.set_system_dark_theme(matches!(theme, WinitTheme::Dark));
                     if app.get_theme_mode() == ThemePreference::System.ui_index() {
-                        let _ = tx.send(Command::SetDarkTheme(matches!(theme, WinitTheme::Dark)));
+                        let _ = tx.send(Command::SetDarkTheme(app.get_dark_theme()));
                         window.request_redraw();
                     }
                 }
@@ -1663,6 +1706,32 @@ pub fn run(
             }
 
             EventResult::Propagate
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+        let settings = settings.clone();
+        app.on_choose_accent(move |index| {
+            let Some(accent) = AccentPreference::from_ui_index(index) else {
+                return;
+            };
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
+
+            app.set_accent_mode(accent.ui_index());
+            app.window().request_redraw();
+
+            if let Ok(mut settings) = settings.lock() {
+                settings.set_accent(accent);
+                if let Err(error) = settings.save_if_dirty() {
+                    app.set_error_message(
+                        format!("Не удалось сохранить акцентный цвет: {error}").into(),
+                    );
+                    app.set_error_visible(true);
+                }
+            }
         });
     }
 
@@ -2653,6 +2722,7 @@ pub fn run(
                     Event::LoadStarted(name) => {
                         app.set_resume_prompt_visible(false);
                         let preserve_media_surface = app.get_media_presented();
+                        app.set_audio_display_name(media_name_without_extension(&name).into());
                         app.set_file_name(name.into());
                         app.set_track_title("".into());
                         app.set_track_artist("".into());
@@ -2685,6 +2755,7 @@ pub fn run(
                     }
 
                     Event::FileLoaded { name, path } => {
+                        app.set_audio_display_name(media_name_without_extension(&name).into());
                         app.set_file_name(name.into());
                         app.set_current_media_path(path.into());
                         if !app.get_conversion_running() {
@@ -3237,6 +3308,7 @@ mod tests {
         command_for_dropped_path, command_palette_items, conversion_history_record,
         conversion_preset_entries, format_bitrate, format_container, format_file_size,
         format_size_change, format_time, format_track_summary, is_audio_only_media,
+        media_name_without_extension,
     };
     use crate::converter::ConverterEvent;
     use crate::ipc::Command;
@@ -3252,6 +3324,18 @@ mod tests {
     #[test]
     fn clamps_negative_time_to_zero() {
         assert_eq!(format_time(-10.0), "00:00");
+    }
+
+    #[test]
+    fn hides_extension_only_in_the_audio_canvas_title() {
+        assert_eq!(
+            media_name_without_extension("Artist - Track.name.mp3"),
+            "Artist - Track.name"
+        );
+        assert_eq!(
+            media_name_without_extension("Без расширения"),
+            "Без расширения"
+        );
     }
 
     #[test]

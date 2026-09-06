@@ -34,6 +34,7 @@ export component AppWindow inherits Window {
     icon: @image-url("icons/oxide.svg");
 
     in-out property <string> file_name: "Не выбран файл";
+    in-out property <string> audio_display_name: "Не выбран файл";
     in-out property <string> current_media_path: "";
     in-out property <string> codec: "—";
     in-out property <string> audio_codec: "—";
@@ -63,8 +64,11 @@ export component AppWindow inherits Window {
     in property <[EqualizerBandEntry]> equalizer_bands;
     in-out property <image> album_art;
     in-out property <bool> album_art_available: false;
-    out property <bool> dark_theme: Theme.is-dark;
+    out property <bool> dark_theme: theme_mode == 1
+        || (theme_mode == 0 && system_dark_theme);
     in-out property <int> theme_mode: 0;
+    in-out property <bool> system_dark_theme: false;
+    in-out property <int> accent_mode: 0;
     in-out property <string> resolution: "—";
     in-out property <string> fps: "—";
     in-out property <string> current_time: "00:00";
@@ -201,6 +205,7 @@ export component AppWindow inherits Window {
     callback set_aspect_ratio(int);
     callback set_hardware_decoding(bool);
     callback choose_theme(int);
+    callback choose_accent(int);
     callback set_equalizer_enabled(bool);
     callback set_equalizer_preset(int);
     callback adjust_equalizer_preamp(float);
@@ -287,9 +292,13 @@ export component AppWindow inherits Window {
                     : root.maximized
                         ? Theme.canvas-background-maximized
                         : Theme.canvas-background;
-        border-radius: root.edge_to_edge ? 0px : Theme.radius-large;
-        border-width: root.edge_to_edge ? 0px : 1px;
-        border-color: Theme.border-default;
+        border-radius: root.edge_to_edge
+            ? 0px
+            : Theme.is-dark ? Theme.radius-large : Theme.radius-medium;
+        // A contrasting one-pixel stroke showed up mainly in the antialiased
+        // corners. The rounded canvas already separates itself from the desktop.
+        border-width: 0px;
+        border-color: transparent;
         clip: true;
 
         keyboard := FocusScope {
@@ -330,8 +339,7 @@ export component AppWindow inherits Window {
                 height: max(0px, parent.height - self.y - root.audio_bottom_inset);
                 shown: root.media_presented && root.audio_media;
                 expanded: root.maximized || root.fullscreen_mode;
-                controls-visible: root.controls_visible;
-                file-name: root.file_name;
+                file-name: root.audio_display_name;
                 audio-codec: root.audio_codec;
                 track-title: root.track_title;
                 track-artist: root.track_artist;
@@ -482,7 +490,11 @@ export component AppWindow inherits Window {
                     || root.controls_visible ? 1 : 0;
                 visible: (!root.fullscreen_mode && !root.picture_in_picture)
                     || root.controls_visible || self.opacity > 0.01;
-                border-radius: 0px;
+                border-top-left-radius: root.edge_to_edge
+                    ? 0px
+                    : Theme.is-dark ? Theme.radius-large : Theme.radius-medium;
+                border-top-right-radius: self.border-top-left-radius;
+                clip: true;
                 background: Theme.surface-chrome;
                 border-width: 0px;
                 title-drag := TouchArea {
@@ -568,6 +580,9 @@ export component AppWindow inherits Window {
                         accessible-name: "Закрыть окно";
                         danger: true;
                         window-active: root.window_active;
+                        top-right-radius: root.edge_to_edge
+                            ? 0px
+                            : Theme.is-dark ? Theme.radius-large : Theme.radius-medium;
                         clicked => { root.close(); }
                     }
                 }
@@ -655,6 +670,7 @@ export component AppWindow inherits Window {
                 hardware-decoding-enabled: root.hardware_decoding_enabled;
                 hardware-decoder: root.hardware_decoder;
                 theme-mode: root.theme_mode;
+                accent-mode: root.accent_mode;
                 equalizer-enabled: root.equalizer_enabled;
                 equalizer-preset-index: root.equalizer_preset_index;
                 equalizer-preamp-db: root.equalizer_preamp_db;
@@ -686,6 +702,7 @@ export component AppWindow inherits Window {
                 set-aspect-ratio(index) => root.set_aspect_ratio(index);
                 set-hardware-decoding(enabled) => root.set_hardware_decoding(enabled);
                 choose-theme(mode) => root.choose_theme(mode);
+                choose-accent(mode) => root.choose_accent(mode);
                 step-frame(direction) => root.step_frame(direction);
                 set-equalizer-enabled(enabled) => root.set_equalizer_enabled(enabled);
                 set-equalizer-preset(index) => root.set_equalizer_preset(index);
@@ -813,10 +830,24 @@ export component AppWindow inherits Window {
         }
     }
 
+    init => {
+        Theme.color-scheme = root.dark_theme ? ColorScheme.dark : ColorScheme.light;
+        Theme.accent-mode = root.accent_mode;
+    }
+
     changed theme_mode => {
-        Theme.color-scheme = theme_mode == 1
-            ? ColorScheme.dark
-            : theme_mode == 2 ? ColorScheme.light : ColorScheme.unknown;
+        Theme.color-scheme = root.dark_theme ? ColorScheme.dark : ColorScheme.light;
+    }
+
+    changed system_dark_theme => {
+        if (root.theme_mode == 0) {
+            Theme.color-scheme = root.system_dark_theme
+                ? ColorScheme.dark : ColorScheme.light;
+        }
+    }
+
+    changed accent_mode => {
+        Theme.accent-mode = root.accent_mode;
     }
 
     function run-palette-command(action: int) {

@@ -1,6 +1,6 @@
 import { ListView, ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
-import { Button, Divider, IconButton, Toggle, UiText, TextVariant } from "../design_system/primitives.slint";
+import { Button, Divider, FocusTouchArea, IconButton, Toggle, UiText, TextVariant } from "../design_system/primitives.slint";
 import { MediaListItem, SettingsRow } from "../design_system/composites.slint";
 
 export struct AudioTrackEntry {
@@ -190,6 +190,60 @@ component EqualizerBandControl inherits Rectangle {
     }
 }
 
+component AccentChoice inherits Rectangle {
+    in property <string> text;
+    in property <color> swatch;
+    in property <bool> selected: false;
+    callback activated();
+
+    height: 36px;
+    min-width: 0px;
+    border-radius: Theme.radius-medium;
+    background: hit.pressed ? Theme.surface-pressed
+        : hit.has-hover ? Theme.surface-hover
+        : root.selected ? Theme.surface-selected : Theme.surface-control;
+    border-width: root.selected || hit.has-focus ? 1px : 0px;
+    border-color: hit.has-focus ? Theme.focus-ring : root.swatch;
+    accessible-role: radio-button;
+    accessible-label: root.text;
+    accessible-checked: root.selected;
+    accessible-action-default => root.activated();
+
+    hit := FocusTouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => root.activated();
+    }
+
+    Rectangle {
+        x: Theme.space-2;
+        y: (parent.height - self.height) / 2;
+        width: 12px;
+        height: 12px;
+        border-radius: Theme.radius-full;
+        background: root.swatch;
+        border-width: 1px;
+        border-color: Theme.border-glass;
+    }
+
+    UiText {
+        x: Theme.space-2 + 12px + Theme.space-1;
+        width: max(0px, parent.width - self.x - Theme.space-2);
+        height: parent.height;
+        text: root.text;
+        variant: TextVariant.caption;
+        color: root.selected ? Theme.text-primary : Theme.text-secondary;
+        font-size: Theme.text-small;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+
+    animate background, border-color {
+        duration: Theme.motion-fast;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
+}
+
 export component MediaInspector inherits Rectangle {
     private property <bool> prewarming: true;
     private property <bool> sound-selected: false;
@@ -222,6 +276,7 @@ export component MediaInspector inherits Rectangle {
     in property <bool> hardware-decoding-enabled: false;
     in property <string> hardware-decoder: "no";
     in property <int> theme-mode: 0;
+    in property <int> accent-mode: 0;
     in property <bool> equalizer-enabled: false;
     in property <int> equalizer-preset-index: 0;
     in property <float> equalizer-preamp-db: 0;
@@ -235,7 +290,7 @@ export component MediaInspector inherits Rectangle {
     in property <length> parent-height;
     out property <length> slide-offset: open || prewarming
         ? 0px : self.width + Theme.space-5;
-    private property <length> playback-content-height: 548px
+    private property <length> playback-content-height: 620px
         + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
         + (media-loaded && !audio-media ? 116px : 0px)
         + (media-loaded && !audio-media ? 64px : 0px)
@@ -268,6 +323,7 @@ export component MediaInspector inherits Rectangle {
     callback set-aspect-ratio(int);
     callback set-hardware-decoding(bool);
     callback choose-theme(int);
+    callback choose-accent(int);
     callback step-frame(int);
     callback set-equalizer-enabled(bool);
     callback set-equalizer-preset(int);
@@ -592,6 +648,42 @@ export component MediaInspector inherits Rectangle {
                         text: option;
                         selected: root.theme-mode == index;
                         clicked => root.choose-theme(index);
+                    }
+                }
+
+                UiText { text: "Акцент"; variant: TextVariant.label; }
+
+                HorizontalLayout {
+                    height: 36px;
+                    spacing: Theme.space-2;
+
+                    AccentChoice {
+                        horizontal-stretch: 1;
+                        text: "Медь";
+                        swatch: Theme.is-dark ? #e07a4f : #c85f38;
+                        selected: root.accent-mode == 0;
+                        activated => root.choose-accent(0);
+                    }
+                    AccentChoice {
+                        horizontal-stretch: 1;
+                        text: "Янтарь";
+                        swatch: Theme.is-dark ? #e3a64b : #b96b13;
+                        selected: root.accent-mode == 1;
+                        activated => root.choose-accent(1);
+                    }
+                    AccentChoice {
+                        horizontal-stretch: 1;
+                        text: "Шалфей";
+                        swatch: Theme.is-dark ? #5fb38b : #2f8060;
+                        selected: root.accent-mode == 2;
+                        activated => root.choose-accent(2);
+                    }
+                    AccentChoice {
+                        horizontal-stretch: 1;
+                        text: "Синий";
+                        swatch: Theme.is-dark ? #6f9df5 : #3f72c8;
+                        selected: root.accent-mode == 3;
+                        activated => root.choose-accent(3);
                     }
                 }
 

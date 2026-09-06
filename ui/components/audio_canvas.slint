@@ -27,16 +27,33 @@ component AlbumSleeve inherits Rectangle {
         width: parent.width - Theme.space-8;
         height: parent.height - Theme.space-8;
         border-radius: Theme.radius-medium;
-        background: Theme.surface-control;
+        background: @linear-gradient(145deg,
+            Theme.accent-subtle 0%,
+            Theme.surface-control 42%,
+            Theme.surface-control 100%);
         border-width: 1px;
         border-color: Theme.border-subtle;
+        clip: true;
 
-        Icon {
+        // The fallback deliberately stays quieter than real artwork: a softly
+        // tinted sleeve and a single embossed player mark, without a fake pattern.
+        Rectangle {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2 - Theme.space-3;
-            source: @image-url("../icons/oxide.svg");
-            size: min(72px, parent.width * 0.26);
-            tint: Theme.accent;
+            width: min(104px, parent.width * 0.34);
+            height: self.width;
+            border-radius: Theme.radius-full;
+            background: Theme.surface-control;
+            border-width: 1px;
+            border-color: Theme.border-default;
+
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                source: @image-url("../icons/oxide.svg");
+                size: min(64px, parent.width * 0.64);
+                tint: Theme.accent;
+            }
         }
 
         UiText {
@@ -65,76 +82,87 @@ component VinylRecord inherits Rectangle {
 
     background: transparent;
 
-    record-transform := Image {
+    // Keep the transform outside the cached subtree. When both properties live
+    // on one item, Slint's lowering pass places the cache around the transform,
+    // so every rotation invalidates and rebuilds the supposedly cached record.
+    record-transform := Rectangle {
         width: parent.width;
         height: parent.height;
+        background: transparent;
         transform-rotation: root.rotation * 1deg;
         transform-origin: { x: self.width / 2, y: self.height / 2 };
 
-        vinyl := Rectangle {
+        record-cache := Rectangle {
             width: parent.width;
             height: parent.height;
-            border-radius: Theme.radius-full;
-            background: @linear-gradient(138deg,
-                #34343a 0%,
-                #09090c 31%,
-                #202026 50%,
-                #070709 72%,
-                #2a2a30 100%);
-            border-width: 1px;
-            border-color: Theme.border-strong;
-            drop-shadow-color: Theme.shadow-high;
-            drop-shadow-blur: Theme.elevation-high-blur;
-            drop-shadow-offset-y: Theme.elevation-high-y;
+            background: transparent;
+            cache-rendering-hint: true;
 
-            for groove[index] in [0.92, 0.78, 0.64, 0.50] : Rectangle {
-                width: parent.width * groove;
-                height: self.width;
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
+            vinyl := Rectangle {
+                width: parent.width;
+                height: parent.height;
                 border-radius: Theme.radius-full;
-                background: transparent;
+                background: @linear-gradient(138deg,
+                    #34343a 0%,
+                    #09090c 31%,
+                    #202026 50%,
+                    #070709 72%,
+                    #2a2a30 100%);
                 border-width: 1px;
-                border-color: index == 1 ? #ffffff14 : #ffffff0b;
-            }
+                border-color: Theme.border-strong;
+                drop-shadow-color: Theme.shadow-high;
+                drop-shadow-blur: Theme.elevation-high-blur;
+                drop-shadow-offset-y: Theme.elevation-high-y;
 
-            Rectangle {
-                width: parent.width * 0.34;
-                height: self.width;
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-                border-radius: Theme.radius-full;
-                background: @linear-gradient(145deg,
-                    Theme.accent-hover 0%,
-                    Theme.accent-pressed 100%);
-                border-width: 1px;
-                border-color: Theme.border-glass;
-
-                Icon {
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    source: @image-url("../icons/oxide.svg");
-                    size: min(36px, parent.width * 0.52);
-                    tint: Theme.on-accent;
-                }
-
-                Rectangle {
-                    width: max(5px, parent.width * 0.09);
+                for groove[index] in [0.92, 0.78, 0.64, 0.50] : Rectangle {
+                    width: parent.width * groove;
                     height: self.width;
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
                     border-radius: Theme.radius-full;
-                    background: #111116;
+                    background: transparent;
+                    border-width: 1px;
+                    border-color: index == 1 ? #ffffff14 : #ffffff0b;
                 }
-            }
 
-            Rectangle {
-                x: parent.width * 0.18;
-                y: parent.height * 0.11;
-                width: parent.width * 0.18;
-                height: parent.height * 0.025;
-                border-radius: Theme.radius-full;
-                background: #ffffff24;
+                Rectangle {
+                    width: parent.width * 0.34;
+                    height: self.width;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: Theme.radius-full;
+                    background: @linear-gradient(145deg,
+                        Theme.accent-hover 0%,
+                        Theme.accent-pressed 100%);
+                    border-width: 1px;
+                    border-color: Theme.border-glass;
+
+                    Icon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        source: @image-url("../icons/oxide.svg");
+                        size: min(36px, parent.width * 0.52);
+                        tint: Theme.on-accent;
+                    }
+
+                    Rectangle {
+                        width: max(5px, parent.width * 0.09);
+                        height: self.width;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: Theme.radius-full;
+                        background: #111116;
+                    }
+                }
+
+                Rectangle {
+                    x: parent.width * 0.18;
+                    y: parent.height * 0.11;
+                    width: parent.width * 0.18;
+                    height: parent.height * 0.025;
+                    border-radius: Theme.radius-full;
+                    background: #ffffff24;
+                }
             }
         }
     }
@@ -146,7 +174,6 @@ export component AudioCanvas inherits Rectangle {
     in property <bool> shown;
     in property <bool> is-playing;
     in property <bool> expanded;
-    in property <bool> controls-visible: true;
     in property <string> file-name;
     in property <string> audio-codec;
     in property <string> track-title;
@@ -157,7 +184,11 @@ export component AudioCanvas inherits Rectangle {
     private property <float> record-rotation: 0;
     private property <float> record-speed: 0;
     private property <length> content-top: Theme.top-bar-height + Theme.space-4;
-    private property <length> content-bottom: Theme.player-controls-height + Theme.space-4;
+    // Use one stable optical center whether the overlay controls are visible or
+    // hidden. Moving text with the auto-hide transition made its rasterisation
+    // appear to tremble every few seconds.
+    private property <length> content-bottom: Theme.player-controls-height / 2
+        + Theme.space-4;
     private property <length> content-height: max(0px, self.height - content-top - content-bottom);
     private property <length> cover-size: min(
         expanded ? 520px : 420px,
@@ -165,10 +196,12 @@ export component AudioCanvas inherits Rectangle {
     );
     private property <length> scene-width: min(
         self.width - Theme.space-8 * 2,
-        cover-size * 1.34
+        cover-size * 1.39
     );
-    private property <length> visual-offset-y: controls-visible
-        ? 0px : Theme.player-controls-height / 2;
+    private property <length> visual-stack-height: cover-size + 112px;
+    private property <length> scene-left: (self.width - scene-width) / 2;
+    private property <length> scene-top: content-top
+        + max(0px, (content-height - visual-stack-height) / 2);
     private property <string> display-title: track-title == "" ? file-name : track-title;
     private property <string> metadata-line: track-artist != "" && album-title != ""
         ? track-artist + "  ·  " + album-title
@@ -183,17 +216,10 @@ export component AudioCanvas inherits Rectangle {
     visible: shown || self.opacity > 0.01;
     opacity: shown ? 1 : 0;
     background: transparent;
-    border-radius: Theme.radius-medium;
-    clip: true;
 
     animate opacity {
         duration: Theme.motion-normal;
         easing: cubic-bezier(0.2, 0, 0, 1);
-    }
-
-    animate visual-offset-y {
-        duration: Theme.motion-dismiss;
-        easing: cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     record-timer := Timer {
@@ -217,16 +243,15 @@ export component AudioCanvas inherits Rectangle {
     }
 
     scene := Rectangle {
-        x: (parent.width - self.width) / 2;
-        y: root.content-top + max(0px, (root.content-height - self.height) / 2)
-            + root.visual-offset-y;
+        x: root.scene-left;
+        y: root.scene-top;
         width: root.scene-width;
-        height: root.cover-size + 112px;
+        height: root.cover-size;
         background: transparent;
 
         // The record is painted first so the artwork remains the visual hero.
         VinylRecord {
-            x: root.cover-size * 0.42;
+            x: root.cover-size * 0.47;
             y: root.cover-size * 0.04;
             width: root.cover-size * 0.92;
             height: self.width;
@@ -240,42 +265,46 @@ export component AudioCanvas inherits Rectangle {
             height: root.cover-size;
             artwork: root.album-art;
             artwork-available: root.album-art-available;
+            cache-rendering-hint: true;
         }
+    }
 
-        metadata := Rectangle {
-            x: 0px;
-            y: root.cover-size + Theme.space-6;
+    // Keep text outside the continuously rotating record subtree. Rounding its
+    // origin prevents glyphs from alternating between fractional pixel positions.
+    metadata := Rectangle {
+        x: Math.round(root.scene-left / 1px) * 1px;
+        y: Math.round((root.scene-top + root.cover-size + Theme.space-6) / 1px) * 1px;
+        width: root.scene-width;
+        height: 80px;
+        background: transparent;
+        cache-rendering-hint: true;
+
+        VerticalLayout {
             width: parent.width;
-            height: 80px;
-            background: transparent;
+            height: parent.height;
+            spacing: Theme.space-2;
+            alignment: center;
 
-            VerticalLayout {
+            UiText {
                 width: parent.width;
-                height: parent.height;
-                spacing: Theme.space-2;
-                alignment: center;
+                height: 36px;
+                text: root.display-title;
+                variant: TextVariant.heading;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
 
-                UiText {
-                    width: parent.width;
-                    height: 36px;
-                    text: root.display-title;
-                    variant: TextVariant.heading;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    overflow: elide;
-                }
-
-                UiText {
-                    width: parent.width;
-                    height: 28px;
-                    text: root.display-subtitle;
-                    variant: TextVariant.caption;
-                    color: root.metadata-line == "" && root.is-playing
-                        ? Theme.accent : Theme.text-secondary;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    overflow: elide;
-                }
+            UiText {
+                width: parent.width;
+                height: 28px;
+                text: root.display-subtitle;
+                variant: TextVariant.caption;
+                color: root.metadata-line == "" && root.is-playing
+                    ? Theme.accent : Theme.text-secondary;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
             }
         }
     }

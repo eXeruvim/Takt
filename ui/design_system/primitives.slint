@@ -32,7 +32,7 @@ export component Icon inherits Image {
     image-fit: contain;
 }
 
-component FocusTouchArea {
+export component FocusTouchArea {
     in property <bool> enabled: true;
     in property <bool> capture-focus: true;
     out property <bool> pressed <=> pointer.pressed;
@@ -270,10 +270,12 @@ export component CaptionButton inherits Rectangle {
     in property <string> accessible-name;
     in property <bool> danger: false;
     in property <bool> window-active: true;
+    in property <length> top-right-radius: 0px;
     callback clicked();
 
     width: Theme.caption-button-width;
     height: Theme.top-bar-height;
+    border-top-right-radius: root.top-right-radius;
     background: hit.pressed
         ? (danger ? Theme.danger : Theme.surface-pressed)
         : hit.has-hover
