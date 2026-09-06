@@ -213,7 +213,7 @@ export component AppWindow inherits Window {
     callback adjust_equalizer_band(int, float);
     callback reset_equalizer();
     callback toggle_loop();
-    callback toggle_folder_loop();
+    callback set_folder_loop(bool);
     callback toggle_shuffle();
     callback request_media_info();
     callback toggle_fullscreen();
@@ -737,7 +737,7 @@ export component AppWindow inherits Window {
                 adjust-equalizer-preamp(delta) => root.adjust_equalizer_preamp(delta);
                 adjust-equalizer-band(index, delta) => root.adjust_equalizer_band(index, delta);
                 reset-equalizer => root.reset_equalizer();
-                toggle-folder-loop => root.toggle_folder_loop();
+                set-folder-loop(enabled) => root.set_folder_loop(enabled);
                 toggle-shuffle => root.toggle_shuffle();
                 edit-shortcuts => root.toggle_shortcuts();
             }

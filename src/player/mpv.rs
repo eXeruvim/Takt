@@ -582,8 +582,8 @@ fn handle_command(
             };
             mpv_error(mpv.set_property("loop-file", value.to_owned()))?;
         }
-        Command::ToggleFolderLoop => {
-            options.repeat_folder = !options.repeat_folder;
+        Command::SetFolderLoop(enabled) => {
+            options.repeat_folder = enabled;
             let _ = tx.send(Event::FolderLoopEnabled(options.repeat_folder));
         }
         Command::ToggleShuffle => {

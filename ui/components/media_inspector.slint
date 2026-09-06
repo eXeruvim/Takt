@@ -353,7 +353,7 @@ export component MediaInspector inherits Rectangle {
     callback adjust-equalizer-preamp(float);
     callback adjust-equalizer-band(int, float);
     callback reset-equalizer();
-    callback toggle-folder-loop();
+    callback set-folder-loop(bool);
     callback toggle-shuffle();
     callback edit-shortcuts();
 
@@ -904,11 +904,13 @@ export component MediaInspector inherits Rectangle {
 
                 SettingsRow {
                     height: Theme.space-12;
-                    title: "Повтор папки";
-                    description: "Возвращаться к началу списка";
+                    title: "После конца списка";
+                    description: root.folder-loop-enabled
+                        ? "Начать воспроизведение заново"
+                        : "Остановить воспроизведение";
                     Toggle {
                         checked: root.folder-loop-enabled;
-                        toggled => root.toggle-folder-loop();
+                        toggled(checked) => root.set-folder-loop(checked);
                     }
                 }
 

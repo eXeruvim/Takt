@@ -26,7 +26,7 @@ use crate::player::playlist::{
 use crate::render::mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource};
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
-use crate::settings::{AccentPreference, AppSettings, ThemePreference};
+use crate::settings::{AccentPreference, AppSettings, CompletionBehavior, ThemePreference};
 #[cfg(target_os = "windows")]
 use crate::ui::native_fullscreen::NativeFullscreen;
 #[cfg(target_os = "windows")]
@@ -1373,10 +1373,14 @@ pub fn run(
         app.set_accent_mode(settings.accent().ui_index());
         app.set_volume(settings.default_volume());
         app.set_speed(settings.default_speed());
+        app.set_folder_loop_enabled(settings.completion_behavior().repeats_playlist());
         let _ = tx.send(Command::SetVolume(
             f64::from(settings.default_volume()) * 100.0,
         ));
         let _ = tx.send(Command::SetSpeed(f64::from(settings.default_speed())));
+        let _ = tx.send(Command::SetFolderLoop(
+            settings.completion_behavior().repeats_playlist(),
+        ));
     }
     apply_conversion_presets(&app, false, "");
     let shortcut_registry = Arc::new(Mutex::new(ShortcutRegistry::default()));
@@ -2084,8 +2088,26 @@ pub fn run(
     {
         let tx = tx.clone();
 
-        app.on_toggle_folder_loop(move || {
-            let _ = tx.send(Command::ToggleFolderLoop);
+        let app_weak = app.as_weak();
+        let settings = settings.clone();
+        app.on_set_folder_loop(move |enabled| {
+            let _ = tx.send(Command::SetFolderLoop(enabled));
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
+            if let Ok(mut settings) = settings.lock() {
+                settings.set_completion_behavior(if enabled {
+                    CompletionBehavior::RepeatPlaylist
+                } else {
+                    CompletionBehavior::Stop
+                });
+                if let Err(error) = settings.save_if_dirty() {
+                    app.set_error_message(
+                        format!("Не удалось сохранить поведение после завершения: {error}").into(),
+                    );
+                    app.set_error_visible(true);
+                }
+            }
         });
     }
 

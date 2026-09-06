@@ -26,6 +26,34 @@ pub enum AccentPreference {
     Blue,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CompletionBehavior {
+    #[default]
+    Stop,
+    RepeatPlaylist,
+}
+
+impl CompletionBehavior {
+    pub const fn repeats_playlist(self) -> bool {
+        matches!(self, Self::RepeatPlaylist)
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Stop => "stop",
+            Self::RepeatPlaylist => "repeat-playlist",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "stop" => Some(Self::Stop),
+            "repeat-playlist" => Some(Self::RepeatPlaylist),
+            _ => None,
+        }
+    }
+}
+
 impl AccentPreference {
     pub fn from_ui_index(index: i32) -> Option<Self> {
         match index {
@@ -108,6 +136,7 @@ pub struct AppSettings {
     accent: AccentPreference,
     default_volume: f32,
     default_speed: f32,
+    completion_behavior: CompletionBehavior,
     storage_path: Option<PathBuf>,
     dirty: bool,
 }
@@ -119,6 +148,7 @@ impl Default for AppSettings {
             accent: AccentPreference::Copper,
             default_volume: DEFAULT_VOLUME,
             default_speed: DEFAULT_SPEED,
+            completion_behavior: CompletionBehavior::Stop,
             storage_path: None,
             dirty: false,
         }
@@ -150,6 +180,10 @@ impl AppSettings {
 
     pub const fn default_speed(&self) -> f32 {
         self.default_speed
+    }
+
+    pub const fn completion_behavior(&self) -> CompletionBehavior {
+        self.completion_behavior
     }
 
     pub fn set_theme(&mut self, theme: ThemePreference) {
@@ -190,6 +224,13 @@ impl AppSettings {
         }
     }
 
+    pub fn set_completion_behavior(&mut self, behavior: CompletionBehavior) {
+        if self.completion_behavior != behavior {
+            self.completion_behavior = behavior;
+            self.dirty = true;
+        }
+    }
+
     pub fn save_if_dirty(&mut self) -> std::io::Result<()> {
         if !self.dirty {
             return Ok(());
@@ -203,11 +244,12 @@ impl AppSettings {
         }
 
         let content = format!(
-            "{SETTINGS_FORMAT}\t{SETTINGS_VERSION}\ntheme\t{}\naccent\t{}\nvolume\t{}\nspeed\t{}\n",
+            "{SETTINGS_FORMAT}\t{SETTINGS_VERSION}\ntheme\t{}\naccent\t{}\nvolume\t{}\nspeed\t{}\ncompletion_behavior\t{}\n",
             self.theme.as_str(),
             self.accent.as_str(),
             self.default_volume,
-            self.default_speed
+            self.default_speed,
+            self.completion_behavior.as_str()
         );
         fs::write(storage_path, content)?;
         self.dirty = false;
@@ -273,6 +315,11 @@ impl AppSettings {
                         settings.default_speed = speed.clamp(0.25, 4.0);
                     }
                 }
+                (Some("completion_behavior"), Some(value)) => {
+                    if let Some(behavior) = CompletionBehavior::parse(value) {
+                        settings.completion_behavior = behavior;
+                    }
+                }
                 _ => {}
             }
         }
@@ -305,7 +352,9 @@ fn default_storage_path() -> Option<PathBuf> {
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{AccentPreference, AppSettings, DEFAULT_SPEED, ThemePreference};
+    use super::{
+        AccentPreference, AppSettings, CompletionBehavior, DEFAULT_SPEED, ThemePreference,
+    };
 
     fn temporary_settings_path() -> std::path::PathBuf {
         let nonce = SystemTime::now()
@@ -326,6 +375,7 @@ mod tests {
         settings.set_accent(AccentPreference::Sage);
         settings.set_default_volume(0.42);
         settings.set_default_speed(1.25);
+        settings.set_completion_behavior(CompletionBehavior::RepeatPlaylist);
         settings.save_if_dirty().expect("settings must be saved");
 
         let loaded = AppSettings::load_from(&path).expect("settings must be loaded");
@@ -333,6 +383,10 @@ mod tests {
         assert_eq!(loaded.accent(), AccentPreference::Sage);
         assert_eq!(loaded.default_volume(), 0.42);
         assert_eq!(loaded.default_speed(), 1.25);
+        assert_eq!(
+            loaded.completion_behavior(),
+            CompletionBehavior::RepeatPlaylist
+        );
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
     }
@@ -357,6 +411,7 @@ mod tests {
         let loaded = AppSettings::load_from(&path).expect("known version must be loaded");
         assert_eq!(loaded.default_volume(), 1.0);
         assert_eq!(loaded.default_speed(), DEFAULT_SPEED);
+        assert_eq!(loaded.completion_behavior(), CompletionBehavior::Stop);
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
     }

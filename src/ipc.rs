@@ -121,7 +121,7 @@ pub enum Command {
     PlayIndex(usize),
 
     ToggleLoop,
-    ToggleFolderLoop,
+    SetFolderLoop(bool),
     ToggleShuffle,
 
     SeekRelative(f64),
