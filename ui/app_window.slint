@@ -194,6 +194,7 @@ export component AppWindow inherits Window {
     callback seek(float);
     callback set_volume(float);
     callback set_speed(float);
+    callback persist_playback_defaults(float, float);
     callback select_audio_track(int);
     callback select_subtitle_track(int);
     callback load_subtitle();
@@ -272,12 +273,26 @@ export component AppWindow inherits Window {
         }
     }
 
+    playback-defaults-save-timer := Timer {
+        interval: 650ms;
+        running: false;
+        triggered => {
+            root.persist_playback_defaults(root.volume, root.speed);
+            self.stop();
+        }
+    }
+
     public function reveal-controls() {
         root.controls_visible = true;
         if (root.controls_can_hide) {
             controls-hide-timer.start();
             controls-hide-timer.restart();
         }
+    }
+
+    public function schedule-playback-defaults-save() {
+        playback-defaults-save-timer.start();
+        playback-defaults-save-timer.restart();
     }
 
     Rectangle {
@@ -624,7 +639,11 @@ export component AppWindow inherits Window {
                 previous => root.previous_video();
                 next => root.next_video();
                 seek(value) => root.seek(value);
-                set_volume(value) => root.set_volume(value);
+                set_volume(value) => {
+                    root.volume = value;
+                    root.set_volume(value);
+                    root.schedule-playback-defaults-save();
+                }
                 toggle_mute => root.toggle_mute();
                 toggle_loop => root.toggle_loop();
                 toggle_settings => root.toggle_settings();
@@ -690,7 +709,11 @@ export component AppWindow inherits Window {
                 }
                 play-index(index) => root.play_playlist_index(index);
                 open-recent(path) => root.open_recent(path);
-                set-speed(value) => root.set_speed(value);
+                set-speed(value) => {
+                    root.speed = value;
+                    root.set_speed(value);
+                    root.schedule-playback-defaults-save();
+                }
                 select-audio-track(id) => root.select_audio_track(id);
                 select-subtitle-track(id) => root.select_subtitle_track(id);
                 load-subtitle => root.load_subtitle();

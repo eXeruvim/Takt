@@ -196,6 +196,13 @@ component AccentChoice inherits Rectangle {
     in property <bool> selected: false;
     callback activated();
 
+    private property <length> label-x: Theme.space-2 + 12px + Theme.space-1;
+    private property <length> label-width: max(0px, root.width - root.label-x - Theme.space-2);
+    private property <length> estimated-text-width:
+        max(root.label-width, root.text.character-count * Theme.text-small * 0.58);
+    private property <bool> text-overflows:
+        root.estimated-text-width > root.label-width + Theme.space-1;
+
     height: 36px;
     min-width: 0px;
     border-radius: Theme.radius-medium;
@@ -226,16 +233,33 @@ component AccentChoice inherits Rectangle {
         border-color: Theme.border-glass;
     }
 
-    UiText {
-        x: Theme.space-2 + 12px + Theme.space-1;
-        width: max(0px, parent.width - self.x - Theme.space-2);
+    label-viewport := Rectangle {
+        x: root.label-x;
+        width: root.label-width;
         height: parent.height;
-        text: root.text;
-        variant: TextVariant.caption;
-        color: root.selected ? Theme.text-primary : Theme.text-secondary;
-        font-size: Theme.text-small;
-        overflow: elide;
-        vertical-alignment: center;
+        background: transparent;
+        clip: true;
+
+        UiText {
+            x: root.text-overflows && hit.has-hover
+                ? parent.width - root.estimated-text-width
+                : 0px;
+            width: root.text-overflows && hit.has-hover
+                ? root.estimated-text-width
+                : parent.width;
+            height: parent.height;
+            text: root.text;
+            variant: TextVariant.caption;
+            color: root.selected ? Theme.text-primary : Theme.text-secondary;
+            font-size: Theme.text-small;
+            overflow: elide;
+            vertical-alignment: center;
+
+            animate x {
+                duration: 1600ms;
+                easing: linear;
+            }
+        }
     }
 
     animate background, border-color {
@@ -290,7 +314,7 @@ export component MediaInspector inherits Rectangle {
     in property <length> parent-height;
     out property <length> slide-offset: open || prewarming
         ? 0px : self.width + Theme.space-5;
-    private property <length> playback-content-height: 620px
+    private property <length> playback-content-height: 652px
         + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
         + (media-loaded && !audio-media ? 116px : 0px)
         + (media-loaded && !audio-media ? 64px : 0px)
@@ -720,6 +744,13 @@ export component MediaInspector inherits Rectangle {
                         selected: root.speed == value.to-float();
                         clicked => root.set-speed(value.to-float());
                     }
+                }
+
+                UiText {
+                    text: "Выбранные громкость и скорость сохраняются для следующего запуска";
+                    variant: TextVariant.caption;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
                 }
 
                 Divider { }

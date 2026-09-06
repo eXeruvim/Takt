@@ -1371,6 +1371,12 @@ pub fn run(
     if let Ok(settings) = settings.lock() {
         app.set_theme_mode(settings.theme().ui_index());
         app.set_accent_mode(settings.accent().ui_index());
+        app.set_volume(settings.default_volume());
+        app.set_speed(settings.default_speed());
+        let _ = tx.send(Command::SetVolume(
+            f64::from(settings.default_volume()) * 100.0,
+        ));
+        let _ = tx.send(Command::SetSpeed(f64::from(settings.default_speed())));
     }
     apply_conversion_presets(&app, false, "");
     let shortcut_registry = Arc::new(Mutex::new(ShortcutRegistry::default()));
@@ -1728,6 +1734,27 @@ pub fn run(
                 if let Err(error) = settings.save_if_dirty() {
                     app.set_error_message(
                         format!("Не удалось сохранить акцентный цвет: {error}").into(),
+                    );
+                    app.set_error_visible(true);
+                }
+            }
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+        let settings = settings.clone();
+        app.on_persist_playback_defaults(move |volume, speed| {
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
+
+            if let Ok(mut settings) = settings.lock() {
+                settings.set_default_volume(volume);
+                settings.set_default_speed(speed);
+                if let Err(error) = settings.save_if_dirty() {
+                    app.set_error_message(
+                        format!("Не удалось сохранить настройки воспроизведения: {error}").into(),
                     );
                     app.set_error_visible(true);
                 }
@@ -2826,6 +2853,7 @@ pub fn run(
 
                     Event::Volume(v) => {
                         app.set_volume((v / 100.0) as f32);
+                        app.invoke_schedule_playback_defaults_save();
                     }
 
                     Event::Muted(muted) => {
@@ -2834,6 +2862,7 @@ pub fn run(
 
                     Event::Speed(v) => {
                         app.set_speed(v as f32);
+                        app.invoke_schedule_playback_defaults_save();
                     }
 
                     Event::AudioDelay(value) => {

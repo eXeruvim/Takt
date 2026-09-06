@@ -6,6 +6,8 @@ use std::{
 
 const SETTINGS_FORMAT: &str = "OXIDE_SETTINGS";
 const SETTINGS_VERSION: u32 = 1;
+const DEFAULT_VOLUME: f32 = 0.65;
+const DEFAULT_SPEED: f32 = 1.0;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ThemePreference {
@@ -104,6 +106,8 @@ impl ThemePreference {
 pub struct AppSettings {
     theme: ThemePreference,
     accent: AccentPreference,
+    default_volume: f32,
+    default_speed: f32,
     storage_path: Option<PathBuf>,
     dirty: bool,
 }
@@ -113,6 +117,8 @@ impl Default for AppSettings {
         Self {
             theme: ThemePreference::System,
             accent: AccentPreference::Copper,
+            default_volume: DEFAULT_VOLUME,
+            default_speed: DEFAULT_SPEED,
             storage_path: None,
             dirty: false,
         }
@@ -138,6 +144,14 @@ impl AppSettings {
         self.accent
     }
 
+    pub const fn default_volume(&self) -> f32 {
+        self.default_volume
+    }
+
+    pub const fn default_speed(&self) -> f32 {
+        self.default_speed
+    }
+
     pub fn set_theme(&mut self, theme: ThemePreference) {
         if self.theme != theme {
             self.theme = theme;
@@ -148,6 +162,30 @@ impl AppSettings {
     pub fn set_accent(&mut self, accent: AccentPreference) {
         if self.accent != accent {
             self.accent = accent;
+            self.dirty = true;
+        }
+    }
+
+    pub fn set_default_volume(&mut self, volume: f32) {
+        let volume = if volume.is_finite() {
+            volume.clamp(0.0, 1.0)
+        } else {
+            DEFAULT_VOLUME
+        };
+        if (self.default_volume - volume).abs() > f32::EPSILON {
+            self.default_volume = volume;
+            self.dirty = true;
+        }
+    }
+
+    pub fn set_default_speed(&mut self, speed: f32) {
+        let speed = if speed.is_finite() {
+            speed.clamp(0.25, 4.0)
+        } else {
+            DEFAULT_SPEED
+        };
+        if (self.default_speed - speed).abs() > f32::EPSILON {
+            self.default_speed = speed;
             self.dirty = true;
         }
     }
@@ -165,9 +203,11 @@ impl AppSettings {
         }
 
         let content = format!(
-            "{SETTINGS_FORMAT}\t{SETTINGS_VERSION}\ntheme\t{}\naccent\t{}\n",
+            "{SETTINGS_FORMAT}\t{SETTINGS_VERSION}\ntheme\t{}\naccent\t{}\nvolume\t{}\nspeed\t{}\n",
             self.theme.as_str(),
-            self.accent.as_str()
+            self.accent.as_str(),
+            self.default_volume,
+            self.default_speed
         );
         fs::write(storage_path, content)?;
         self.dirty = false;
@@ -219,6 +259,20 @@ impl AppSettings {
                         settings.accent = accent;
                     }
                 }
+                (Some("volume"), Some(value)) => {
+                    if let Ok(volume) = value.trim().parse::<f32>()
+                        && volume.is_finite()
+                    {
+                        settings.default_volume = volume.clamp(0.0, 1.0);
+                    }
+                }
+                (Some("speed"), Some(value)) => {
+                    if let Ok(speed) = value.trim().parse::<f32>()
+                        && speed.is_finite()
+                    {
+                        settings.default_speed = speed.clamp(0.25, 4.0);
+                    }
+                }
                 _ => {}
             }
         }
@@ -251,7 +305,7 @@ fn default_storage_path() -> Option<PathBuf> {
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{AccentPreference, AppSettings, ThemePreference};
+    use super::{AccentPreference, AppSettings, DEFAULT_SPEED, ThemePreference};
 
     fn temporary_settings_path() -> std::path::PathBuf {
         let nonce = SystemTime::now()
@@ -270,11 +324,15 @@ mod tests {
         };
         settings.set_theme(ThemePreference::Light);
         settings.set_accent(AccentPreference::Sage);
+        settings.set_default_volume(0.42);
+        settings.set_default_speed(1.25);
         settings.save_if_dirty().expect("settings must be saved");
 
         let loaded = AppSettings::load_from(&path).expect("settings must be loaded");
         assert_eq!(loaded.theme(), ThemePreference::Light);
         assert_eq!(loaded.accent(), AccentPreference::Sage);
+        assert_eq!(loaded.default_volume(), 0.42);
+        assert_eq!(loaded.default_speed(), 1.25);
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
     }
@@ -286,6 +344,19 @@ mod tests {
 
         let loaded = AppSettings::load_from(&path).expect("known version must be loaded");
         assert_eq!(loaded.theme(), ThemePreference::System);
+
+        std::fs::remove_file(path).expect("temporary settings must be removed");
+    }
+
+    #[test]
+    fn invalid_playback_defaults_are_ignored_or_clamped() {
+        let path = temporary_settings_path();
+        std::fs::write(&path, "OXIDE_SETTINGS\t1\nvolume\t5\nspeed\tnot-a-number\n")
+            .expect("fixture must be written");
+
+        let loaded = AppSettings::load_from(&path).expect("known version must be loaded");
+        assert_eq!(loaded.default_volume(), 1.0);
+        assert_eq!(loaded.default_speed(), DEFAULT_SPEED);
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
     }
