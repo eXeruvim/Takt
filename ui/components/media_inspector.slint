@@ -198,10 +198,9 @@ component AccentChoice inherits Rectangle {
 
     private property <length> label-x: Theme.space-2 + 12px + Theme.space-1;
     private property <length> label-width: max(0px, root.width - root.label-x - Theme.space-2);
-    private property <length> estimated-text-width:
-        max(root.label-width, root.text.character-count * Theme.text-small * 0.58);
+    private property <length> measured-text-width: label-text.preferred-width;
     private property <bool> text-overflows:
-        root.estimated-text-width > root.label-width + Theme.space-1;
+        root.measured-text-width > root.label-width;
 
     height: 36px;
     min-width: 0px;
@@ -240,12 +239,12 @@ component AccentChoice inherits Rectangle {
         background: transparent;
         clip: true;
 
-        UiText {
+        label-text := UiText {
             x: root.text-overflows && hit.has-hover
-                ? parent.width - root.estimated-text-width
+                ? parent.width - root.measured-text-width
                 : 0px;
             width: root.text-overflows && hit.has-hover
-                ? root.estimated-text-width
+                ? root.measured-text-width
                 : parent.width;
             height: parent.height;
             text: root.text;
@@ -256,7 +255,7 @@ component AccentChoice inherits Rectangle {
             vertical-alignment: center;
 
             animate x {
-                duration: 1600ms;
+                duration: 900ms;
                 easing: linear;
             }
         }

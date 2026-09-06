@@ -12,7 +12,10 @@ use windows_sys::Win32::{
             NIF_ICON, NIF_INFO, NIF_TIP, NIIF_ERROR, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY,
             NOTIFYICONDATAW, Shell_NotifyIconW,
         },
-        WindowsAndMessaging::{IDI_APPLICATION, LoadIconW},
+        WindowsAndMessaging::{
+            HICON, ICON_BIG, ICON_SMALL, ICON_SMALL2, IDI_APPLICATION, LoadIconW, SendMessageW,
+            WM_GETICON,
+        },
     },
 };
 
@@ -33,7 +36,7 @@ pub fn show(hwnd: usize, title: &str, message: &str, kind: NotificationKind) -> 
 
     let mut data = notification_data(hwnd);
     data.uFlags = NIF_ICON | NIF_TIP;
-    data.hIcon = unsafe { LoadIconW(std::ptr::null_mut(), IDI_APPLICATION) };
+    data.hIcon = window_icon(hwnd as HWND);
     write_wide(&mut data.szTip, "Oxide");
 
     // Adding an already registered id can fail while a previous notification is visible.
@@ -64,6 +67,17 @@ pub fn show(hwnd: usize, title: &str, message: &str, kind: NotificationKind) -> 
     }
 
     displayed
+}
+
+fn window_icon(hwnd: HWND) -> HICON {
+    for size in [ICON_SMALL2, ICON_SMALL, ICON_BIG] {
+        let icon = unsafe { SendMessageW(hwnd, WM_GETICON, size as usize, 0) } as HICON;
+        if !icon.is_null() {
+            return icon;
+        }
+    }
+
+    unsafe { LoadIconW(std::ptr::null_mut(), IDI_APPLICATION) }
 }
 
 pub fn clear(hwnd: usize) {

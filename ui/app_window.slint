@@ -529,20 +529,25 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                HorizontalLayout {
+                Rectangle {
                     x: Theme.space-4;
                     width: 116px;
                     height: parent.height;
-                    spacing: Theme.space-2;
-                    alignment: center;
+                    background: transparent;
 
-                    Icon {
+                    Image {
+                        x: 0px;
+                        y: (parent.height - self.height) / 2;
                         source: @image-url("icons/oxide.svg");
-                        size: Theme.icon-small;
-                        tint: Theme.text-primary;
+                        width: Theme.icon-small;
+                        height: Theme.icon-small;
+                        image-fit: contain;
                     }
 
                     UiText {
+                        x: Theme.space-6;
+                        width: parent.width - self.x;
+                        height: parent.height;
                         text: "Oxide";
                         variant: TextVariant.label;
                         vertical-alignment: center;
