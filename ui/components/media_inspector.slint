@@ -221,6 +221,7 @@ export component MediaInspector inherits Rectangle {
     in property <int> aspect-ratio-index: 0;
     in property <bool> hardware-decoding-enabled: false;
     in property <string> hardware-decoder: "no";
+    in property <int> theme-mode: 0;
     in property <bool> equalizer-enabled: false;
     in property <int> equalizer-preset-index: 0;
     in property <float> equalizer-preamp-db: 0;
@@ -234,7 +235,7 @@ export component MediaInspector inherits Rectangle {
     in property <length> parent-height;
     out property <length> slide-offset: open || prewarming
         ? 0px : self.width + Theme.space-5;
-    private property <length> playback-content-height: 440px
+    private property <length> playback-content-height: 548px
         + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
         + (media-loaded && !audio-media ? 116px : 0px)
         + (media-loaded && !audio-media ? 64px : 0px)
@@ -266,6 +267,7 @@ export component MediaInspector inherits Rectangle {
     callback select-chapter(int);
     callback set-aspect-ratio(int);
     callback set-hardware-decoding(bool);
+    callback choose-theme(int);
     callback step-frame(int);
     callback set-equalizer-enabled(bool);
     callback set-equalizer-preset(int);
@@ -571,6 +573,29 @@ export component MediaInspector inherits Rectangle {
                         width: parent.width;
                         height: parent.height;
                         spacing: Theme.space-4;
+
+                UiText {
+                    text: "Оформление";
+                    variant: TextVariant.caption;
+                    color: Theme.text-muted;
+                }
+
+                UiText { text: "Тема"; variant: TextVariant.label; }
+
+                HorizontalLayout {
+                    height: Theme.space-10;
+                    spacing: Theme.space-2;
+
+                    for option[index] in ["Система", "Тёмная", "Светлая"] : Button {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        text: option;
+                        selected: root.theme-mode == index;
+                        clicked => root.choose-theme(index);
+                    }
+                }
+
+                Divider { }
 
                 UiText {
                     text: "Настройки воспроизведения";

@@ -26,6 +26,7 @@ use crate::player::playlist::{
 use crate::render::mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource};
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
+use crate::settings::{AppSettings, ThemePreference};
 #[cfg(target_os = "windows")]
 use crate::ui::native_fullscreen::NativeFullscreen;
 #[cfg(target_os = "windows")]
@@ -1322,6 +1323,10 @@ pub fn run(
 ) -> Result<()> {
     let app = AppWindow::new()?;
     app.set_app_version(format!("v{}", env!("CARGO_PKG_VERSION")).into());
+    let settings = Arc::new(Mutex::new(AppSettings::load_default()));
+    if let Ok(settings) = settings.lock() {
+        app.set_theme_mode(settings.theme().ui_index());
+    }
     apply_conversion_presets(&app, false, "");
     let shortcut_registry = Arc::new(Mutex::new(ShortcutRegistry::default()));
     let command_items = Rc::new(VecModel::default());
@@ -1394,13 +1399,17 @@ pub fn run(
             };
 
             if !theme_initialized {
-                let dark_theme = window
-                    .with_winit_window(|native_window| {
-                        native_window
-                            .theme()
-                            .map_or(app.get_dark_theme(), |theme| theme == WinitTheme::Dark)
-                    })
-                    .unwrap_or_else(|| app.get_dark_theme());
+                let dark_theme = if app.get_theme_mode() == ThemePreference::System.ui_index() {
+                    window
+                        .with_winit_window(|native_window| {
+                            native_window
+                                .theme()
+                                .map_or(app.get_dark_theme(), |theme| theme == WinitTheme::Dark)
+                        })
+                        .unwrap_or_else(|| app.get_dark_theme())
+                } else {
+                    app.get_dark_theme()
+                };
                 let _ = tx.send(Command::SetDarkTheme(dark_theme));
                 theme_initialized = true;
             }
@@ -1447,8 +1456,10 @@ pub fn run(
                     }
                 }
                 WindowEvent::ThemeChanged(theme) => {
-                    let _ = tx.send(Command::SetDarkTheme(matches!(theme, WinitTheme::Dark)));
-                    window.request_redraw();
+                    if app.get_theme_mode() == ThemePreference::System.ui_index() {
+                        let _ = tx.send(Command::SetDarkTheme(matches!(theme, WinitTheme::Dark)));
+                        window.request_redraw();
+                    }
                 }
                 WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
                     // Keep Slint and the native mpv child on the same frame. Resizing the child
@@ -1876,6 +1887,34 @@ pub fn run(
         let tx = tx.clone();
         app.on_set_hardware_decoding(move |enabled| {
             let _ = tx.send(Command::SetHardwareDecoding(enabled));
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        let app_weak = app.as_weak();
+        let settings = settings.clone();
+        app.on_choose_theme(move |index| {
+            let Some(theme) = ThemePreference::from_ui_index(index) else {
+                return;
+            };
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
+
+            app.set_theme_mode(theme.ui_index());
+            let _ = tx.send(Command::SetDarkTheme(app.get_dark_theme()));
+            app.window().request_redraw();
+
+            if let Ok(mut settings) = settings.lock() {
+                settings.set_theme(theme);
+                if let Err(error) = settings.save_if_dirty() {
+                    app.set_error_message(
+                        format!("Не удалось сохранить тему оформления: {error}").into(),
+                    );
+                    app.set_error_visible(true);
+                }
+            }
         });
     }
 
