@@ -137,6 +137,7 @@ pub struct AppSettings {
     default_volume: f32,
     default_speed: f32,
     completion_behavior: CompletionBehavior,
+    hardware_decoding_enabled: bool,
     storage_path: Option<PathBuf>,
     dirty: bool,
 }
@@ -149,6 +150,7 @@ impl Default for AppSettings {
             default_volume: DEFAULT_VOLUME,
             default_speed: DEFAULT_SPEED,
             completion_behavior: CompletionBehavior::Stop,
+            hardware_decoding_enabled: false,
             storage_path: None,
             dirty: false,
         }
@@ -184,6 +186,10 @@ impl AppSettings {
 
     pub const fn completion_behavior(&self) -> CompletionBehavior {
         self.completion_behavior
+    }
+
+    pub const fn hardware_decoding_enabled(&self) -> bool {
+        self.hardware_decoding_enabled
     }
 
     pub fn set_theme(&mut self, theme: ThemePreference) {
@@ -231,6 +237,13 @@ impl AppSettings {
         }
     }
 
+    pub fn set_hardware_decoding_enabled(&mut self, enabled: bool) {
+        if self.hardware_decoding_enabled != enabled {
+            self.hardware_decoding_enabled = enabled;
+            self.dirty = true;
+        }
+    }
+
     pub fn save_if_dirty(&mut self) -> std::io::Result<()> {
         if !self.dirty {
             return Ok(());
@@ -244,12 +257,13 @@ impl AppSettings {
         }
 
         let content = format!(
-            "{SETTINGS_FORMAT}\t{SETTINGS_VERSION}\ntheme\t{}\naccent\t{}\nvolume\t{}\nspeed\t{}\ncompletion_behavior\t{}\n",
+            "{SETTINGS_FORMAT}\t{SETTINGS_VERSION}\ntheme\t{}\naccent\t{}\nvolume\t{}\nspeed\t{}\ncompletion_behavior\t{}\nhardware_decoding\t{}\n",
             self.theme.as_str(),
             self.accent.as_str(),
             self.default_volume,
             self.default_speed,
-            self.completion_behavior.as_str()
+            self.completion_behavior.as_str(),
+            self.hardware_decoding_enabled
         );
         fs::write(storage_path, content)?;
         self.dirty = false;
@@ -320,6 +334,11 @@ impl AppSettings {
                         settings.completion_behavior = behavior;
                     }
                 }
+                (Some("hardware_decoding"), Some(value)) => match value.trim() {
+                    "true" => settings.hardware_decoding_enabled = true,
+                    "false" => settings.hardware_decoding_enabled = false,
+                    _ => {}
+                },
                 _ => {}
             }
         }
@@ -376,6 +395,7 @@ mod tests {
         settings.set_default_volume(0.42);
         settings.set_default_speed(1.25);
         settings.set_completion_behavior(CompletionBehavior::RepeatPlaylist);
+        settings.set_hardware_decoding_enabled(true);
         settings.save_if_dirty().expect("settings must be saved");
 
         let loaded = AppSettings::load_from(&path).expect("settings must be loaded");
@@ -387,6 +407,7 @@ mod tests {
             loaded.completion_behavior(),
             CompletionBehavior::RepeatPlaylist
         );
+        assert!(loaded.hardware_decoding_enabled());
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
     }
@@ -412,6 +433,7 @@ mod tests {
         assert_eq!(loaded.default_volume(), 1.0);
         assert_eq!(loaded.default_speed(), DEFAULT_SPEED);
         assert_eq!(loaded.completion_behavior(), CompletionBehavior::Stop);
+        assert!(!loaded.hardware_decoding_enabled());
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
     }

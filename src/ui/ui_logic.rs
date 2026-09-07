@@ -1374,12 +1374,16 @@ pub fn run(
         app.set_volume(settings.default_volume());
         app.set_speed(settings.default_speed());
         app.set_folder_loop_enabled(settings.completion_behavior().repeats_playlist());
+        app.set_hardware_decoding_enabled(settings.hardware_decoding_enabled());
         let _ = tx.send(Command::SetVolume(
             f64::from(settings.default_volume()) * 100.0,
         ));
         let _ = tx.send(Command::SetSpeed(f64::from(settings.default_speed())));
         let _ = tx.send(Command::SetFolderLoop(
             settings.completion_behavior().repeats_playlist(),
+        ));
+        let _ = tx.send(Command::SetHardwareDecoding(
+            settings.hardware_decoding_enabled(),
         ));
     }
     apply_conversion_presets(&app, false, "");
@@ -1985,8 +1989,25 @@ pub fn run(
 
     {
         let tx = tx.clone();
+        let app_weak = app.as_weak();
+        let settings = settings.clone();
         app.on_set_hardware_decoding(move |enabled| {
             let _ = tx.send(Command::SetHardwareDecoding(enabled));
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
+            if let Ok(mut settings) = settings.lock() {
+                settings.set_hardware_decoding_enabled(enabled);
+                if let Err(error) = settings.save_if_dirty() {
+                    app.set_error_message(
+                        format!(
+                            "Не удалось сохранить настройку аппаратного декодирования: {error}"
+                        )
+                        .into(),
+                    );
+                    app.set_error_visible(true);
+                }
+            }
         });
     }
 
