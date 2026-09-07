@@ -1,5 +1,5 @@
 import { Theme } from "../theme.slint";
-import { Button, Divider, UiText, TextVariant } from "primitives.slint";
+import { Button, Divider, IconButton, UiText, TextVariant } from "primitives.slint";
 
 export component Drawer inherits Rectangle {
     in property <bool> open: false;
@@ -265,7 +265,7 @@ export component SettingsRow inherits Rectangle {
         spacing: Theme.space-4;
         alignment: center;
 
-        VerticalLayout {
+        if root.description != "" : VerticalLayout {
             min-width: 0px;
             horizontal-stretch: 1;
             vertical-stretch: 1;
@@ -283,6 +283,16 @@ export component SettingsRow inherits Rectangle {
             }
         }
 
+        if root.description == "" : UiText {
+            min-width: 0px;
+            horizontal-stretch: 1;
+            height: parent.height;
+            text: root.title;
+            variant: TextVariant.label;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+
         @children
     }
 }
@@ -292,7 +302,9 @@ export component MediaListItem inherits Rectangle {
     in property <string> subtitle;
     in property <bool> selected: false;
     in property <bool> enabled: true;
+    in property <bool> removable: false;
     callback activated();
+    callback remove-requested();
 
     height: Theme.space-12;
     min-width: 0px;
@@ -309,7 +321,7 @@ export component MediaListItem inherits Rectangle {
     accessible-label: title;
 
     private property <length> estimated-title-width:
-        max(title-viewport.width, title.character-count * 7.2px);
+        max(title-viewport.width, title-text.preferred-width);
     private property <bool> title-overflows:
         estimated-title-width > title-viewport.width + Theme.space-1;
 
@@ -321,7 +333,8 @@ export component MediaListItem inherits Rectangle {
     title-viewport := Rectangle {
         x: Theme.space-3;
         y: Theme.space-1;
-        width: max(0px, root.width - Theme.space-6);
+        width: max(0px, root.width - Theme.space-6
+            - (root.removable ? Theme.space-8 : 0px));
         height: Theme.space-5;
         background: transparent;
         clip: true;
@@ -356,6 +369,24 @@ export component MediaListItem inherits Rectangle {
         variant: TextVariant.caption;
         overflow: elide;
         vertical-alignment: center;
+    }
+
+    if root.removable : remove-button := IconButton {
+        x: parent.width - self.width - Theme.space-1;
+        y: (parent.height - self.height) / 2;
+        width: Theme.space-8;
+        height: Theme.space-8;
+        opacity: root.selected || hit.has-hover || self.has-hover ? 1 : 0;
+        icon: @image-url("../icons/window-close.svg");
+        accessible-name: "Убрать из очереди";
+        circular: true;
+        capture-focus: false;
+        clicked => root.remove-requested();
+
+        animate opacity {
+            duration: Theme.motion-fast;
+            easing: cubic-bezier(0.2, 0, 0, 1);
+        }
     }
 
     animate background, opacity {

@@ -145,6 +145,24 @@ impl DirectoryPlaylist {
             .unwrap_or_default();
     }
 
+    pub fn remove(&mut self, index: usize) -> Option<bool> {
+        if index >= self.files.len() {
+            return None;
+        }
+
+        let removed_current = index == self.current_index;
+        self.files.remove(index);
+        if self.files.is_empty() {
+            self.current_index = 0;
+        } else if index < self.current_index {
+            self.current_index -= 1;
+        } else if self.current_index >= self.files.len() {
+            self.current_index = self.files.len() - 1;
+        }
+
+        Some(removed_current)
+    }
+
     pub fn remove_current_and_select(&mut self, next: bool, wrap: bool) -> Option<PathBuf> {
         if self.files.is_empty() || self.current_index >= self.files.len() {
             return None;
@@ -442,5 +460,27 @@ mod tests {
         assert_eq!(playlist.current_index(), 1);
         assert_eq!(playlist.select(2), None);
         assert_eq!(playlist.current_index(), 1);
+    }
+
+    #[test]
+    fn removing_playlist_items_keeps_a_valid_current_selection() {
+        let mut playlist = DirectoryPlaylist {
+            files: ["one.mp4", "two.mp4", "three.mp4"]
+                .map(PathBuf::from)
+                .to_vec(),
+            current_index: 1,
+        };
+
+        assert_eq!(playlist.remove(0), Some(false));
+        assert_eq!(playlist.current_path(), Some(&PathBuf::from("two.mp4")));
+        assert_eq!(playlist.current_index(), 0);
+
+        assert_eq!(playlist.remove(0), Some(true));
+        assert_eq!(playlist.current_path(), Some(&PathBuf::from("three.mp4")));
+        assert_eq!(playlist.current_index(), 0);
+
+        assert_eq!(playlist.remove(0), Some(true));
+        assert_eq!(playlist.current_path(), None);
+        assert_eq!(playlist.remove(0), None);
     }
 }

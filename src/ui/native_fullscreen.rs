@@ -13,8 +13,9 @@ use windows_sys::{
             CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
         },
         UI::WindowsAndMessaging::{
-            GetWindowPlacement, SWP_NOOWNERZORDER, SWP_SHOWWINDOW, SetWindowPlacement,
-            SetWindowPos, WINDOWPLACEMENT,
+            GetWindowPlacement, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE,
+            SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowPlacement, SetWindowPos,
+            WINDOWPLACEMENT,
         },
     },
     core::{BOOL, GUID, HRESULT, IUnknown_Vtbl},
@@ -108,7 +109,7 @@ impl NativeFullscreen {
         let updated = unsafe {
             SetWindowPos(
                 hwnd,
-                std::ptr::null_mut(),
+                HWND_TOPMOST,
                 bounds.left,
                 bounds.top,
                 bounds.right - bounds.left,
@@ -131,6 +132,21 @@ impl NativeFullscreen {
         };
 
         taskbar_mark_fullscreen(hwnd, false);
+        let restored_z_order = unsafe {
+            SetWindowPos(
+                hwnd,
+                HWND_NOTOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_NOACTIVATE,
+            )
+        };
+        if restored_z_order == 0 {
+            self.saved_placement = Some(placement);
+            return Err(anyhow!("Не удалось восстановить порядок окна"));
+        }
         let restored = unsafe { SetWindowPlacement(hwnd, &placement) };
         if restored == 0 {
             self.saved_placement = Some(placement);

@@ -435,18 +435,15 @@ export component Toggle inherits Rectangle {
     in property <bool> enabled: true;
     callback toggled(bool);
 
-    width: Theme.space-10;
-    height: Theme.space-6;
-    border-radius: Theme.radius-full;
+    width: 44px;
+    height: 26px;
+    border-radius: Theme.radius-medium;
     background: checked
-        ? interaction.pressed ? Theme.accent-pressed
-            : interaction.has-hover ? Theme.accent-hover
-            : Theme.accent
-        : interaction.pressed ? Theme.surface-pressed
-            : interaction.has-hover ? Theme.border-strong
-            : Theme.border-default;
-    border-width: interaction.has-focus ? Theme.focus-ring-width : 0px;
-    border-color: Theme.focus-ring;
+        ? interaction.pressed ? Theme.surface-pressed : Theme.accent-subtle
+        : interaction.pressed ? Theme.surface-pressed : Theme.surface-control;
+    border-width: 1px;
+    border-color: checked ? Theme.accent
+        : interaction.has-hover ? Theme.border-strong : Theme.border-default;
     opacity: enabled ? 1 : 0.45;
     forward-focus: interaction;
     accessible-role: switch;
@@ -457,6 +454,7 @@ export component Toggle inherits Rectangle {
         width: parent.width;
         height: parent.height;
         enabled: root.enabled;
+        capture-focus: false;
         clicked => {
             root.checked = !root.checked;
             root.toggled(root.checked);
@@ -464,20 +462,66 @@ export component Toggle inherits Rectangle {
     }
 
     Rectangle {
-        x: root.checked ? parent.width - self.width - Theme.space-1 : Theme.space-1;
-        y: Theme.space-1;
-        width: Theme.space-4;
-        height: Theme.space-4;
-        border-radius: Theme.radius-full;
-        background: root.checked ? Theme.on-accent : Theme.text-secondary;
-        animate x {
-            duration: Theme.motion-fast;
-            easing: cubic-bezier(0.16, 1, 0.3, 1);
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: Theme.radius-large;
+        background: transparent;
+        border-width: interaction.has-focus ? Theme.focus-ring-width : 0px;
+        border-color: Theme.focus-ring;
+    }
+
+    Rectangle {
+        x: Theme.space-2;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - Theme.space-4;
+        height: 2px;
+        border-radius: 1px;
+        background: root.checked ? Theme.accent : Theme.border-strong;
+        opacity: root.checked ? 0.55 : 0.7;
+
+        animate background, opacity {
+            duration: Theme.motion-normal;
+            easing: cubic-bezier(0.2, 0, 0, 1);
         }
     }
 
-    animate background, opacity {
-        duration: Theme.motion-fast;
+    thumb := Rectangle {
+        x: root.checked ? parent.width - self.width - 5px : 5px;
+        y: (parent.height - self.height) / 2;
+        width: 16px;
+        height: 16px;
+        border-radius: 5px;
+        background: root.checked ? Theme.accent : Theme.surface-chrome;
+        border-width: 1px;
+        border-color: root.checked ? Theme.accent-hover : Theme.border-strong;
+        drop-shadow-color: Theme.shadow-low;
+        drop-shadow-blur: 4px;
+        drop-shadow-offset-y: 1px;
+
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 4px;
+            height: 4px;
+            border-radius: 2px;
+            background: root.checked ? Theme.on-accent : Theme.text-muted;
+        }
+
+        animate x {
+            duration: Theme.motion-gentle;
+            easing: cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        animate background, border-color {
+            duration: Theme.motion-normal;
+            easing: cubic-bezier(0.2, 0, 0, 1);
+        }
+    }
+
+    animate background, border-color, opacity {
+        duration: Theme.motion-normal;
         easing: cubic-bezier(0.2, 0, 0, 1);
     }
 }

@@ -8,7 +8,7 @@ import { AudioTrackEntry, ChapterEntry, EqualizerBandEntry, MediaInspector, Rece
 import { ResumePrompt } from "components/resume_prompt.slint";
 import { ShortcutEditorOverlay, ShortcutEntry } from "components/shortcut_editor.slint";
 import { MediaListItem, Toast } from "design_system/composites.slint";
-import { CaptionButton, EmptyState, Icon, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
+import { CaptionButton, EmptyState, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
 
 export enum PlayerPhase {
     empty,
@@ -91,6 +91,8 @@ export component AppWindow inherits Window {
         : "";
     in-out property <float> volume: 0.65;
     in-out property <bool> muted: false;
+    private property <bool> volume_feedback_armed: false;
+    private property <bool> volume_feedback_visible: false;
     in-out property <float> speed: 1.0;
     in-out property <bool> loop_enabled: false;
     in-out property <bool> folder_loop_enabled: false;
@@ -160,6 +162,7 @@ export component AppWindow inherits Window {
     out property <length> audio_top_inset: video_top_inset;
     out property <length> audio_bottom_inset: video_bottom_inset;
     out property <length> player_controls_slide_offset: controls_visible
+        || volume_feedback_visible
         ? 0px
         : Theme.space-3;
     in-out property <bool> error_visible: false;
@@ -167,6 +170,7 @@ export component AppWindow inherits Window {
     in-out property <bool> drop_target_visible: false;
     in property <[string]> playlist_items;
     in-out property <int> playlist_current_index: -1;
+    in-out property <int> playlist_focus_revision: 0;
     out property <length> shortcut_editor_right_inset: shortcut_editor_visible
         || shortcut-editor.opacity > 0.01
         ? min(self.width - Theme.space-8, 520px) + Theme.space-6
@@ -235,6 +239,7 @@ export component AppWindow inherits Window {
     callback adjust_volume(float);
     callback toggle_mute();
     callback play_playlist_index(int);
+    callback remove_playlist_index(int);
     callback open_recent(string);
     callback resume_saved_playback();
     callback restart_saved_playback();
@@ -282,6 +287,24 @@ export component AppWindow inherits Window {
         }
     }
 
+    volume-feedback-arm-timer := Timer {
+        interval: 750ms;
+        running: true;
+        triggered => {
+            root.volume_feedback_armed = true;
+            self.stop();
+        }
+    }
+
+    volume-feedback-hide-timer := Timer {
+        interval: 800ms;
+        running: false;
+        triggered => {
+            root.volume_feedback_visible = false;
+            self.stop();
+        }
+    }
+
     public function reveal-controls() {
         root.controls_visible = true;
         if (root.controls_can_hide) {
@@ -295,18 +318,28 @@ export component AppWindow inherits Window {
         playback-defaults-save-timer.restart();
     }
 
+    public function reveal-volume-feedback() {
+        if (root.volume_feedback_armed) {
+            root.volume_feedback_visible = true;
+            volume-feedback-hide-timer.start();
+            volume-feedback-hide-timer.restart();
+        }
+    }
+
+    changed volume => root.reveal-volume-feedback();
+
     Rectangle {
         width: parent.width;
         height: parent.height;
         background: root.media_presented && root.audio_media
-            ? Theme.audio-canvas-background
+            ? root.edge_to_edge
+                ? Theme.audio-canvas-background-opaque
+                : Theme.audio-canvas-background
             : root.media_presented && root.integrated_video_renderer
                 ? transparent
-                : root.fullscreen_mode
+                : root.edge_to_edge
                     ? Theme.canvas-background-opaque
-                    : root.maximized
-                        ? Theme.canvas-background-maximized
-                        : Theme.canvas-background;
+                    : Theme.canvas-background;
         border-radius: root.edge_to_edge
             ? 0px
             : Theme.is-dark ? Theme.radius-large : Theme.radius-medium;
@@ -617,8 +650,11 @@ export component AppWindow inherits Window {
                 x: 0px;
                 y: parent.height - self.height + root.player_controls_slide_offset;
                 width: parent.width;
-                opacity: root.media_presented && root.controls_visible ? 1 : 0;
-                visible: root.media_presented && (root.controls_visible || self.opacity > 0.01);
+                opacity: root.media_presented
+                    && (root.controls_visible || root.volume_feedback_visible) ? 1 : 0;
+                visible: root.media_presented
+                    && (root.controls_visible || root.volume_feedback_visible
+                        || self.opacity > 0.01);
                 media_loaded: root.media_loaded;
                 is_playing: root.is_playing;
                 progress <=> root.progress;
@@ -627,6 +663,7 @@ export component AppWindow inherits Window {
                 duration_seconds: root.duration_seconds;
                 volume: root.volume;
                 muted: root.muted;
+                volume-feedback-visible: root.volume_feedback_visible;
                 loop_enabled: root.loop_enabled;
                 edge_to_edge: root.edge_to_edge;
                 fullscreen_active: root.fullscreen_mode;
@@ -670,6 +707,7 @@ export component AppWindow inherits Window {
                 items: root.playlist_items;
                 recent-files: root.recent_files;
                 current-index: root.playlist_current_index;
+                playlist-focus-revision: root.playlist_focus_revision;
                 file-name: root.file_name;
                 codec: root.codec;
                 audio-codec: root.audio_codec;
@@ -713,6 +751,7 @@ export component AppWindow inherits Window {
                     else if (root.settings_drawer_visible) { root.toggle_settings(); }
                 }
                 play-index(index) => root.play_playlist_index(index);
+                remove-index(index) => root.remove_playlist_index(index);
                 open-recent(path) => root.open_recent(path);
                 set-speed(value) => {
                     root.speed = value;

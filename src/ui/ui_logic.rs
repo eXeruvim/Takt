@@ -2588,6 +2588,16 @@ pub fn run(
         });
     }
 
+    {
+        let tx = tx.clone();
+
+        app.on_remove_playlist_index(move |index| {
+            if let Ok(index) = usize::try_from(index) {
+                let _ = tx.send(Command::RemoveIndex(index));
+            }
+        });
+    }
+
     #[cfg(target_os = "windows")]
     {
         let app_weak = app.as_weak();
@@ -2931,6 +2941,9 @@ pub fn run(
                         app.set_playlist_items(ModelRc::new(VecModel::from(items)));
                         app.set_playlist_current_index(
                             i32::try_from(current_index).unwrap_or(i32::MAX),
+                        );
+                        app.set_playlist_focus_revision(
+                            app.get_playlist_focus_revision().wrapping_add(1),
                         );
                         if let Some(next_file) = next_file {
                             app.set_next_file(next_file);

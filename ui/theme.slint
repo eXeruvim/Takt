@@ -34,6 +34,9 @@ export global Theme {
     out property <brush> audio-canvas-background: is-dark
         ? @linear-gradient(160deg, #14141966 0%, #0d0d1175 100%)
         : @linear-gradient(160deg, #fafafb70 0%, #f1f1f480 100%);
+    out property <brush> audio-canvas-background-opaque: is-dark
+        ? @linear-gradient(160deg, #141419 0%, #0d0d11 100%)
+        : @linear-gradient(160deg, #fafafb 0%, #f1f1f4 100%);
     out property <brush> audio-artwork-placeholder: is-dark
         ? @linear-gradient(145deg, #3a2721 0%, #242329 48%, #1b1b20 100%)
         : @linear-gradient(145deg, #f1d8ce 0%, #f7f5f4 48%, #ececf0 100%);

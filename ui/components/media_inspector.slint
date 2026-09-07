@@ -31,6 +31,110 @@ export struct RecentFileEntry {
     location: string,
 }
 
+component PlaylistQueue inherits Rectangle {
+    in property <[string]> items;
+    in property <int> current-index: -1;
+    in property <int> focus-revision: 0;
+    callback play-index(int);
+    callback remove-index(int);
+    private property <length> item-height: Theme.space-12 + Theme.space-1;
+    private property <bool> auto-centering: false;
+    private property <length> center-start: 0px;
+    private property <float> center-progress: 0;
+    background: transparent;
+
+    function target-offset() -> length {
+        if (root.current-index < 0 || root.items.length == 0) {
+            return playlist-list.viewport-y;
+        }
+        let content-height = root.items.length * root.item-height;
+        let minimum-offset = min(0px, playlist-list.visible-height - content-height);
+        let centered-offset = playlist-list.visible-height / 2 - root.item-height / 2
+            - root.current-index * root.item-height;
+        return max(minimum-offset, min(0px, centered-offset));
+    }
+
+    function center-current() {
+        if (root.current-index >= 0 && root.items.length > 0) {
+            root.center-start = playlist-list.viewport-y;
+            root.center-progress = 0;
+            root.auto-centering = true;
+        }
+    }
+
+    changed current-index => root.center-current();
+    changed items => root.center-current();
+    changed focus-revision => root.center-current();
+    changed height => root.center-current();
+
+    center-timer := Timer {
+        interval: 16ms;
+        running: root.auto-centering;
+        triggered => {
+            let target = root.target-offset();
+            root.center-progress = min(1, root.center-progress + 0.04);
+            let eased = root.center-progress * root.center-progress
+                * (3 - 2 * root.center-progress);
+            playlist-list.viewport-y = root.center-start
+                + (target - root.center-start) * eased;
+            if (root.center-progress >= 1) {
+                playlist-list.viewport-y = target;
+                root.auto-centering = false;
+            }
+        }
+    }
+
+    playlist-list := ListView {
+        width: parent.width;
+        height: parent.height;
+
+        for item[index] in root.items : Rectangle {
+            width: max(0px, playlist-list.visible-width - Theme.space-5);
+            height: root.item-height;
+            background: transparent;
+
+            MediaListItem {
+                width: parent.width;
+                title: item;
+                subtitle: index == root.current-index
+                    ? "Сейчас воспроизводится" : "Открыть";
+                selected: index == root.current-index;
+                removable: true;
+                activated => root.play-index(index);
+                remove-requested => root.remove-index(index);
+            }
+        }
+    }
+}
+
+component CompactToggleRow inherits Rectangle {
+    in property <string> title;
+    in property <bool> checked: false;
+    callback toggled(bool);
+
+    min-height: Theme.space-10;
+    background: transparent;
+
+    control := Toggle {
+        x: parent.width * 2 / 3;
+        y: (parent.height - self.height) / 2;
+        checked: root.checked;
+        toggled(checked) => root.toggled(checked);
+    }
+
+    UiText {
+        x: Theme.space-2;
+        y: 0px;
+        width: max(0px, control.x - self.x - Theme.space-3);
+        height: parent.height;
+        text: root.title;
+        variant: TextVariant.label;
+        overflow: elide;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+    }
+}
+
 component PropertyRow inherits Rectangle {
     in property <string> label;
     in property <string> value;
@@ -277,6 +381,7 @@ export component MediaInspector inherits Rectangle {
     in property <[string]> items;
     in property <[RecentFileEntry]> recent-files;
     in property <int> current-index: -1;
+    in property <int> playlist-focus-revision: 0;
     in property <string> file-name;
     in property <string> codec;
     in property <string> audio-codec;
@@ -313,13 +418,14 @@ export component MediaInspector inherits Rectangle {
     in property <length> parent-height;
     out property <length> slide-offset: open || prewarming
         ? 0px : self.width + Theme.space-5;
-    private property <length> playback-content-height: 652px
+    private property <length> playback-content-height: 599px
         + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
         + (media-loaded && !audio-media ? 116px : 0px)
         + (media-loaded && !audio-media ? 64px : 0px)
         + (media-loaded && !audio-media ? 96px : 0px)
-        + (media-loaded ? 168px + subtitle-tracks.length * 48px : 0px)
-        + (subtitle-tracks.length > 0 ? 144px : 0px);
+        + (media-loaded && !audio-media
+            ? 168px + subtitle-tracks.length * 48px : 0px)
+        + (!audio-media && subtitle-tracks.length > 0 ? 144px : 0px);
     private property <length> sound-content-height: media-loaded
         ? 372px
             + (audio-tracks.length > 0 ? 88px : 0px)
@@ -333,6 +439,7 @@ export component MediaInspector inherits Rectangle {
     callback show-playback();
     callback close();
     callback play-index(int);
+    callback remove-index(int);
     callback open-recent(string);
     callback set-speed(float);
     callback select-audio-track(int);
@@ -491,23 +598,13 @@ export component MediaInspector inherits Rectangle {
                 wrap: word-wrap;
             }
 
-            if root.items.length > 0 : ListView {
+            if root.items.length > 0 : PlaylistQueue {
                 vertical-stretch: 1;
-
-                for item[index] in root.items : Rectangle {
-                    width: parent.width;
-                    height: Theme.space-12 + Theme.space-1;
-                    background: transparent;
-
-                    MediaListItem {
-                        width: parent.width;
-                        title: item;
-                        subtitle: index == root.current-index
-                            ? "Сейчас воспроизводится" : "Открыть";
-                        selected: index == root.current-index;
-                        activated => root.play-index(index);
-                    }
-                }
+                items: root.items;
+                current-index: root.current-index;
+                focus-revision: root.playlist-focus-revision;
+                play-index(index) => root.play-index(index);
+                remove-index(index) => root.remove-index(index);
             }
 
             Rectangle {
@@ -651,7 +748,8 @@ export component MediaInspector inherits Rectangle {
                     VerticalLayout {
                         width: parent.width;
                         height: parent.height;
-                        spacing: Theme.space-4;
+                        spacing: Theme.space-3;
+                        alignment: start;
 
                 UiText {
                     text: "Оформление";
@@ -852,12 +950,12 @@ export component MediaInspector inherits Rectangle {
 
                 if root.media-loaded && !root.audio-media : Divider { }
 
-                if root.media-loaded : UiText {
+                if root.media-loaded && !root.audio-media : UiText {
                     text: "Субтитры";
                     variant: TextVariant.label;
                 }
 
-                if root.media-loaded : VerticalLayout {
+                if root.media-loaded && !root.audio-media : VerticalLayout {
                     spacing: Theme.space-2;
 
                     Button {
@@ -881,44 +979,52 @@ export component MediaInspector inherits Rectangle {
                     }
                 }
 
-                if root.media-loaded : Divider { }
+                if root.media-loaded && !root.audio-media : Divider { }
 
-                if root.subtitle-tracks.length > 0 : UiText {
+                if !root.audio-media && root.subtitle-tracks.length > 0 : UiText {
                     text: "Синхронизация субтитров";
                     variant: TextVariant.label;
                 }
 
-                if root.subtitle-tracks.length > 0 : UiText {
+                if !root.audio-media && root.subtitle-tracks.length > 0 : UiText {
                     text: "− раньше  ·  + позже";
                     variant: TextVariant.caption;
                     color: Theme.text-muted;
                 }
 
-                if root.subtitle-tracks.length > 0 : DelayControl {
+                if !root.audio-media && root.subtitle-tracks.length > 0 : DelayControl {
                     value: root.subtitle-delay;
                     adjust(delta) => root.adjust-subtitle-delay(delta);
                     reset => root.reset-subtitle-delay();
                 }
 
-                if root.subtitle-tracks.length > 0 : Divider { }
+                if !root.audio-media && root.subtitle-tracks.length > 0 : Divider { }
 
-                SettingsRow {
-                    height: Theme.space-12;
-                    title: "После конца списка";
-                    description: root.folder-loop-enabled
-                        ? "Начать воспроизведение заново"
-                        : "Остановить воспроизведение";
-                    Toggle {
+                Rectangle {
+                    height: 88px;
+                    horizontal-stretch: 1;
+                    background: transparent;
+
+                    CompactToggleRow {
+                        x: (parent.width - self.width) / 2;
+                        y: 0px;
+                        width: min(parent.width - Theme.space-4, 280px);
+                        height: Theme.space-10;
+                        border-radius: Theme.radius-medium;
+                        background: Theme.surface-control;
+                        title: "Повторять список";
                         checked: root.folder-loop-enabled;
                         toggled(checked) => root.set-folder-loop(checked);
                     }
-                }
 
-                SettingsRow {
-                    height: Theme.space-12;
-                    title: "Случайный порядок";
-                    description: "Перемешивать соседние медиафайлы";
-                    Toggle {
+                    CompactToggleRow {
+                        x: (parent.width - self.width) / 2;
+                        y: Theme.space-12;
+                        width: min(parent.width - Theme.space-4, 280px);
+                        height: Theme.space-10;
+                        border-radius: Theme.radius-medium;
+                        background: Theme.surface-control;
+                        title: "Случайный порядок";
                         checked: root.shuffle-enabled;
                         toggled => root.toggle-shuffle();
                     }

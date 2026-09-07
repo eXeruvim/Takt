@@ -119,6 +119,7 @@ pub enum Command {
     NextVideo,
     PreviousVideo,
     PlayIndex(usize),
+    RemoveIndex(usize),
 
     ToggleLoop,
     SetFolderLoop(bool),

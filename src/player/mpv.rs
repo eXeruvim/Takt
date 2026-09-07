@@ -571,6 +571,31 @@ fn handle_command(
                 options.media_available = true;
             }
         }
+        Command::RemoveIndex(index) => {
+            let playlist = playlist
+                .as_mut()
+                .context("Очередь воспроизведения ещё не создана")?;
+            let removed_current = playlist
+                .remove(index)
+                .with_context(|| format!("Файл с индексом {index} отсутствует в очереди"))?;
+
+            if playlist.current_path().is_none() {
+                if options.media_available {
+                    mpv_error(mpv.command("stop", &[]))?;
+                }
+                options.media_available = false;
+                send_playlist(tx, playlist);
+                let _ = tx.send(Event::MediaAvailable(false));
+                let _ = tx.send(Event::PlaybackState(false));
+                let _ = tx.send(Event::TimePos(0.0));
+                let _ = tx.send(Event::PlaybackStopped);
+            } else if removed_current {
+                load_current(mpv, tx, playlist)?;
+                options.media_available = true;
+            } else {
+                send_playlist(tx, playlist);
+            }
+        }
         Command::ToggleLoop => {
             let loop_file = mpv
                 .get_property::<String>("loop-file")
@@ -761,6 +786,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                     | Command::NextVideo
                     | Command::PreviousVideo
                     | Command::PlayIndex(_)
+                    | Command::RemoveIndex(_)
             );
             if changes_media && !output_ready {
                 pending_media_commands.push_back(command);
