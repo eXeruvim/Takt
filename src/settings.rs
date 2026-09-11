@@ -33,6 +33,14 @@ pub enum CompletionBehavior {
     RepeatPlaylist,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ShortcutPreference {
+    pub action_id: i32,
+    /// Serialized physical key, or JSON `null` for an explicitly unassigned command.
+    pub key_code: String,
+    pub modifiers: u8,
+}
+
 impl CompletionBehavior {
     pub const fn repeats_playlist(self) -> bool {
         matches!(self, Self::RepeatPlaylist)
@@ -138,6 +146,7 @@ pub struct AppSettings {
     default_speed: f32,
     completion_behavior: CompletionBehavior,
     hardware_decoding_enabled: bool,
+    shortcut_overrides: Vec<ShortcutPreference>,
     storage_path: Option<PathBuf>,
     dirty: bool,
 }
@@ -151,6 +160,7 @@ impl Default for AppSettings {
             default_speed: DEFAULT_SPEED,
             completion_behavior: CompletionBehavior::Stop,
             hardware_decoding_enabled: false,
+            shortcut_overrides: Vec::new(),
             storage_path: None,
             dirty: false,
         }
@@ -190,6 +200,10 @@ impl AppSettings {
 
     pub const fn hardware_decoding_enabled(&self) -> bool {
         self.hardware_decoding_enabled
+    }
+
+    pub fn shortcut_overrides(&self) -> &[ShortcutPreference] {
+        &self.shortcut_overrides
     }
 
     pub fn set_theme(&mut self, theme: ThemePreference) {
@@ -244,6 +258,13 @@ impl AppSettings {
         }
     }
 
+    pub fn set_shortcut_overrides(&mut self, overrides: Vec<ShortcutPreference>) {
+        if self.shortcut_overrides != overrides {
+            self.shortcut_overrides = overrides;
+            self.dirty = true;
+        }
+    }
+
     pub fn save_if_dirty(&mut self) -> std::io::Result<()> {
         if !self.dirty {
             return Ok(());
@@ -256,7 +277,7 @@ impl AppSettings {
             fs::create_dir_all(parent)?;
         }
 
-        let content = format!(
+        let mut content = format!(
             "{SETTINGS_FORMAT}\t{SETTINGS_VERSION}\ntheme\t{}\naccent\t{}\nvolume\t{}\nspeed\t{}\ncompletion_behavior\t{}\nhardware_decoding\t{}\n",
             self.theme.as_str(),
             self.accent.as_str(),
@@ -265,6 +286,12 @@ impl AppSettings {
             self.completion_behavior.as_str(),
             self.hardware_decoding_enabled
         );
+        for preference in &self.shortcut_overrides {
+            content.push_str(&format!(
+                "shortcut\t{}\t{}\t{}\n",
+                preference.action_id, preference.key_code, preference.modifiers
+            ));
+        }
         fs::write(storage_path, content)?;
         self.dirty = false;
         Ok(())
@@ -339,6 +366,31 @@ impl AppSettings {
                     "false" => settings.hardware_decoding_enabled = false,
                     _ => {}
                 },
+                (Some("shortcut"), Some(value)) => {
+                    let mut shortcut = value.split('\t');
+                    let action_id = shortcut.next().and_then(|value| value.parse::<i32>().ok());
+                    let key_code = shortcut.next().filter(|value| !value.is_empty());
+                    let modifiers = shortcut.next().and_then(|value| value.parse::<u8>().ok());
+                    if shortcut.next().is_none()
+                        && let (Some(action_id), Some(key_code), Some(modifiers)) =
+                            (action_id, key_code, modifiers)
+                    {
+                        let preference = ShortcutPreference {
+                            action_id,
+                            key_code: key_code.to_owned(),
+                            modifiers,
+                        };
+                        if let Some(existing) = settings
+                            .shortcut_overrides
+                            .iter_mut()
+                            .find(|entry| entry.action_id == action_id)
+                        {
+                            *existing = preference;
+                        } else {
+                            settings.shortcut_overrides.push(preference);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -372,7 +424,8 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        AccentPreference, AppSettings, CompletionBehavior, DEFAULT_SPEED, ThemePreference,
+        AccentPreference, AppSettings, CompletionBehavior, DEFAULT_SPEED, ShortcutPreference,
+        ThemePreference,
     };
 
     fn temporary_settings_path() -> std::path::PathBuf {
@@ -396,6 +449,18 @@ mod tests {
         settings.set_default_speed(1.25);
         settings.set_completion_behavior(CompletionBehavior::RepeatPlaylist);
         settings.set_hardware_decoding_enabled(true);
+        settings.set_shortcut_overrides(vec![
+            ShortcutPreference {
+                action_id: 5,
+                key_code: "\"KeyB\"".to_owned(),
+                modifiers: 1,
+            },
+            ShortcutPreference {
+                action_id: 6,
+                key_code: "null".to_owned(),
+                modifiers: 0,
+            },
+        ]);
         settings.save_if_dirty().expect("settings must be saved");
 
         let loaded = AppSettings::load_from(&path).expect("settings must be loaded");
@@ -408,6 +473,7 @@ mod tests {
             CompletionBehavior::RepeatPlaylist
         );
         assert!(loaded.hardware_decoding_enabled());
+        assert_eq!(loaded.shortcut_overrides(), settings.shortcut_overrides());
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
     }

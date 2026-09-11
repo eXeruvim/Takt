@@ -6,7 +6,6 @@ import { CommandEntry, CommandPaletteOverlay } from "components/command_palette.
 import { ConversionHistoryEntry, ConversionPresetEntry, ConverterOverlay } from "components/converter_overlay.slint";
 import { AudioTrackEntry, ChapterEntry, EqualizerBandEntry, MediaInspector, RecentFileEntry, SubtitleTrackEntry } from "components/media_inspector.slint";
 import { ResumePrompt } from "components/resume_prompt.slint";
-import { ShortcutEditorOverlay, ShortcutEntry } from "components/shortcut_editor.slint";
 import { MediaListItem, Toast } from "design_system/composites.slint";
 import { CaptionButton, EmptyState, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
 
@@ -103,14 +102,26 @@ export component AppWindow inherits Window {
     in-out property <bool> playlist_drawer_visible: false;
     in-out property <bool> settings_drawer_visible: false;
     in-out property <bool> inspector_reserved: false;
-    in-out property <bool> shortcut_editor_visible: false;
+    in-out property <bool> inspector_left_aligned: true;
     in-out property <bool> fullscreen_mode: false;
     in-out property <bool> picture_in_picture: false;
     in-out property <bool> window_active: true;
     out property <bool> edge_to_edge: self.maximized || self.fullscreen_mode;
     in-out property <int> shortcut_capture_action: -1;
-    in-out property <string> shortcut_editor_error: "";
-    in property <[ShortcutEntry]> shortcut_items;
+    in-out property <string> shortcut_capture_error: "";
+    in-out property <bool> shortcut_capture_recording: false;
+    in-out property <bool> shortcut_capture_focused: false;
+    in-out property <bool> shortcut_close_pending: false;
+    in-out property <float> shortcut_close_remaining: 3;
+    in-out property <image> shortcut_close_background;
+    in-out property <bool> shortcut_close_background_ready: false;
+    callback prepare_shortcut_close(float, float, float, float);
+    callback shortcut_close_state_changed(bool);
+    callback finish_shortcut_close();
+    changed shortcut_close_pending => root.shortcut_close_state_changed(root.shortcut_close_pending);
+    finish_shortcut_close => command-palette.finish-close();
+    in-out property <bool> shortcut_capture_valid: false;
+    in-out property <string> shortcut_capture_preview: "";
     in-out property <bool> command_palette_visible: false;
     in-out property <string> command_query: "";
     in property <[CommandEntry]> command_items;
@@ -148,7 +159,7 @@ export component AppWindow inherits Window {
     out property <bool> controls_can_hide: media_presented && is_playing
         && !controls_pointer_over
         && !inspector_visible
-        && !shortcut_editor_visible && !command_palette_visible && !converter_visible
+        && !command_palette_visible && !converter_visible
         && !resume_prompt_visible
         && !error_visible && !drop_target_visible;
     out property <length> controls_top_zone: Theme.top-bar-height + Theme.space-2;
@@ -171,19 +182,13 @@ export component AppWindow inherits Window {
     in property <[string]> playlist_items;
     in-out property <int> playlist_current_index: -1;
     in-out property <int> playlist_focus_revision: 0;
-    out property <length> shortcut_editor_right_inset: shortcut_editor_visible
-        || shortcut-editor.opacity > 0.01
-        ? min(self.width - Theme.space-8, 520px) + Theme.space-6
-        : 0px;
-    out property <length> video_left_panel_inset: 0px;
+    out property <length> video_left_panel_inset: !integrated_video_renderer
+        && inspector_reserved && inspector_left_aligned ? 416px : 0px;
     out property <length> video_right_panel_inset: integrated_video_renderer ? 0px
-        : shortcut_editor_right_inset > 0px
-        ? shortcut_editor_right_inset
-        : inspector_reserved ? 416px : 0px;
-    out property <length> audio_left_panel_inset: edge_to_edge ? 0px : Theme.space-4;
-    out property <length> audio_right_panel_inset: shortcut_editor_right_inset > 0px
-        ? shortcut_editor_right_inset
-        : inspector_reserved
+        : inspector_reserved && !inspector_left_aligned ? 416px : 0px;
+    out property <length> audio_left_panel_inset: inspector_reserved && inspector_left_aligned
+        ? 416px : edge_to_edge ? 0px : Theme.space-4;
+    out property <length> audio_right_panel_inset: inspector_reserved && !inspector_left_aligned
             ? 416px
             : edge_to_edge ? 0px : Theme.space-4;
     out property <bool> modal_overlay_active: command-palette.visible || converter-overlay.visible
@@ -225,8 +230,10 @@ export component AppWindow inherits Window {
     callback toggle_info();
     callback toggle_playlist();
     callback toggle_settings();
-    callback toggle_shortcuts();
     callback reset_shortcuts();
+    callback begin_shortcut_edit(int);
+    callback save_shortcut_edit(bool);
+    callback preview_default_shortcut();
     callback toggle_command_palette();
     callback command_query_changed(string);
     callback open_converter();
@@ -701,6 +708,7 @@ export component AppWindow inherits Window {
 
             inspector := MediaInspector {
                 open: root.inspector_visible;
+                left-aligned: root.inspector_left_aligned;
                 playlist-open: root.playlist_drawer_visible;
                 info-open: root.info_drawer_visible;
                 playback-open: root.settings_drawer_visible;
@@ -778,24 +786,6 @@ export component AppWindow inherits Window {
                 reset-equalizer => root.reset_equalizer();
                 set-folder-loop(enabled) => root.set_folder_loop(enabled);
                 toggle-shuffle => root.toggle_shuffle();
-                edit-shortcuts => root.toggle_shortcuts();
-            }
-
-            shortcut-editor := ShortcutEditorOverlay {
-                open: root.shortcut_editor_visible;
-                shortcuts: root.shortcut_items;
-                capture-action: root.shortcut_capture_action;
-                error-message: root.shortcut_editor_error;
-                begin-capture(action) => {
-                    root.shortcut_capture_action = action;
-                    root.shortcut_editor_error = "";
-                }
-                reset-defaults => root.reset_shortcuts();
-                close => {
-                    root.shortcut_editor_visible = false;
-                    root.shortcut_capture_action = -1;
-                    root.shortcut_editor_error = "";
-                }
             }
 
             command-palette := CommandPaletteOverlay {
@@ -804,10 +794,37 @@ export component AppWindow inherits Window {
                 commands: root.command_items;
                 media-loaded: root.media_loaded;
                 audio-media: root.audio_media;
+                capture-action: root.shortcut_capture_action;
+                window-active: root.window_active;
+                error-message: root.shortcut_capture_error;
+                recording <=> root.shortcut_capture_recording;
+                close-pending <=> root.shortcut_close_pending;
+                close-remaining: root.shortcut_close_remaining;
+                close-background: root.shortcut_close_background;
+                close-background-ready: root.shortcut_close_background_ready;
+                prepare-close(x, y, width, height) => root.prepare_shortcut_close(x, y, width, height);
+                capture-focus-changed(focused) => { root.shortcut_capture_focused = focused; }
+                preview: root.shortcut_capture_preview;
+                can-save: root.shortcut_capture_valid;
                 query-changed(query) => root.command_query_changed(query);
+                begin-capture(action) => {
+                    root.begin_shortcut_edit(action);
+                }
+                save(overwrite) => root.save_shortcut_edit(overwrite);
+                restore-default => root.preview_default_shortcut();
+                cancel => {
+                    root.shortcut_capture_action = -1;
+                    root.shortcut_capture_recording = false;
+                    root.shortcut_capture_focused = false;
+                    root.shortcut_capture_error = "";
+                }
                 close => {
                     root.command_palette_visible = false;
                     root.command_query = "";
+                    root.shortcut_capture_action = -1;
+                    root.shortcut_capture_recording = false;
+                    root.shortcut_capture_focused = false;
+                    root.shortcut_capture_error = "";
                     root.command_query_changed("");
                 }
                 execute(action) => root.run-palette-command(action);
@@ -918,6 +935,8 @@ export component AppWindow inherits Window {
     }
 
     function run-palette-command(action: int) {
+        shortcut_capture_action = -1;
+        shortcut_capture_error = "";
         command_palette_visible = false;
         command_query = "";
         command_query_changed("");
@@ -931,16 +950,18 @@ export component AppWindow inherits Window {
         else if (action == 7) { toggle_playlist(); }
         else if (action == 8) { toggle_info(); }
         else if (action == 9) { toggle_settings(); }
-        else if (action == 10) { toggle_shortcuts(); }
         else if (action == 11) { toggle_fullscreen(); }
         else if (action == 12) { stop(); }
         else if (action == 13) { seek_relative(-10.0); }
         else if (action == 14) { seek_relative(10.0); }
         else if (action == 15) { adjust_volume(-5.0); }
         else if (action == 16) { adjust_volume(5.0); }
+        else if (action == 22) { seek_relative(-5.0); }
+        else if (action == 23) { seek_relative(5.0); }
         else if (action == 25) { step_frame(-1); }
         else if (action == 26) { step_frame(1); }
         else if (action == 27) { toggle_picture_in_picture(); }
         else if (action == 28) { open_converter(); }
+        else if (action == 29) { reset_shortcuts(); }
     }
 }

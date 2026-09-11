@@ -1,0 +1,390 @@
+import { Theme } from "../theme.slint";
+import { FocusTouchArea, UiText } from "../design_system/primitives.slint";
+
+component ShortcutValue inherits Rectangle {
+    in property <string> value;
+    in property <length> available-width;
+    width: min(available-width, max(32px, value.character-count * 7px + 16px));
+    height: 22px;
+    horizontal-stretch: 0;
+    border-radius: 4px;
+    background: Theme.surface-control;
+    border-width: 1px;
+    border-color: Theme.border-default;
+    UiText {
+        x: 8px;
+        width: parent.width - 16px;
+        text: root.value;
+        font-size: Theme.text-small;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+component ShortcutEditorAction inherits Rectangle {
+    in property <string> text;
+    in property <string> detail;
+    in property <bool> enabled;
+    in property <bool> primary;
+    in property <bool> secondary;
+    in property <bool> align-right;
+    out property <bool> has-focus: interaction.has-focus;
+    callback clicked();
+    min-width: 0px;
+    preferred-width: 96px;
+    height: 36px;
+    border-radius: Theme.radius-medium;
+    background: !enabled ? (primary ? Theme.surface-control : transparent)
+        : primary ? (interaction.pressed ? Theme.accent-pressed : interaction.has-hover ? Theme.accent-hover : Theme.accent)
+        : interaction.pressed ? Theme.surface-pressed
+        : interaction.has-hover ? Theme.surface-hover : transparent;
+    border-width: interaction.has-focus ? Theme.focus-ring-width : secondary ? 0px : 1px;
+    border-color: interaction.has-focus ? Theme.focus-ring
+        : primary && enabled ? transparent : Theme.border-default;
+    accessible-role: button;
+    accessible-label: detail == "" ? text : text + ": " + detail;
+    accessible-enabled: enabled;
+    accessible-action-default => { if (enabled) { root.clicked(); } }
+    forward-focus: interaction;
+    interaction := FocusTouchArea {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        enabled: root.enabled;
+        clicked => root.clicked();
+    }
+    if root.detail == "" : UiText {
+        x: 12px;
+        width: parent.width - 24px;
+        text: root.text;
+        font-size: root.secondary ? 12px : 14px;
+        color: !root.enabled ? Theme.text-muted : root.primary ? Theme.on-accent
+            : root.secondary ? Theme.text-secondary : Theme.text-primary;
+        horizontal-alignment: root.align-right ? right : root.secondary ? left : center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    if root.detail != "" : VerticalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        alignment: center;
+        spacing: 2px;
+        UiText {
+            text: root.text;
+            font-size: Theme.text-xs;
+            color: Theme.text-secondary;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+        HorizontalLayout {
+            alignment: center;
+            ShortcutValue { value: root.detail; available-width: parent.width; }
+        }
+    }
+    animate background { duration: Theme.motion-fast; }
+}
+
+export component ShortcutField inherits Rectangle {
+    in property <string> shortcut;
+    in property <bool> highlighted;
+    in property <bool> enabled: true;
+    in property <bool> active;
+    in property <bool> editing;
+    in property <bool> can-restore;
+    in property <string> default-shortcut;
+    callback edit();
+    callback restore-default();
+    callback return-to-editor(bool);
+    width: 344px;
+    height: 42px;
+    border-radius: Theme.radius-medium;
+    background: editing ? transparent : Theme.surface-popover;
+    border-width: editing ? 0px : 1px;
+    border-color: hit.has-hover ? Theme.accent-hover : highlighted ? Theme.accent : Theme.border-strong;
+    accessible-role: button;
+    accessible-label: "Изменить сочетание " + shortcut + ". F2";
+    accessible-enabled: enabled;
+    accessible-action-default => { if (enabled) { root.edit(); } }
+    hit := TouchArea {
+        enabled: root.enabled && !root.editing;
+        mouse-cursor: pointer;
+        clicked => root.edit();
+    }
+    if !root.editing : VerticalLayout {
+        padding-left: Theme.space-3;
+        padding-right: Theme.space-3;
+        spacing: 1px;
+        alignment: center;
+        UiText {
+            text: root.editing ? "Сейчас: " + (root.shortcut == "—" ? "не назначено" : root.shortcut)
+                : root.shortcut == "—" ? "Назначить" : root.shortcut;
+            font-size: root.editing ? 12px : 14px;
+            font-weight: root.editing ? 400 : 600;
+            color: root.editing ? Theme.text-secondary : Theme.text-primary;
+            horizontal-alignment: root.editing ? right : center;
+            overflow: elide;
+        }
+        if !root.editing : UiText {
+            text: "Изменить · F2";
+            font-size: Theme.text-xs;
+            color: root.highlighted || hit.has-hover ? Theme.accent : Theme.text-secondary;
+            horizontal-alignment: center;
+        }
+    }
+    if root.editing : VerticalLayout {
+        x: root.can-restore ? 0px : parent.width - 172px;
+        y: 0px;
+        width: parent.width - 172px;
+        height: 42px;
+        padding-left: 12px;
+        padding-right: 12px;
+        alignment: center;
+        spacing: 2px;
+        UiText {
+            text: "Текущее";
+            font-size: Theme.text-xs;
+            color: Theme.text-secondary;
+            horizontal-alignment: center;
+        }
+        HorizontalLayout {
+            alignment: center;
+            ShortcutValue {
+                value: root.shortcut == "—" ? "Не назначено" : root.shortcut;
+                available-width: parent.width;
+            }
+        }
+    }
+    FocusScope {
+        x: parent.width - 172px;
+        y: 0px;
+        width: 172px;
+        height: 42px;
+        enabled: root.enabled && root.editing && root.can-restore;
+        focus-on-click: false;
+        key-pressed(event) => {
+            if (root.editing && event.text == Key.Tab) {
+                root.return-to-editor(event.modifiers.shift);
+                return accept;
+            }
+            return reject;
+        }
+        restore-button := ShortcutEditorAction {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            text: "Восстановить";
+            detail: root.default-shortcut;
+            secondary: true;
+            visible: root.editing && root.can-restore;
+            enabled: root.enabled && root.editing && root.can-restore;
+            clicked => root.restore-default();
+        }
+    }
+    public function focus-restore() { restore-button.focus(); }
+}
+
+export component ExpandedShortcutEditor inherits Rectangle {
+    in property <bool> editing;
+    in property <bool> blocked;
+    in property <bool> active;
+    in property <bool> recording;
+    in property <bool> can-save;
+    in property <bool> candidate-valid;
+    in property <bool> can-restore;
+    in property <int> warning-request;
+    in property <string> preview;
+    in property <string> default-shortcut;
+    in property <string> error-message;
+    callback input-focus-changed(bool);
+    callback warning-finished();
+    callback save(bool);
+    callback focus-restore(bool);
+    private property <int> warning-step: 6;
+    private property <bool> warning-visible: editing && warning-step < 6;
+    private property <int> conflict-step: 6;
+    private property <bool> conflict-visible: editing && error-message != "";
+    private property <bool> notice-visible: warning-visible || conflict-visible;
+    private property <int> notice-step: warning-visible ? warning-step : conflict-step;
+    private property <string> notice-text;
+    private property <string> candidate-feedback: preview + "\n" + error-message;
+    changed warning-visible => { if (!warning-visible) { root.warning-finished(); } }
+    private property <bool> show-save: editing && (can-save || conflict-visible) && !recording
+        && !warning-visible && !blocked;
+    private property <length> action-width: conflict-visible ? 148px : 104px;
+    private property <length> action-inset: conflict-visible ? 12px : 4px;
+    private property <length> field-height: conflict-visible ? 68px : 42px;
+    private property <bool> has-candidate: !recording && (candidate-valid || error-message != "");
+    private property <color> status-color: warning-visible || error-message != "" ? Theme.danger
+        : has-candidate ? Theme.success : Theme.accent;
+    changed warning-request => {
+        if (editing) {
+            root.notice-text = "Сочетание не сохранено\nВыберите другую команду, чтобы отменить изменения";
+            root.conflict-step = 6;
+            root.warning-step = 0;
+        }
+    }
+    changed candidate-feedback => {
+        root.warning-step = 6;
+        if (error-message != "") { root.notice-text = error-message; }
+        root.conflict-step = editing && error-message != "" ? 0 : 6;
+    }
+    changed blocked => {
+        if (blocked) { root.warning-step = 6; root.conflict-step = 6; }
+        else if (editing) { record-focus.focus(); }
+    }
+
+    private property <int> ant-frame;
+    private property <[image]> ant-frames: [
+        @image-url("../icons/shortcut-outline/frame-00.svg"), @image-url("../icons/shortcut-outline/frame-01.svg"),
+        @image-url("../icons/shortcut-outline/frame-02.svg"), @image-url("../icons/shortcut-outline/frame-03.svg"),
+        @image-url("../icons/shortcut-outline/frame-04.svg"), @image-url("../icons/shortcut-outline/frame-05.svg"),
+        @image-url("../icons/shortcut-outline/frame-06.svg"), @image-url("../icons/shortcut-outline/frame-07.svg"),
+        @image-url("../icons/shortcut-outline/frame-08.svg"), @image-url("../icons/shortcut-outline/frame-09.svg"),
+        @image-url("../icons/shortcut-outline/frame-10.svg"), @image-url("../icons/shortcut-outline/frame-11.svg"),
+        @image-url("../icons/shortcut-outline/frame-12.svg"), @image-url("../icons/shortcut-outline/frame-13.svg"),
+        @image-url("../icons/shortcut-outline/frame-14.svg"), @image-url("../icons/shortcut-outline/frame-15.svg")
+    ];
+
+    height: editing ? field-height + 24px : 0px;
+    background: transparent;
+    clip: true;
+    visible: editing || self.height > 0px;
+    animate height { duration: Theme.motion-normal; easing: ease-in-out; }
+    changed editing => {
+        root.warning-step = 6;
+        root.conflict-step = 6;
+        if (editing) { record-focus.focus(); }
+    }
+    changed recording => { root.warning-step = 6; if (editing && recording) { record-focus.focus(); } }
+    Timer {
+        interval: 500ms;
+        running: root.editing && root.warning-step < 6;
+        triggered => { root.warning-step += 1; }
+    }
+    Timer {
+        interval: 500ms;
+        running: root.editing && root.conflict-step < 6;
+        triggered => { root.conflict-step += 1; }
+    }
+    Timer {
+        interval: 40ms;
+        running: root.active && root.editing && root.recording && !Theme.reduce-motion;
+        triggered => { root.ant-frame = Math.mod(root.ant-frame + 1, 16); }
+    }
+
+    FocusScope {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: root.field-height + 24px;
+        opacity: root.editing ? 1 : 0;
+        animate opacity { duration: Theme.motion-fast; }
+        key-pressed(event) => {
+            if (root.editing && event.text == Key.Tab) {
+                root.cycle-focus(event.modifiers.shift);
+                return accept;
+            }
+            return reject;
+        }
+        Rectangle {
+            x: 12px;
+            y: 12px;
+            width: parent.width - 24px;
+            height: root.field-height;
+            border-radius: Theme.radius-medium;
+            background: root.warning-visible || root.error-message != "" ? Theme.danger-subtle
+                : root.has-candidate ? Theme.success-subtle : Theme.surface-popover;
+            border-width: record-focus.has-focus ? 2px : 1px;
+            border-color: root.recording ? transparent : root.status-color;
+            animate background, border-color { duration: Theme.motion-fast; }
+            accessible-role: button;
+            accessible-label: root.error-message != "" ? root.error-message
+                : "Новое сочетание: " + root.preview + ". Нажмите другое сочетание для замены";
+            accessible-enabled: root.editing && !root.blocked;
+            accessible-action-default => { if (root.editing && !root.blocked) { record-focus.focus(); } }
+            TouchArea {
+                x: 0px;
+                y: 0px;
+                width: root.show-save ? parent.width - root.action-width - root.action-inset : parent.width;
+                height: parent.height;
+                enabled: root.editing && !root.blocked;
+                mouse-cursor: pointer;
+                clicked => record-focus.focus();
+            }
+            Image {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                source: root.ant-frames[Theme.reduce-motion ? 0 : root.ant-frame];
+                colorize: Theme.accent;
+                image-fit: fill;
+                visible: root.editing && root.recording;
+            }
+            UiText {
+                x: 12px;
+                width: parent.width - 24px - (root.show-save ? root.action-width + root.action-inset + 12px : 0px);
+                text: root.recording ? "Нажмите сочетание на клавиатуре" : root.preview;
+                font-size: 16px;
+                font-weight: root.recording ? 400 : 600;
+                color: root.has-candidate ? root.status-color : Theme.text-secondary;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+                opacity: root.notice-visible ? 0 : 1;
+                animate opacity { duration: Theme.motion-slow; }
+            }
+            UiText {
+                x: 12px;
+                width: parent.width - 24px - (root.show-save ? root.action-width + root.action-inset + 12px : 0px);
+                height: parent.height;
+                text: root.warning-visible ? root.notice-text
+                    : root.conflict-visible ? root.error-message : root.notice-text;
+                font-size: Theme.text-small;
+                color: Theme.danger;
+                horizontal-alignment: root.conflict-visible && !root.warning-visible ? left : center;
+                vertical-alignment: center;
+                wrap: word-wrap;
+                opacity: !root.notice-visible ? 0
+                    : !Theme.reduce-motion && root.notice-step < 4 && Math.mod(root.notice-step, 2) == 1 ? 0.5 : 1;
+                animate opacity { duration: Theme.motion-slow; }
+            }
+            record-focus := FocusScope {
+                width: 0px;
+                enabled: root.editing && !root.blocked;
+                focus-on-click: false;
+                changed has-focus => root.input-focus-changed(self.has-focus);
+            }
+        }
+        save-button := ShortcutEditorAction {
+            x: parent.width - root.action-width - 12px - root.action-inset;
+            y: 12px + (root.field-height - self.height) / 2;
+            text: root.conflict-visible ? "Переназначить" : "Сохранить";
+            width: root.action-width;
+            height: 34px;
+            visible: root.show-save;
+            enabled: root.show-save;
+            primary: true;
+            clicked => root.save(root.conflict-visible);
+        }
+    }
+    function cycle-focus(backward: bool) {
+        if (backward) {
+            if (save-button.has-focus) { record-focus.focus(); }
+            else if (root.can-restore) { root.focus-restore(true); }
+            else { root.focus-entry(true); }
+        } else {
+            if (record-focus.has-focus && save-button.enabled) { save-button.focus(); }
+            else if (root.can-restore) { root.focus-restore(false); }
+            else { record-focus.focus(); }
+        }
+    }
+    public function focus-entry(last: bool) {
+        if (last && save-button.enabled) { save-button.focus(); }
+        else { record-focus.focus(); }
+    }
+}

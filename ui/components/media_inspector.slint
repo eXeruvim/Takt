@@ -375,6 +375,7 @@ export component MediaInspector inherits Rectangle {
     private property <bool> prewarming: true;
     private property <bool> sound-selected: false;
     in property <bool> open;
+    in property <bool> left-aligned: false;
     in property <bool> playlist-open;
     in property <bool> info-open;
     in property <bool> playback-open;
@@ -418,7 +419,7 @@ export component MediaInspector inherits Rectangle {
     in property <length> parent-height;
     out property <length> slide-offset: open || prewarming
         ? 0px : self.width + Theme.space-5;
-    private property <length> playback-content-height: 599px
+    private property <length> playback-content-height: 535px
         + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
         + (media-loaded && !audio-media ? 116px : 0px)
         + (media-loaded && !audio-media ? 64px : 0px)
@@ -462,12 +463,13 @@ export component MediaInspector inherits Rectangle {
     callback reset-equalizer();
     callback set-folder-loop(bool);
     callback toggle-shuffle();
-    callback edit-shortcuts();
 
     width: min(392px, parent-width - Theme.space-8);
     height: max(0px, parent-height - self.y
         - Theme.player-controls-height - Theme.space-6);
-    x: parent-width - self.width - Theme.space-4 + slide-offset;
+    x: left-aligned
+        ? Theme.space-4 - slide-offset
+        : parent-width - self.width - Theme.space-4 + slide-offset;
     y: Theme.top-bar-height + Theme.space-2;
     opacity: open ? 1 : prewarming ? 0.001 : 0;
     border-radius: Theme.radius-large;
@@ -525,7 +527,7 @@ export component MediaInspector inherits Rectangle {
             }
         }
 
-        HorizontalLayout {
+        if root.left-aligned : HorizontalLayout {
             height: Theme.space-10;
             spacing: Theme.space-2;
 
@@ -547,6 +549,12 @@ export component MediaInspector inherits Rectangle {
                     if (!root.info-open) { root.show-info(); }
                 }
             }
+        }
+
+        if !root.left-aligned : HorizontalLayout {
+            height: Theme.space-10;
+            spacing: Theme.space-2;
+
             Button {
                 horizontal-stretch: 1;
                 min-width: 0px;
@@ -1030,12 +1038,6 @@ export component MediaInspector inherits Rectangle {
                     }
                 }
 
-                Divider { }
-
-                    Button {
-                        text: "Настроить горячие клавиши";
-                        clicked => root.edit-shortcuts();
-                    }
                 }
             }
             }

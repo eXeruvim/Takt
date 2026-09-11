@@ -1,55 +1,125 @@
 import { LineEdit, ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
-import { Divider, ShortcutBadge, UiText, TextVariant } from "../design_system/primitives.slint";
+import { Button, Divider, UiText, TextVariant } from "../design_system/primitives.slint";
+import { ShortcutField, ExpandedShortcutEditor } from "command_shortcut_editor.slint";
 
 export struct CommandEntry {
     action: int,
     title: string,
     description: string,
     shortcut: string,
+    default-shortcut: string,
     requires-media: bool,
+    shortcut-editable: bool,
+}
+
+component PaletteHint inherits HorizontalLayout {
+    in property <string> key;
+    in property <string> description;
+    spacing: 6px;
+    horizontal-stretch: 0;
+    Rectangle {
+        width: max(28px, root.key.character-count * 7px + 14px);
+        height: 22px;
+        border-radius: 4px;
+        background: Theme.surface-control;
+        border-width: 1px;
+        border-color: Theme.border-default;
+        UiText {
+            text: root.key;
+            font-size: Theme.text-xs;
+            color: Theme.text-secondary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    UiText {
+        text: root.description;
+        variant: TextVariant.caption;
+        color: Theme.text-secondary;
+        vertical-alignment: center;
+    }
 }
 
 component CommandRow inherits Rectangle {
     in property <CommandEntry> entry;
     in property <bool> selected;
-    in property <bool> enabled;
-    callback activated();
+    in property <bool> enabled: true;
+    in property <bool> can-execute;
+    in property <bool> active;
+    in property <bool> editing;
+    in property <bool> blocked;
+    in property <bool> recording;
+    in property <bool> can-save;
+    in property <bool> candidate-valid;
+    in property <string> preview;
+    in property <string> error-message;
+    in property <bool> can-restore;
+    in property <int> warning-request;
+    callback activate();
+    callback edit();
+    callback save(bool);
+    callback input-focus-changed(bool);
+    callback warning-finished();
+    callback restore-default();
+    callback geometry-changed(length, length);
 
-    height: 56px;
+    height: 56px + editor.height;
+    clip: true;
+    changed y => root.geometry-changed(root.y, root.height);
+    changed height => root.geometry-changed(root.y, root.height);
+    changed selected => { if (selected) { root.geometry-changed(root.y, root.height); } }
     border-radius: Theme.radius-medium;
-    background: selected ? Theme.surface-selected
-        : hit.pressed ? Theme.surface-pressed
-        : hit.has-hover ? Theme.surface-hover
-        : transparent;
-    border-width: selected ? 1px : 0px;
-    border-color: Theme.accent;
-    opacity: enabled ? 1 : 0.45;
+    background: editor.height > 0px ? Theme.surface-control : transparent;
     accessible-role: list-item;
-    accessible-label: entry.title;
-    accessible-enabled: enabled;
-
-    hit := TouchArea {
-        enabled: root.enabled;
-        clicked => root.activated();
-    }
-
-    HorizontalLayout {
+    accessible-label: entry.title + ", сочетание " + entry.shortcut;
+    accessible-enabled: !blocked && (enabled || editing);
+    accessible-action-default => { if (enabled) { root.activate(); } }
+    Rectangle {
         x: 0px;
         y: 0px;
         width: parent.width;
-        height: parent.height;
+        height: 56px;
+        // Only the outer card clips corners while its editor is expanded.
+        border-radius: editor.height > 0px ? 0px : Theme.radius-medium;
+        background: root.selected ? Theme.accent-subtle
+            : hit.pressed ? Theme.surface-pressed
+            : hit.has-hover ? Theme.surface-hover : transparent;
+        animate background { duration: Theme.motion-fast; }
+    }
+    hit := TouchArea {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: 56px;
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => root.activate();
+    }
+    if root.selected : Rectangle {
+        x: 0px;
+        y: Theme.space-2;
+        width: 3px;
+        height: 56px - Theme.space-4;
+        background: Theme.surface-selected;
+    }
+    HorizontalLayout {
+        // A fixed-height layout otherwise centers itself in the expanded row.
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: 56px;
         padding-left: Theme.space-3;
         padding-right: Theme.space-3;
+        padding-top: 7px;
+        padding-bottom: 7px;
         spacing: Theme.space-3;
-        alignment: center;
-
         VerticalLayout {
+            min-width: 0px;
             horizontal-stretch: 1;
-            alignment: center;
+            opacity: root.can-execute || root.editing ? 1 : 0.5;
             spacing: Theme.space-1;
-
-            UiText { text: root.entry.title; variant: TextVariant.label; }
+            UiText { text: root.entry.title; variant: TextVariant.label; overflow: elide; }
             UiText {
                 text: root.entry.description;
                 variant: TextVariant.caption;
@@ -57,155 +127,441 @@ component CommandRow inherits Rectangle {
                 overflow: elide;
             }
         }
-
-        ShortcutBadge { shortcut: root.entry.shortcut; }
+        shortcut-field := ShortcutField {
+            visible: root.entry.shortcut-editable;
+            width: root.entry.shortcut-editable ? 344px : 0px;
+            shortcut: root.entry.shortcut;
+            highlighted: root.selected;
+            enabled: (root.enabled || root.editing) && !root.blocked;
+            active: root.active;
+            editing: root.editing;
+            can-restore: root.can-restore;
+            default-shortcut: root.entry.default-shortcut;
+            edit => { if (root.editing) { root.activate(); } else { root.edit(); } }
+            restore-default => {
+                root.restore-default();
+                editor.focus-entry(true);
+            }
+            return-to-editor(backward) => editor.focus-entry(backward);
+        }
     }
-
-    animate background, opacity {
-        duration: Theme.motion-fast;
-        easing: cubic-bezier(0.2, 0, 0, 1);
+    editor := ExpandedShortcutEditor {
+        x: 0px;
+        y: 56px;
+        width: parent.width;
+        editing: root.editing;
+        blocked: root.blocked;
+        active: root.active;
+        recording: root.recording;
+        can-save: root.can-save;
+        candidate-valid: root.candidate-valid;
+        can-restore: root.can-restore;
+        warning-request: root.warning-request;
+        preview: root.preview;
+        default-shortcut: root.entry.default-shortcut;
+        error-message: root.error-message;
+        input-focus-changed(focused) => root.input-focus-changed(focused);
+        warning-finished => root.warning-finished();
+        save(overwrite) => root.save(overwrite);
+        focus-restore(backward) => shortcut-field.focus-restore();
     }
 }
 
 export component CommandPaletteOverlay inherits Rectangle {
     in property <bool> open;
+    in property <bool> window-active: true;
     in-out property <string> query;
     in property <[CommandEntry]> commands;
     in property <bool> media-loaded;
     in property <bool> audio-media;
+    in property <int> capture-action: -1;
+    in property <string> error-message;
+    in-out property <bool> recording;
+    in-out property <bool> close-pending: false;
+    in property <float> close-remaining: 3;
+    in property <image> close-background;
+    in property <bool> close-background-ready;
+    in property <string> preview;
+    in property <bool> can-save;
     private property <int> selected-index: 0;
+    private property <bool> confirming-reset: false;
+    private property <bool> editing: capture-action >= 0;
+    // A conflict is also an entered candidate and must not be discarded by row selection.
+    private property <bool> empty-edit: editing && !can-save && error-message == "";
+    private property <bool> has-unsaved-edit: editing && !empty-edit
+        && preview != selected-command.shortcut
+        && !(preview == "Не назначено" && selected-command.shortcut == "—");
+    private property <int> warning-request;
+    // After warning, any other command can discard this draft; the edited command cannot.
+    private property <bool> discard-armed: false;
+    private property <length> selected-top;
+    private property <length> selected-height: 56px;
+    private property <bool> can-restore: editing && (
+        (selected-command.shortcut != selected-command.default-shortcut && !(selected-command.shortcut == "—" && selected-command.default-shortcut == "не назначено"))
+        || (!empty-edit && preview != selected-command.default-shortcut && !(preview == "Не назначено" && selected-command.default-shortcut == "не назначено")));
+    private property <CommandEntry> selected-command: commands[selected-index];
+    private property <bool> can-execute: commands.length > 0
+        && (!selected-command.requires-media || media-loaded)
+        && (!(selected-command.action == 25 || selected-command.action == 26) || !audio-media);
     callback query-changed(string);
     callback execute(int);
+    callback begin-capture(int);
+    callback save(bool);
+    callback cancel();
+    callback restore-default();
     callback close();
+    callback prepare-close(float, float, float, float);
+    callback capture-focus-changed(bool);
 
     visible: open || self.opacity > 0.01;
     opacity: open ? 1 : 0;
     background: Theme.backdrop;
     forward-focus: search;
-
-    animate opacity {
-        duration: Theme.motion-normal;
-        easing: cubic-bezier(0.2, 0, 0, 1);
-    }
-
+    animate opacity { duration: Theme.motion-normal; }
     changed open => {
+        root.close-pending = false;
+        root.discard-armed = false;
         if (open) {
             root.selected-index = 0;
+            root.confirming-reset = false;
             search.focus();
         }
     }
-
-    TouchArea {
-        width: parent.width;
-        height: parent.height;
-        clicked => root.close();
+    changed capture-action => {
+        root.discard-armed = false;
+        root.close-pending = false;
+        if (!root.editing && root.open) { search.focus(); }
     }
-
-    Rectangle {
-        width: min(parent.width - Theme.space-12, 640px);
-        height: min(parent.height - Theme.space-12 * 2, 520px);
+    changed preview => { root.discard-armed = false; }
+    changed recording => { root.discard-armed = false; }
+    changed empty-edit => {
+        if (root.editing && !root.empty-edit) { root.reveal-selection(); }
+    }
+    TouchArea {
+        clicked => {
+            if (root.editing) { root.request-close(); }
+            else if (root.confirming-reset) { root.confirming-reset = false; search.focus(); }
+            else { root.close(); }
+        }
+    }
+    panel := Rectangle {
+        width: min(parent.width - Theme.space-12, root.confirming-reset ? 520px : 680px);
+        height: min(parent.height - Theme.space-12, root.confirming-reset ? 260px : 560px);
         x: (parent.width - self.width) / 2;
-        y: max(Theme.space-12, (parent.height - self.height) / 3);
+        y: (parent.height - self.height) / 2;
         border-radius: Theme.radius-xlarge;
         background: Theme.surface-modal;
         border-width: 1px;
         border-color: Theme.border-glass;
-        drop-shadow-color: Theme.shadow-high;
-        drop-shadow-blur: Theme.space-1;
-        drop-shadow-offset-y: Theme.elevation-high-y;
         clip: true;
-
-        TouchArea {
-            width: parent.width;
-            height: parent.height;
-        }
-
-        VerticalLayout {
-            padding: Theme.space-4;
-            spacing: Theme.space-3;
-
-            search := LineEdit {
-                height: Theme.space-10;
-                text <=> root.query;
-                placeholder-text: "Найти команду…";
-                edited(text) => {
-                    root.selected-index = 0;
-                    root.query-changed(text);
+        TouchArea { }
+        FocusScope {
+            key-pressed(event) => {
+                if (root.close-pending && event.text == Key.Escape) {
+                    root.close-pending = false;
+                    return accept;
                 }
-                accepted => root.activate-selected();
-                key-pressed(event) => {
-                    if (event.text == Key.DownArrow) {
-                        root.move-selection(1);
-                        return accept;
-                    }
-                    if (event.text == Key.UpArrow) {
-                        root.move-selection(-1);
-                        return accept;
-                    }
-                    if (event.text == Key.Escape) {
-                        root.close();
-                        return accept;
-                    }
-                    return reject;
+                if (event.text == Key.Tab) {
+                    if (root.close-pending) {
+                        if (close-cancel.has-focus) { close-confirm.focus(); }
+                        else { close-cancel.focus(); }
+                    } else if (root.confirming-reset) {
+                        if (reset-cancel.has-focus) { reset-confirm.focus(); }
+                        else { reset-cancel.focus(); }
+                    } else if (!root.editing) { search.focus(); }
+                    return accept;
                 }
+                return reject;
             }
-
-            Divider { }
-
-            if root.commands.length == 0 : UiText {
-                text: "Команды не найдены";
-                color: Theme.text-muted;
-                horizontal-alignment: center;
-                vertical-stretch: 1;
-                vertical-alignment: center;
-            }
-
-            if root.commands.length > 0 : ScrollView {
-                vertical-stretch: 1;
-
+            browser := Rectangle {
+                visible: !root.confirming-reset;
+                opacity: root.close-pending ? (root.close-background-ready ? 0 : 0.15) : 1;
                 VerticalLayout {
-                    spacing: Theme.space-1;
-
-                    for command[index] in root.commands : CommandRow {
-                        entry: command;
-                        selected: index == root.selected-index;
-                        enabled: (!command.requires-media || root.media-loaded)
-                            && (!(command.action == 25 || command.action == 26)
-                                || !root.audio-media);
-                        activated => {
-                            if ((!command.requires-media || root.media-loaded)
-                                && (!(command.action == 25 || command.action == 26)
-                                    || !root.audio-media)) {
-                                root.execute(command.action);
+                    padding: Theme.space-4;
+                    spacing: Theme.space-3;
+                    UiText { text: "Команды и горячие клавиши"; variant: TextVariant.heading; }
+                    search := LineEdit {
+                        height: Theme.space-10;
+                        enabled: browser.visible && !root.editing;
+                        text <=> root.query;
+                        placeholder-text: "Найти команду…";
+                        edited(text) => {
+                            root.selected-index = 0;
+                            command-list.viewport-y = 0px;
+                            root.query-changed(text);
+                        }
+                        accepted => root.activate-selected();
+                        key-pressed(event) => {
+                            if (event.text == Key.DownArrow) { root.move-selection(1); return accept; }
+                            if (event.text == Key.UpArrow) { root.move-selection(-1); return accept; }
+                            if (event.text == Key.F2) { root.edit-selected(); return accept; }
+                            if (event.text == Key.Escape) { root.close(); return accept; }
+                            return reject;
+                        }
+                    }
+                    Divider { }
+                    command-list := ScrollView {
+                        vertical-stretch: 1;
+                        enabled: browser.visible;
+                        changed visible-height => root.reveal-selection();
+                        VerticalLayout {
+                            spacing: Theme.space-1;
+                            for command[index] in root.commands : CommandRow {
+                                entry: command;
+                                selected: index == root.selected-index;
+                                enabled: browser.visible && !root.close-pending;
+                                blocked: root.close-pending;
+                                active: root.open && root.window-active && !root.close-pending;
+                                editing: root.editing && command.action == root.capture-action;
+                                recording: root.recording;
+                                can-save: root.can-save && root.has-unsaved-edit;
+                                candidate-valid: root.can-save;
+                                preview: root.preview;
+                                error-message: root.error-message;
+                                can-restore: root.can-restore;
+                                warning-request: root.warning-request;
+                                geometry-changed(top, height) => {
+                                    if (index == root.selected-index) {
+                                        root.selected-top = top;
+                                        root.selected-height = height;
+                                        root.reveal-selection();
+                                    }
+                                }
+                                can-execute: (!command.requires-media || root.media-loaded)
+                                    && (!(command.action == 25 || command.action == 26) || !root.audio-media);
+                                activate => {
+                                    if (root.editing) {
+                                        if (root.try-leave-edit(command.action)) {
+                                            root.selected-index = index;
+                                            search.focus();
+                                        }
+                                    } else if (index == root.selected-index) { root.activate-selected(); }
+                                    else { root.selected-index = index; search.focus(); }
+                                }
+                                edit => {
+                                    if (root.try-leave-edit(command.action)) {
+                                        root.selected-index = index;
+                                        root.edit-selected();
+                                    }
+                                }
+                                save(overwrite) => root.save(overwrite);
+                                input-focus-changed(focused) => {
+                                    if (command.action == root.capture-action) { root.capture-focus-changed(focused); }
+                                }
+                                warning-finished => {
+                                    if (command.action == root.capture-action) { root.discard-armed = false; }
+                                }
+                                restore-default => { root.discard-armed = false; root.restore-default(); }
+                            }
+                            if root.commands.length == 0 : UiText {
+                                text: "Команды не найдены";
+                                color: Theme.text-muted;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                    Divider { }
+                    // Keep keyboard help stable; edit feedback belongs to the input field.
+                    Rectangle {
+                        height: 72px;
+                        VerticalLayout {
+                            spacing: Theme.space-2;
+                            alignment: center;
+                            UiText {
+                                text: root.editing ? "Введите сочетание; следующее нажатие заменит его."
+                                    : root.commands.length == 0 ? "Попробуйте другое название."
+                                    : !root.can-execute ? (!root.media-loaded ? "Для выполнения откройте файл. Сочетание можно изменить."
+                                        : "Выполнение доступно только для видео. Сочетание можно изменить.")
+                                    : "Клик по строке — выбрать, повторный — выполнить. По сочетанию — изменить.";
+                                variant: TextVariant.caption;
+                                color: Theme.text-secondary;
+                                horizontal-alignment: center;
+                                wrap: word-wrap;
+                            }
+                            HorizontalLayout {
+                                spacing: 20px;
+                                height: 22px;
+                                alignment: center;
+                                if !root.editing && root.can-execute : PaletteHint {
+                                    key: "Enter";
+                                    description: "Выполнить";
+                                }
+                                PaletteHint {
+                                    key: root.editing ? "Tab" : "F2";
+                                    description: root.editing ? "К действиям" : "Изменить";
+                                }
+                                PaletteHint {
+                                    key: "Esc";
+                                    description: root.editing ? "Отменить ввод" : "Закрыть меню";
+                                }
                             }
                         }
                     }
                 }
             }
-
-            UiText {
-                text: "↑↓ выбрать   Enter выполнить   Esc закрыть";
-                variant: TextVariant.caption;
-                color: Theme.text-muted;
-                horizontal-alignment: center;
+            // One frozen, blurred snapshot of this modal, with an interactive layer above it.
+            Rectangle {
+                visible: root.close-pending;
+                clip: true;
+                Image {
+                    width: parent.width;
+                    height: parent.height;
+                    source: root.close-background;
+                    image-fit: fill;
+                    visible: root.close-background-ready;
+                }
+                Rectangle { background: Theme.surface-modal; opacity: 0.45; }
+                TouchArea { }
+                Rectangle {
+                    width: min(parent.width - 48px, 420px);
+                    height: 208px;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: Theme.radius-medium;
+                    background: Theme.surface-modal;
+                    border-width: 1px;
+                    border-color: Theme.border-default;
+                    clip: true;
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 16px;
+                        UiText {
+                            text: "Закрыть меню без сохранения?";
+                            variant: TextVariant.heading;
+                            horizontal-alignment: center;
+                        }
+                        UiText {
+                            text: "Новое сочетание не сохранено.\nЗакрытие отменит изменения.";
+                            horizontal-alignment: center;
+                            color: Theme.text-secondary;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: center;
+                            close-cancel := Button {
+                                text: "Отменить закрытие";
+                                width: 184px;
+                                height: 40px;
+                                enabled: root.close-pending;
+                                clicked => { root.close-pending = false; }
+                            }
+                            UiText {
+                                width: 28px;
+                                height: 40px;
+                                text: Math.ceil(root.close-remaining) + "";
+                                font-family: "Consolas";
+                                font-size: 18px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                color: Theme.text-secondary;
+                                accessible-label: "До закрытия меню: " + Math.ceil(root.close-remaining) + " секунд";
+                            }
+                            close-confirm := Button {
+                                text: "Закрыть меню";
+                                width: 136px;
+                                height: 40px;
+                                enabled: root.close-pending;
+                                clicked => root.finish-close();
+                            }
+                        }
+                    }
+                    Rectangle {
+                        y: parent.height - 3px;
+                        height: 3px;
+                        width: parent.width * max(0, root.close-remaining) / 3;
+                        background: Theme.accent;
+                    }
+                }
+            }
+            reset-dialog := Rectangle {
+                visible: root.confirming-reset;
+                VerticalLayout {
+                    padding: Theme.space-6;
+                    spacing: Theme.space-4;
+                    UiText { text: "Сбросить все сочетания?"; variant: TextVariant.heading; }
+                    UiText {
+                        text: "Все ваши назначения будут заменены стандартными. Для изменения одной команды нажмите её сочетание в списке.";
+                        wrap: word-wrap;
+                        vertical-stretch: 1;
+                    }
+                    HorizontalLayout {
+                        spacing: Theme.space-3;
+                        reset-cancel := Button {
+                            text: "Отмена";
+                            enabled: reset-dialog.visible;
+                            clicked => { root.confirming-reset = false; search.focus(); }
+                        }
+                        reset-confirm := Button {
+                            text: "Сбросить все";
+                            enabled: reset-dialog.visible;
+                            clicked => { root.confirming-reset = false; root.execute(29); }
+                        }
+                    }
+                }
             }
         }
     }
-
     function move-selection(delta: int) {
         if (commands.length > 0) {
             selected-index = Math.mod(selected-index + delta + commands.length, commands.length);
+            reveal-selection();
         }
     }
-
-    function activate-selected() {
-        if (commands.length > 0) {
-            let command = commands[selected-index];
-            if ((!command.requires-media || media-loaded)
-                && (!(command.action == 25 || command.action == 26)
-                    || !audio-media)) {
-                execute(command.action);
+    function try-leave-edit(target: int) -> bool {
+        if (root.close-pending) { return false; }
+        if (root.has-unsaved-edit) {
+            if (root.discard-armed && target >= 0 && target != root.capture-action) {
+                root.discard-armed = false;
+                root.cancel();
+                return true;
             }
+            root.discard-armed = true;
+            root.warning-request += 1;
+            root.reveal-selection();
+            return false;
+        }
+        root.discard-armed = false;
+        if (root.editing) { root.cancel(); }
+        return true;
+    }
+    function request-close() {
+        if (!root.has-unsaved-edit) {
+            root.finish-close();
+            return;
+        }
+        if (!root.close-pending) {
+            root.prepare-close(panel.absolute-position.x / 1px, panel.absolute-position.y / 1px,
+                panel.width / 1px, panel.height / 1px);
+            root.discard-armed = false;
+            close-cancel.focus();
+        }
+    }
+    public function finish-close() {
+        root.close-pending = false;
+        root.cancel();
+        root.close();
+    }
+    function reveal-selection() {
+        if (commands.length > 0) {
+            let top = root.selected-top;
+            let height = min(root.selected-height, command-list.visible-height);
+            if (top < -command-list.viewport-y) { command-list.viewport-y = -top; }
+            else if (top + height > -command-list.viewport-y + command-list.visible-height) {
+                command-list.viewport-y = min(0px, command-list.visible-height - top - height);
+            }
+        }
+    }
+    function edit-selected() {
+        if (commands.length > 0 && selected-command.shortcut-editable) {
+            reveal-selection();
+            begin-capture(selected-command.action);
+        }
+    }
+    function activate-selected() {
+        if (!editing && can-execute) {
+            if (selected-command.action == 29) { confirming-reset = true; reset-cancel.focus(); }
+            else { execute(selected-command.action); }
         }
     }
 }

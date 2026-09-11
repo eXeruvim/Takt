@@ -26,7 +26,9 @@ use crate::player::playlist::{
 use crate::render::mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource};
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
-use crate::settings::{AccentPreference, AppSettings, CompletionBehavior, ThemePreference};
+use crate::settings::{
+    AccentPreference, AppSettings, CompletionBehavior, ShortcutPreference, ThemePreference,
+};
 #[cfg(target_os = "windows")]
 use crate::ui::native_fullscreen::NativeFullscreen;
 #[cfg(target_os = "windows")]
@@ -121,7 +123,7 @@ enum ShortcutAction {
     ToggleLoop = 6,
     TogglePlaylist = 7,
     ToggleInfo = 8,
-    ToggleShortcuts = 10,
+    ToggleSettings = 9,
     ToggleFullscreen = 11,
     Stop = 12,
     SeekBackwardLong = 13,
@@ -134,6 +136,7 @@ enum ShortcutAction {
     FrameBackward = 25,
     FrameForward = 26,
     TogglePictureInPicture = 27,
+    OpenConverter = 28,
 }
 
 #[derive(Clone, Copy)]
@@ -144,11 +147,12 @@ enum DrawerSwipeTarget {
 }
 
 impl ShortcutAction {
-    const ALL: [Self; 22] = [
+    const ALL: [Self; 23] = [
         Self::ToggleCommandPalette,
         Self::OpenFile,
         Self::OpenFolder,
         Self::TogglePlaylist,
+        Self::ToggleSettings,
         Self::PlayPause,
         Self::Stop,
         Self::Previous,
@@ -165,8 +169,8 @@ impl ShortcutAction {
         Self::ToggleLoop,
         Self::ToggleFullscreen,
         Self::TogglePictureInPicture,
+        Self::OpenConverter,
         Self::ToggleInfo,
-        Self::ToggleShortcuts,
     ];
 
     fn from_id(id: i32) -> Option<Self> {
@@ -184,16 +188,20 @@ impl ShortcutAction {
             6 => Some(Self::ToggleLoop),
             7 => Some(Self::TogglePlaylist),
             8 => Some(Self::ToggleInfo),
-            10 => Some(Self::ToggleShortcuts),
+            9 => Some(Self::ToggleSettings),
             11 => Some(Self::ToggleFullscreen),
             12 => Some(Self::Stop),
             13 => Some(Self::SeekBackwardLong),
             14 => Some(Self::SeekForwardLong),
             15 => Some(Self::VolumeDown),
             16 => Some(Self::VolumeUp),
+            22 => Some(Self::SeekBackwardShort),
+            23 => Some(Self::SeekForwardShort),
+            24 => Some(Self::ToggleCommandPalette),
             25 => Some(Self::FrameBackward),
             26 => Some(Self::FrameForward),
             27 => Some(Self::TogglePictureInPicture),
+            28 => Some(Self::OpenConverter),
             _ => None,
         }
     }
@@ -220,8 +228,9 @@ impl ShortcutAction {
             Self::TogglePictureInPicture => "Картинка в картинке",
             Self::ToggleInfo => "Свойства файла",
             Self::TogglePlaylist => "Плейлист",
-            Self::ToggleShortcuts => "Горячие клавиши",
+            Self::ToggleSettings => "Настройки воспроизведения",
             Self::ToggleCommandPalette => "Палитра команд",
+            Self::OpenConverter => "Конвертировать файл",
         }
     }
 
@@ -255,7 +264,7 @@ impl ShortcutAction {
             }
             Self::ToggleInfo => vec![plain(KeyCode::KeyI)],
             Self::TogglePlaylist => vec![control(KeyCode::KeyL)],
-            Self::ToggleShortcuts => vec![plain(KeyCode::KeyH)],
+            Self::ToggleSettings | Self::OpenConverter => Vec::new(),
             Self::ToggleCommandPalette => vec![control(KeyCode::KeyK)],
         }
     }
@@ -308,6 +317,66 @@ impl Default for ShortcutRegistry {
 }
 
 impl ShortcutRegistry {
+    fn from_preferences(preferences: &[ShortcutPreference]) -> Self {
+        let mut registry = Self::default();
+        let mut decoded = Vec::new();
+        for preference in preferences {
+            let Some(action) = ShortcutAction::from_id(preference.action_id) else {
+                continue;
+            };
+            // JSON null explicitly disables an action; old JSON key strings still load.
+            let Ok(code) = serde_json::from_str::<Option<KeyCode>>(&preference.key_code) else {
+                continue;
+            };
+            let Some(modifiers) = shortcut_modifiers_from_bits(preference.modifiers) else {
+                continue;
+            };
+            if code.is_none() && !modifiers.is_empty() {
+                continue;
+            }
+            let bindings: Vec<_> = code
+                .map(|code| ShortcutBinding::new(code, modifiers))
+                .into_iter()
+                .collect();
+            decoded.push((action, bindings));
+        }
+        // Apply the complete snapshot before validation: a transferred key may belong
+        // to a default action whose explicit empty override occurs later in the file.
+        for (action, bindings) in &decoded {
+            if let Some((_, target)) = registry.bindings.iter_mut().find(|(id, _)| id == action) {
+                *target = bindings.clone();
+            }
+        }
+        if registry
+            .bindings
+            .iter()
+            .any(|(action, bindings)| registry.validate_bindings(*action, bindings).is_err())
+        {
+            // An inconsistent hand-edited snapshot must not create duplicate bindings.
+            registry = Self::default();
+            for (action, bindings) in decoded {
+                let _ = registry.replace_bindings(action, bindings);
+            }
+        }
+        registry
+    }
+
+    fn preferences(&self) -> Vec<ShortcutPreference> {
+        self.bindings
+            .iter()
+            .filter(|(action, bindings)| *bindings != action.default_bindings())
+            .filter_map(|(action, bindings)| {
+                let binding = bindings.first();
+                Some(ShortcutPreference {
+                    action_id: *action as i32,
+                    key_code: serde_json::to_string(&binding.map(|binding| binding.code)).ok()?,
+                    modifiers: binding
+                        .map_or(0, |binding| shortcut_modifiers_bits(binding.modifiers)),
+                })
+            })
+            .collect()
+    }
+
     fn action_for(&self, binding: ShortcutBinding) -> Option<ShortcutAction> {
         self.bindings
             .iter()
@@ -319,35 +388,58 @@ impl ShortcutRegistry {
             .iter()
             .find(|(candidate, _)| *candidate == action)
             .map(|(_, bindings)| {
-                bindings
-                    .iter()
-                    .map(|binding| binding.display())
-                    .collect::<Vec<_>>()
-                    .join(" / ")
+                if bindings.is_empty() {
+                    "—".to_string()
+                } else {
+                    bindings
+                        .iter()
+                        .map(|binding| binding.display())
+                        .collect::<Vec<_>>()
+                        .join(" / ")
+                }
             })
             .unwrap_or_else(|| "—".to_string())
     }
 
+    #[cfg(test)]
     fn rebind(
         &mut self,
         action: ShortcutAction,
         binding: ShortcutBinding,
     ) -> Result<(), ShortcutConflict> {
-        if let Some(conflicting_action) = self.action_for(binding)
-            && conflicting_action != action
-        {
-            return Err(ShortcutConflict {
-                action: conflicting_action,
-                binding,
-            });
-        }
+        self.replace_bindings(action, vec![binding])
+    }
 
+    fn validate_bindings(
+        &self,
+        action: ShortcutAction,
+        bindings: &[ShortcutBinding],
+    ) -> Result<(), ShortcutConflict> {
+        for &binding in bindings {
+            if let Some(conflicting_action) = self.action_for(binding)
+                && conflicting_action != action
+            {
+                return Err(ShortcutConflict {
+                    action: conflicting_action,
+                    binding,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn replace_bindings(
+        &mut self,
+        action: ShortcutAction,
+        replacement: Vec<ShortcutBinding>,
+    ) -> Result<(), ShortcutConflict> {
+        self.validate_bindings(action, &replacement)?;
         if let Some((_, bindings)) = self
             .bindings
             .iter_mut()
             .find(|(candidate, _)| *candidate == action)
         {
-            *bindings = vec![binding];
+            *bindings = replacement;
         }
         Ok(())
     }
@@ -355,6 +447,158 @@ impl ShortcutRegistry {
     fn reset(&mut self) {
         *self = Self::default();
     }
+
+    fn transfer_bindings(&mut self, action: ShortcutAction, replacement: Vec<ShortcutBinding>) {
+        for (owner, bindings) in &mut self.bindings {
+            if *owner == action {
+                *bindings = replacement.clone();
+            } else if bindings.iter().any(|binding| replacement.contains(binding)) {
+                // Explicit reassignment disables the previous command, including aliases.
+                bindings.clear();
+            }
+        }
+    }
+
+    fn transfer_notice(&self, action: ShortcutAction, replacement: &[ShortcutBinding]) -> String {
+        let owners: Vec<_> = self
+            .bindings
+            .iter()
+            .filter(|(owner, bindings)| {
+                *owner != action && bindings.iter().any(|binding| replacement.contains(binding))
+            })
+            .map(|(owner, _)| format!("«{}»", owner.title()))
+            .collect();
+        if owners.len() == 1 {
+            "При переназначении эта команда останется без горячих клавиш.".to_owned()
+        } else {
+            format!(
+                "При переназначении {} останутся без горячих клавиш.",
+                owners.join(", ")
+            )
+        }
+    }
+}
+
+/// A preview stays separate from the live registry until the user saves it.
+#[derive(Default)]
+struct ShortcutEdit {
+    pending: Option<(ShortcutAction, Vec<ShortcutBinding>)>,
+}
+
+impl ShortcutEdit {
+    fn stage(
+        &mut self,
+        registry: &ShortcutRegistry,
+        action: ShortcutAction,
+        bindings: Vec<ShortcutBinding>,
+    ) -> Result<(), ShortcutConflict> {
+        let result = registry.validate_bindings(action, &bindings);
+        self.pending = Some((action, bindings));
+        result
+    }
+
+    fn save(&mut self, registry: &mut ShortcutRegistry, action: ShortcutAction) -> bool {
+        let Some((pending_action, bindings)) = self.pending.take() else {
+            return false;
+        };
+        pending_action == action && registry.replace_bindings(action, bindings).is_ok()
+    }
+
+    fn overwrite(&mut self, registry: &mut ShortcutRegistry, action: ShortcutAction) -> bool {
+        let Some((pending_action, bindings)) = self.pending.take() else {
+            return false;
+        };
+        if pending_action != action {
+            return false;
+        }
+        registry.transfer_bindings(action, bindings);
+        true
+    }
+}
+
+fn preview_shortcut_edit(
+    app: &AppWindow,
+    edit: &mut ShortcutEdit,
+    registry: &ShortcutRegistry,
+    action: ShortcutAction,
+    bindings: Vec<ShortcutBinding>,
+) {
+    let label = if bindings.is_empty() {
+        "Не назначено".to_string()
+    } else {
+        bindings
+            .iter()
+            .map(|binding| binding.display())
+            .collect::<Vec<_>>()
+            .join(" / ")
+    };
+    app.set_shortcut_capture_recording(false);
+    app.set_shortcut_capture_preview(label.into());
+    let transfer_notice = registry.transfer_notice(action, &bindings);
+    match edit.stage(registry, action, bindings) {
+        Ok(()) => {
+            app.set_shortcut_capture_valid(true);
+            app.set_shortcut_capture_error("".into());
+        }
+        Err(conflict) => {
+            app.set_shortcut_capture_valid(false);
+            app.set_shortcut_capture_error(
+                format!(
+                    "{} занято командой «{}».\n{transfer_notice}",
+                    conflict.binding.display(),
+                    conflict.action.title()
+                )
+                .into(),
+            );
+        }
+    }
+}
+
+const SHORTCUT_MODIFIER_CONTROL: u8 = 1 << 0;
+const SHORTCUT_MODIFIER_SHIFT: u8 = 1 << 1;
+const SHORTCUT_MODIFIER_ALT: u8 = 1 << 2;
+const SHORTCUT_MODIFIER_SUPER: u8 = 1 << 3;
+const SHORTCUT_MODIFIERS_KNOWN: u8 = SHORTCUT_MODIFIER_CONTROL
+    | SHORTCUT_MODIFIER_SHIFT
+    | SHORTCUT_MODIFIER_ALT
+    | SHORTCUT_MODIFIER_SUPER;
+
+fn shortcut_modifiers_bits(modifiers: ModifiersState) -> u8 {
+    let mut bits = 0;
+    if modifiers.control_key() {
+        bits |= SHORTCUT_MODIFIER_CONTROL;
+    }
+    if modifiers.shift_key() {
+        bits |= SHORTCUT_MODIFIER_SHIFT;
+    }
+    if modifiers.alt_key() {
+        bits |= SHORTCUT_MODIFIER_ALT;
+    }
+    if modifiers.super_key() {
+        bits |= SHORTCUT_MODIFIER_SUPER;
+    }
+    bits
+}
+
+fn shortcut_modifiers_from_bits(bits: u8) -> Option<ModifiersState> {
+    if bits & !SHORTCUT_MODIFIERS_KNOWN != 0 {
+        return None;
+    }
+
+    let mut modifiers = ModifiersState::empty();
+    if bits & SHORTCUT_MODIFIER_CONTROL != 0 {
+        modifiers |= ModifiersState::CONTROL;
+    }
+    if bits & SHORTCUT_MODIFIER_SHIFT != 0 {
+        modifiers |= ModifiersState::SHIFT;
+    }
+    if bits & SHORTCUT_MODIFIER_ALT != 0 {
+        modifiers |= ModifiersState::ALT;
+    }
+    if bits & SHORTCUT_MODIFIER_SUPER != 0 {
+        modifiers |= ModifiersState::SUPER;
+    }
+    Some(modifiers)
 }
 
 impl ShortcutBinding {
@@ -435,8 +679,9 @@ fn dispatch_shortcut(app: &AppWindow, action: ShortcutAction) {
         ShortcutAction::TogglePictureInPicture => app.invoke_toggle_picture_in_picture(),
         ShortcutAction::ToggleInfo => app.invoke_toggle_info(),
         ShortcutAction::TogglePlaylist => app.invoke_toggle_playlist(),
-        ShortcutAction::ToggleShortcuts => app.invoke_toggle_shortcuts(),
         ShortcutAction::ToggleCommandPalette => app.invoke_toggle_command_palette(),
+        ShortcutAction::ToggleSettings => app.invoke_toggle_settings(),
+        ShortcutAction::OpenConverter => app.invoke_open_converter(),
         ShortcutAction::OpenFile => app.invoke_open_file(),
         ShortcutAction::OpenFolder => app.invoke_open_folder(),
     }
@@ -469,6 +714,14 @@ const PALETTE_COMMANDS: &[PaletteCommandSpec] = &[
         requires_media: false,
     },
     PaletteCommandSpec {
+        action: 24,
+        title: "Меню команд",
+        description: "Открыть поиск по действиям плеера",
+        shortcut: "Ctrl K",
+        keywords: "command palette menu поиск команды палитра меню",
+        requires_media: false,
+    },
+    PaletteCommandSpec {
         action: 2,
         title: "Пауза / воспроизведение",
         description: "Переключить состояние плеера",
@@ -490,6 +743,22 @@ const PALETTE_COMMANDS: &[PaletteCommandSpec] = &[
         description: "Перейти вперёд по плейлисту",
         shortcut: "N",
         keywords: "next forward playlist следующий вперед вперёд",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 22,
+        title: "Назад на 5 секунд",
+        description: "Короткая перемотка текущего файла назад",
+        shortcut: "←",
+        keywords: "seek short rewind back короткая перемотка назад",
+        requires_media: true,
+    },
+    PaletteCommandSpec {
+        action: 23,
+        title: "Вперёд на 5 секунд",
+        description: "Короткая перемотка текущего файла вперёд",
+        shortcut: "→",
+        keywords: "seek short forward короткая перемотка вперед вперёд",
         requires_media: true,
     },
     PaletteCommandSpec {
@@ -581,14 +850,6 @@ const PALETTE_COMMANDS: &[PaletteCommandSpec] = &[
         requires_media: false,
     },
     PaletteCommandSpec {
-        action: 10,
-        title: "Горячие клавиши",
-        description: "Показать справку по управлению",
-        shortcut: "H",
-        keywords: "help shortcuts keyboard помощь клавиши управление",
-        requires_media: false,
-    },
-    PaletteCommandSpec {
         action: 11,
         title: "Полноэкранный режим",
         description: "Переключить fullscreen",
@@ -620,6 +881,14 @@ const PALETTE_COMMANDS: &[PaletteCommandSpec] = &[
         keywords: "convert export transcode ffmpeg конвертация экспорт формат кодек",
         requires_media: true,
     },
+    PaletteCommandSpec {
+        action: 29,
+        title: "Сбросить горячие клавиши",
+        description: "Вернуть стандартные сочетания",
+        shortcut: "—",
+        keywords: "reset defaults shortcuts сбросить клавиши сочетания по умолчанию",
+        requires_media: false,
+    },
 ];
 
 fn command_palette_items_with_registry(
@@ -650,6 +919,22 @@ fn command_palette_items_with_registry(
                 .unwrap_or_else(|| command.shortcut.to_string())
                 .into(),
             requires_media: command.requires_media,
+            shortcut_editable: ShortcutAction::from_palette_action(command.action).is_some(),
+            default_shortcut: ShortcutAction::from_palette_action(command.action)
+                .map(|action| {
+                    let defaults = action.default_bindings();
+                    if defaults.is_empty() {
+                        "не назначено".to_string()
+                    } else {
+                        defaults
+                            .iter()
+                            .map(|binding| binding.display())
+                            .collect::<Vec<_>>()
+                            .join(" / ")
+                    }
+                })
+                .unwrap_or_default()
+                .into(),
         })
         .collect()
 }
@@ -820,16 +1105,18 @@ fn apply_conversion_presets(app: &AppWindow, audio_media: bool, audio_codec: &st
     app.set_conversion_presets(ModelRc::new(VecModel::from(presets)));
 }
 
-fn set_shortcut_items(app: &AppWindow, shortcuts: &ShortcutRegistry) {
-    let items = ShortcutAction::ALL
-        .into_iter()
-        .map(|action| ShortcutEntry {
-            action: action as i32,
-            title: action.title().into(),
-            shortcut: shortcuts.display_for(action).into(),
-        })
-        .collect::<Vec<_>>();
-    app.set_shortcut_items(ModelRc::new(VecModel::from(items)));
+fn persist_shortcuts(
+    app: &AppWindow,
+    settings: &Arc<Mutex<AppSettings>>,
+    shortcuts: &ShortcutRegistry,
+) {
+    if let Ok(mut settings) = settings.lock() {
+        settings.set_shortcut_overrides(shortcuts.preferences());
+        if let Err(error) = settings.save_if_dirty() {
+            app.set_error_message(format!("Не удалось сохранить горячие клавиши: {error}").into());
+            app.set_error_visible(true);
+        }
+    }
 }
 
 fn format_time(seconds: f64) -> String {
@@ -1287,7 +1574,6 @@ fn toggle_picture_in_picture(
         app.set_playlist_drawer_visible(false);
         app.set_settings_drawer_visible(false);
         app.set_inspector_reserved(false);
-        app.set_shortcut_editor_visible(false);
         app.set_command_palette_visible(false);
         app.set_picture_in_picture(true);
     }
@@ -1364,6 +1650,7 @@ pub fn run(
     converter_rx: Receiver<ConverterEvent>,
 ) -> Result<()> {
     let app = AppWindow::new()?;
+    crate::ui::shortcut_close::install(&app);
     app.set_app_version(format!("v{}", env!("CARGO_PKG_VERSION")).into());
     let settings = Arc::new(Mutex::new(AppSettings::load_default()));
     #[cfg(target_os = "windows")]
@@ -1387,12 +1674,17 @@ pub fn run(
         ));
     }
     apply_conversion_presets(&app, false, "");
-    let shortcut_registry = Arc::new(Mutex::new(ShortcutRegistry::default()));
+    let shortcut_registry = Arc::new(Mutex::new(
+        settings
+            .lock()
+            .map(|settings| ShortcutRegistry::from_preferences(settings.shortcut_overrides()))
+            .unwrap_or_default(),
+    ));
+    let shortcut_edit = Arc::new(Mutex::new(ShortcutEdit::default()));
     let command_items = Rc::new(VecModel::default());
     app.set_command_items(ModelRc::from(command_items.clone()));
     if let Ok(shortcuts) = shortcut_registry.lock() {
         set_command_palette_items(&command_items, "", &shortcuts);
-        set_shortcut_items(&app, &shortcuts);
     }
     let current_duration = Arc::new(Mutex::new(0.0));
     let dialog_active = Arc::new(AtomicBool::new(false));
@@ -1444,7 +1736,7 @@ pub fn run(
         let tx = tx.clone();
         let app_weak = app.as_weak();
         let shortcut_registry = shortcut_registry.clone();
-        let event_command_items = command_items.clone();
+        let shortcut_edit = shortcut_edit.clone();
         #[cfg(target_os = "windows")]
         let event_window_drag_state = window_drag_state.clone();
         let mut modifiers = ModifiersState::empty();
@@ -1490,7 +1782,12 @@ pub fn run(
                     if let Some((target, start_x)) = drawer_swipe {
                         let delta = position.x - start_x;
                         let threshold = 48.0 * scale;
-                        let should_close = delta > threshold;
+                        let should_close = match target {
+                            DrawerSwipeTarget::Info | DrawerSwipeTarget::Playlist => {
+                                delta < -threshold
+                            }
+                            DrawerSwipeTarget::Settings => delta > threshold,
+                        };
                         if should_close {
                             drawer_swipe = None;
                             match target {
@@ -1549,8 +1846,15 @@ pub fn run(
 
                         if pointer_y >= panel_top && pointer_y <= panel_bottom {
                             let inspector_width = logical_width.min(392.0 + 32.0) - 32.0;
-                            let inspector_start = (logical_width - inspector_width - 16.0) * scale;
-                            let inspector_end = (logical_width - 16.0) * scale;
+                            let (inspector_start, inspector_end) =
+                                if app.get_inspector_left_aligned() {
+                                    (16.0 * scale, (16.0 + inspector_width) * scale)
+                                } else {
+                                    (
+                                        (logical_width - inspector_width - 16.0) * scale,
+                                        (logical_width - 16.0) * scale,
+                                    )
+                                };
 
                             let target =
                                 if pointer_x >= inspector_start && pointer_x <= inspector_end {
@@ -1605,67 +1909,64 @@ pub fn run(
                         return EventResult::PreventDefault;
                     }
 
-                    if app.get_shortcut_editor_visible() {
-                        if code == KeyCode::Escape {
-                            if app.get_shortcut_capture_action() >= 0 {
-                                app.set_shortcut_capture_action(-1);
-                                app.set_shortcut_editor_error("".into());
-                            } else {
-                                app.set_shortcut_editor_visible(false);
-                            }
-                            return EventResult::PreventDefault;
-                        }
-
-                        let capture_action = app.get_shortcut_capture_action();
-                        if capture_action >= 0 {
-                            if event.repeat || is_modifier_key(code) {
-                                return EventResult::PreventDefault;
-                            }
-                            let Some(action) = ShortcutAction::from_id(capture_action) else {
-                                app.set_shortcut_capture_action(-1);
-                                return EventResult::PreventDefault;
-                            };
-                            let binding = ShortcutBinding::new(code, modifiers);
-                            if let Ok(mut shortcuts) = shortcut_registry.lock() {
-                                match shortcuts.rebind(action, binding) {
-                                    Ok(()) => {
-                                        set_shortcut_items(&app, &shortcuts);
-                                        set_command_palette_items(
-                                            &event_command_items,
-                                            app.get_command_query().as_str(),
-                                            &shortcuts,
-                                        );
-                                        app.set_shortcut_capture_action(-1);
-                                        app.set_shortcut_editor_error("".into());
-                                    }
-                                    Err(conflict) => {
-                                        app.set_shortcut_editor_error(
-                                            format!(
-                                                "{} уже используется для действия «{}»",
-                                                conflict.binding.display(),
-                                                conflict.action.title()
-                                            )
-                                            .into(),
-                                        );
-                                    }
-                                }
-                            }
-                            return EventResult::PreventDefault;
-                        }
-
-                        let binding = ShortcutBinding::new(code, modifiers);
-                        let action = shortcut_registry
-                            .lock()
-                            .ok()
-                            .and_then(|shortcuts| shortcuts.action_for(binding));
-                        if action == Some(ShortcutAction::ToggleShortcuts) {
-                            dispatch_shortcut(&app, ShortcutAction::ToggleShortcuts);
-                            return EventResult::PreventDefault;
-                        }
-                        if action.is_some() {
-                            return EventResult::PreventDefault;
-                        }
+                    // The close countdown owns keyboard focus; never record its buttons' keys.
+                    if app.get_command_palette_visible() && app.get_shortcut_close_pending() {
                         return EventResult::Propagate;
+                    }
+
+                    let capture_action = app.get_shortcut_capture_action();
+                    if capture_action >= 0 && app.get_command_palette_visible() {
+                        if code == KeyCode::Escape {
+                            app.set_shortcut_capture_action(-1);
+                            app.set_shortcut_capture_recording(false);
+                            app.set_shortcut_capture_focused(false);
+                            app.set_shortcut_capture_error("".into());
+                            return EventResult::PreventDefault;
+                        }
+
+                        if event.repeat {
+                            return EventResult::PreventDefault;
+                        }
+                        // Tab explicitly leaves capture so focused actions can receive Enter/Space.
+                        if code == KeyCode::Tab {
+                            if app.get_shortcut_capture_recording() {
+                                app.set_shortcut_capture_recording(false);
+                                app.set_shortcut_capture_preview("Запись приостановлена".into());
+                            }
+                            return EventResult::Propagate;
+                        }
+                        if !app.get_shortcut_capture_recording()
+                            && !app.get_shortcut_capture_focused()
+                        {
+                            return EventResult::Propagate;
+                        }
+                        if is_modifier_key(code) {
+                            return EventResult::PreventDefault;
+                        }
+                        let Some(action) = ShortcutAction::from_id(capture_action) else {
+                            app.set_shortcut_capture_action(-1);
+                            return EventResult::PreventDefault;
+                        };
+                        let binding = ShortcutBinding::new(code, modifiers);
+                        if let Ok(shortcuts) = shortcut_registry.lock()
+                            && let Ok(mut edit) = shortcut_edit.lock()
+                        {
+                            preview_shortcut_edit(
+                                &app,
+                                &mut edit,
+                                &shortcuts,
+                                action,
+                                vec![binding],
+                            );
+                        }
+                        return EventResult::PreventDefault;
+                    }
+
+                    if app.get_command_palette_visible() && code == KeyCode::Escape {
+                        app.set_command_palette_visible(false);
+                        app.set_command_query("".into());
+                        app.invoke_command_query_changed("".into());
+                        return EventResult::PreventDefault;
                     }
 
                     if code == KeyCode::Escape && app.get_inspector_visible() {
@@ -2215,6 +2516,7 @@ pub fn run(
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_info_drawer_visible();
                 if opening {
+                    app.set_inspector_left_aligned(true);
                     app.set_inspector_reserved(true);
                     app.set_info_drawer_visible(true);
                     app.set_playlist_drawer_visible(false);
@@ -2246,6 +2548,7 @@ pub fn run(
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_info_drawer_visible();
                 if opening {
+                    app.set_inspector_left_aligned(true);
                     app.set_info_drawer_visible(true);
                     app.set_playlist_drawer_visible(false);
                     app.set_settings_drawer_visible(false);
@@ -2265,6 +2568,7 @@ pub fn run(
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_playlist_drawer_visible();
                 if opening {
+                    app.set_inspector_left_aligned(true);
                     app.set_inspector_reserved(true);
                     app.set_playlist_drawer_visible(true);
                     app.set_info_drawer_visible(false);
@@ -2296,6 +2600,7 @@ pub fn run(
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_playlist_drawer_visible();
                 if opening {
+                    app.set_inspector_left_aligned(true);
                     app.set_playlist_drawer_visible(true);
                     app.set_info_drawer_visible(false);
                     app.set_settings_drawer_visible(false);
@@ -2315,6 +2620,7 @@ pub fn run(
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_settings_drawer_visible();
                 if opening {
+                    app.set_inspector_left_aligned(false);
                     app.set_inspector_reserved(true);
                     app.set_settings_drawer_visible(true);
                     app.set_info_drawer_visible(false);
@@ -2346,6 +2652,7 @@ pub fn run(
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_settings_drawer_visible();
                 if opening {
+                    app.set_inspector_left_aligned(false);
                     app.set_settings_drawer_visible(true);
                     app.set_info_drawer_visible(false);
                     app.set_playlist_drawer_visible(false);
@@ -2359,34 +2666,12 @@ pub fn run(
     {
         let app_weak = app.as_weak();
 
-        app.on_toggle_shortcuts(move || {
-            if let Some(app) = app_weak.upgrade() {
-                let opening = !app.get_shortcut_editor_visible();
-                app.set_command_palette_visible(false);
-                app.set_converter_visible(false);
-                app.set_shortcut_capture_action(-1);
-                app.set_shortcut_editor_error("".into());
-                app.set_shortcut_editor_visible(opening);
-                if opening {
-                    app.set_info_drawer_visible(false);
-                    app.set_playlist_drawer_visible(false);
-                    app.set_settings_drawer_visible(false);
-                    app.set_inspector_reserved(false);
-                }
-            }
-        });
-    }
-
-    {
-        let app_weak = app.as_weak();
-
         app.on_toggle_command_palette(move || {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_command_palette_visible();
-                app.set_shortcut_editor_visible(false);
                 app.set_converter_visible(false);
                 app.set_shortcut_capture_action(-1);
-                app.set_shortcut_editor_error("".into());
+                app.set_shortcut_capture_error("".into());
                 app.set_command_query("".into());
                 if !opening {
                     app.invoke_command_query_changed("".into());
@@ -2403,7 +2688,6 @@ pub fn run(
         app.on_open_converter(move || {
             if let Some(app) = app_weak.upgrade() {
                 app.set_command_palette_visible(false);
-                app.set_shortcut_editor_visible(false);
                 app.set_info_drawer_visible(false);
                 app.set_playlist_drawer_visible(false);
                 app.set_settings_drawer_visible(false);
@@ -2543,21 +2827,94 @@ pub fn run(
     {
         let app_weak = app.as_weak();
         let shortcut_registry = shortcut_registry.clone();
+        let settings = settings.clone();
         let command_items = command_items.clone();
 
         app.on_reset_shortcuts(move || {
             if let Some(app) = app_weak.upgrade() {
                 if let Ok(mut shortcuts) = shortcut_registry.lock() {
                     shortcuts.reset();
-                    set_shortcut_items(&app, &shortcuts);
                     set_command_palette_items(
                         &command_items,
                         app.get_command_query().as_str(),
                         &shortcuts,
                     );
+                    persist_shortcuts(&app, &settings, &shortcuts);
                 }
                 app.set_shortcut_capture_action(-1);
-                app.set_shortcut_editor_error("".into());
+                app.set_shortcut_capture_error("".into());
+            }
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+        let shortcut_edit = shortcut_edit.clone();
+        app.on_begin_shortcut_edit(move |action| {
+            if let Some(app) = app_weak.upgrade()
+                && ShortcutAction::from_id(action).is_some()
+                && let Ok(mut edit) = shortcut_edit.lock()
+            {
+                edit.pending = None;
+                app.set_shortcut_capture_valid(false);
+                app.set_shortcut_capture_preview("".into());
+                app.set_shortcut_capture_error("".into());
+                app.set_shortcut_capture_recording(true);
+                app.set_shortcut_capture_action(action);
+            }
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+        let shortcut_registry = shortcut_registry.clone();
+        let shortcut_edit = shortcut_edit.clone();
+        app.on_preview_default_shortcut(move || {
+            if let Some(app) = app_weak.upgrade()
+                && let Some(action) = ShortcutAction::from_id(app.get_shortcut_capture_action())
+                && let Ok(shortcuts) = shortcut_registry.lock()
+                && let Ok(mut edit) = shortcut_edit.lock()
+            {
+                preview_shortcut_edit(
+                    &app,
+                    &mut edit,
+                    &shortcuts,
+                    action,
+                    action.default_bindings(),
+                );
+            }
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+        let shortcut_registry = shortcut_registry.clone();
+        let shortcut_edit = shortcut_edit.clone();
+        let settings = settings.clone();
+        let command_items = command_items.clone();
+        app.on_save_shortcut_edit(move |overwrite| {
+            if let Some(app) = app_weak.upgrade()
+                && app.get_command_palette_visible()
+                && !app.get_shortcut_capture_recording()
+                && (app.get_shortcut_capture_valid()
+                    || (overwrite && !app.get_shortcut_capture_error().is_empty()))
+                && let Some(action) = ShortcutAction::from_id(app.get_shortcut_capture_action())
+                && let Ok(mut shortcuts) = shortcut_registry.lock()
+                && let Ok(mut edit) = shortcut_edit.lock()
+                && if overwrite {
+                    edit.overwrite(&mut shortcuts, action)
+                } else {
+                    edit.save(&mut shortcuts, action)
+                }
+            {
+                set_command_palette_items(
+                    &command_items,
+                    app.get_command_query().as_str(),
+                    &shortcuts,
+                );
+                persist_shortcuts(&app, &settings, &shortcuts);
+                app.set_shortcut_capture_action(-1);
+                app.set_shortcut_capture_error("".into());
             }
         });
     }
@@ -2754,9 +3111,6 @@ pub fn run(
                     app.invoke_reveal_controls();
                 }
                 if VideoHost::take_primary_click() {
-                    if app.get_shortcut_editor_visible() {
-                        app.invoke_toggle_shortcuts();
-                    }
                     if app.get_info_drawer_visible() {
                         app.invoke_toggle_info();
                     }
@@ -3389,14 +3743,15 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        PALETTE_COMMANDS, ShortcutAction, ShortcutBinding, ShortcutRegistry,
-        command_for_dropped_path, command_palette_items, conversion_history_record,
-        conversion_preset_entries, format_bitrate, format_container, format_file_size,
-        format_size_change, format_time, format_track_summary, is_audio_only_media,
-        media_name_without_extension,
+        PALETTE_COMMANDS, ShortcutAction, ShortcutBinding, ShortcutEdit, ShortcutRegistry,
+        command_for_dropped_path, command_palette_items, command_palette_items_with_registry,
+        conversion_history_record, conversion_preset_entries, format_bitrate, format_container,
+        format_file_size, format_size_change, format_time, format_track_summary,
+        is_audio_only_media, media_name_without_extension,
     };
     use crate::converter::ConverterEvent;
     use crate::ipc::Command;
+    use crate::settings::ShortcutPreference;
     use slint::winit_030::winit::keyboard::{KeyCode, ModifiersState};
 
     #[test]
@@ -3516,6 +3871,31 @@ mod tests {
     }
 
     #[test]
+    fn reset_hint_keeps_factory_binding_after_customization() {
+        let mut shortcuts = ShortcutRegistry::default();
+        shortcuts
+            .rebind(
+                ShortcutAction::ToggleMute,
+                ShortcutBinding::new(KeyCode::KeyB, ModifiersState::CONTROL),
+            )
+            .unwrap();
+        let entries = command_palette_items_with_registry("mute", &shortcuts);
+        assert_eq!(entries[0].shortcut, "Ctrl+B");
+        assert_eq!(entries[0].default_shortcut, "M");
+        let entries = command_palette_items_with_registry("", &shortcuts);
+        let open = entries
+            .iter()
+            .find(|entry| entry.action == ShortcutAction::OpenFile as i32)
+            .unwrap();
+        assert_eq!(open.default_shortcut, "Ctrl+O / O");
+        let settings = entries
+            .iter()
+            .find(|entry| entry.action == ShortcutAction::ToggleSettings as i32)
+            .unwrap();
+        assert_eq!(settings.default_shortcut, "не назначено");
+    }
+
+    #[test]
     fn command_palette_searches_titles_descriptions_and_aliases() {
         let mute = command_palette_items("mute");
         assert_eq!(mute.len(), 1);
@@ -3603,6 +3983,252 @@ mod tests {
     }
 
     #[test]
+    fn shortcut_preview_requires_save_and_can_be_discarded() {
+        let mut shortcuts = ShortcutRegistry::default();
+        let mut edit = ShortcutEdit::default();
+        let replacement = ShortcutBinding::new(KeyCode::KeyB, ModifiersState::CONTROL);
+        edit.stage(&shortcuts, ShortcutAction::ToggleMute, vec![replacement])
+            .unwrap();
+        assert_eq!(shortcuts.action_for(replacement), None);
+        assert!(shortcuts.preferences().is_empty());
+        // Cancelling or opening another editor discards the pending assignment.
+        edit.pending = None;
+        assert!(!edit.save(&mut shortcuts, ShortcutAction::ToggleMute));
+        assert_eq!(shortcuts.display_for(ShortcutAction::ToggleMute), "M");
+        edit.stage(&shortcuts, ShortcutAction::ToggleMute, vec![replacement])
+            .unwrap();
+        assert!(edit.save(&mut shortcuts, ShortcutAction::ToggleMute));
+        let restored = ShortcutRegistry::from_preferences(&shortcuts.preferences());
+        assert_eq!(
+            restored.action_for(replacement),
+            Some(ShortcutAction::ToggleMute)
+        );
+    }
+
+    #[test]
+    fn conflicting_preview_cannot_save_an_earlier_valid_candidate() {
+        let mut shortcuts = ShortcutRegistry::default();
+        let mut edit = ShortcutEdit::default();
+        edit.stage(
+            &shortcuts,
+            ShortcutAction::ToggleMute,
+            vec![ShortcutBinding::new(KeyCode::KeyB, ModifiersState::CONTROL)],
+        )
+        .unwrap();
+        let conflict = edit
+            .stage(
+                &shortcuts,
+                ShortcutAction::ToggleMute,
+                vec![ShortcutBinding::new(
+                    KeyCode::Space,
+                    ModifiersState::empty(),
+                )],
+            )
+            .unwrap_err();
+        assert_eq!(conflict.action, ShortcutAction::PlayPause);
+        assert!(!edit.save(&mut shortcuts, ShortcutAction::ToggleMute));
+        assert!(shortcuts.preferences().is_empty());
+
+        // A rejected candidate can be replaced in this edit without restarting capture.
+        let replacement = ShortcutBinding::new(KeyCode::KeyD, ModifiersState::CONTROL);
+        edit.stage(&shortcuts, ShortcutAction::ToggleMute, vec![replacement])
+            .unwrap();
+        assert!(edit.save(&mut shortcuts, ShortcutAction::ToggleMute));
+        assert_eq!(
+            shortcuts.action_for(replacement),
+            Some(ShortcutAction::ToggleMute)
+        );
+        assert_eq!(
+            shortcuts.action_for(ShortcutBinding::new(
+                KeyCode::Space,
+                ModifiersState::empty()
+            )),
+            Some(ShortcutAction::PlayPause)
+        );
+    }
+
+    #[test]
+    fn explicit_transfer_disables_previous_owner_and_survives_reload() {
+        // Exercise both orders in the settings snapshot, including a donor with aliases.
+        for (recipient, donor, code) in [
+            (
+                ShortcutAction::PlayPause,
+                ShortcutAction::ToggleMute,
+                KeyCode::KeyM,
+            ),
+            (
+                ShortcutAction::ToggleMute,
+                ShortcutAction::PlayPause,
+                KeyCode::Space,
+            ),
+        ] {
+            let mut shortcuts = ShortcutRegistry::default();
+            let mut edit = ShortcutEdit::default();
+            let binding = ShortcutBinding::new(code, ModifiersState::empty());
+            assert!(edit.stage(&shortcuts, recipient, vec![binding]).is_err());
+            assert_eq!(shortcuts.action_for(binding), Some(donor));
+            assert!(shortcuts.preferences().is_empty());
+            assert!(edit.overwrite(&mut shortcuts, recipient));
+            assert_eq!(shortcuts.action_for(binding), Some(recipient));
+            assert_eq!(shortcuts.display_for(donor), "—");
+            let mut preferences = shortcuts.preferences();
+            for _ in 0..2 {
+                let restored = ShortcutRegistry::from_preferences(&preferences);
+                assert_eq!(restored.action_for(binding), Some(recipient));
+                assert_eq!(restored.display_for(donor), "—");
+                for alias in donor.default_bindings() {
+                    assert_ne!(restored.action_for(alias), Some(donor));
+                }
+                preferences.reverse();
+            }
+        }
+    }
+
+    #[test]
+    fn cancelled_or_different_command_cannot_transfer_a_staged_conflict() {
+        let mut shortcuts = ShortcutRegistry::default();
+        let mut edit = ShortcutEdit::default();
+        let binding = ShortcutBinding::new(KeyCode::Space, ModifiersState::empty());
+        assert!(
+            edit.stage(&shortcuts, ShortcutAction::ToggleMute, vec![binding])
+                .is_err()
+        );
+        edit.pending = None;
+        assert!(!edit.overwrite(&mut shortcuts, ShortcutAction::ToggleMute));
+        assert!(
+            edit.stage(&shortcuts, ShortcutAction::ToggleMute, vec![binding])
+                .is_err()
+        );
+        assert!(!edit.overwrite(&mut shortcuts, ShortcutAction::ToggleSettings));
+        assert!(shortcuts.preferences().is_empty());
+    }
+
+    #[test]
+    fn transferred_default_aliases_can_be_restored_from_multiple_owners() {
+        let mut shortcuts = ShortcutRegistry::default();
+        shortcuts.transfer_bindings(
+            ShortcutAction::ToggleMute,
+            vec![ShortcutBinding::new(
+                KeyCode::Space,
+                ModifiersState::empty(),
+            )],
+        );
+        shortcuts.transfer_bindings(
+            ShortcutAction::ToggleSettings,
+            vec![ShortcutBinding::new(KeyCode::KeyK, ModifiersState::empty())],
+        );
+        let defaults = ShortcutAction::PlayPause.default_bindings();
+        let notice = shortcuts.transfer_notice(ShortcutAction::PlayPause, &defaults);
+        assert!(notice.contains(ShortcutAction::ToggleMute.title()));
+        assert!(notice.contains(ShortcutAction::ToggleSettings.title()));
+        let mut edit = ShortcutEdit::default();
+        assert!(
+            edit.stage(&shortcuts, ShortcutAction::PlayPause, defaults.clone())
+                .is_err()
+        );
+        assert!(edit.overwrite(&mut shortcuts, ShortcutAction::PlayPause));
+        let restored = ShortcutRegistry::from_preferences(&shortcuts.preferences());
+        for binding in defaults {
+            assert_eq!(
+                restored.action_for(binding),
+                Some(ShortcutAction::PlayPause)
+            );
+        }
+        assert_eq!(restored.display_for(ShortcutAction::ToggleMute), "—");
+        assert_eq!(restored.display_for(ShortcutAction::ToggleSettings), "—");
+    }
+
+    #[test]
+    fn swapped_assignments_reload_without_default_order_conflicts() {
+        let mut shortcuts = ShortcutRegistry::default();
+        let mute = ShortcutBinding::new(KeyCode::KeyM, ModifiersState::empty());
+        let play = ShortcutBinding::new(KeyCode::Space, ModifiersState::empty());
+        shortcuts.transfer_bindings(ShortcutAction::PlayPause, vec![mute]);
+        shortcuts.rebind(ShortcutAction::ToggleMute, play).unwrap();
+        let restored = ShortcutRegistry::from_preferences(&shortcuts.preferences());
+        assert_eq!(restored.action_for(mute), Some(ShortcutAction::PlayPause));
+        assert_eq!(restored.action_for(play), Some(ShortcutAction::ToggleMute));
+    }
+
+    #[test]
+    fn restoring_one_command_preserves_other_changes_and_all_default_aliases() {
+        let mut shortcuts = ShortcutRegistry::default();
+        shortcuts
+            .rebind(
+                ShortcutAction::PlayPause,
+                ShortcutBinding::new(KeyCode::KeyB, ModifiersState::CONTROL),
+            )
+            .unwrap();
+        shortcuts
+            .rebind(
+                ShortcutAction::ToggleMute,
+                ShortcutBinding::new(KeyCode::KeyD, ModifiersState::CONTROL),
+            )
+            .unwrap();
+        let mut edit = ShortcutEdit::default();
+        edit.stage(
+            &shortcuts,
+            ShortcutAction::PlayPause,
+            ShortcutAction::PlayPause.default_bindings(),
+        )
+        .unwrap();
+        assert!(edit.save(&mut shortcuts, ShortcutAction::PlayPause));
+        assert_eq!(shortcuts.display_for(ShortcutAction::ToggleMute), "Ctrl+D");
+        for binding in ShortcutAction::PlayPause.default_bindings() {
+            assert_eq!(
+                shortcuts.action_for(binding),
+                Some(ShortcutAction::PlayPause)
+            );
+        }
+        // A default reassigned to another action must not be stolen by reset.
+        shortcuts
+            .rebind(
+                ShortcutAction::PlayPause,
+                ShortcutBinding::new(KeyCode::KeyB, ModifiersState::CONTROL),
+            )
+            .unwrap();
+        shortcuts
+            .rebind(
+                ShortcutAction::ToggleMute,
+                ShortcutBinding::new(KeyCode::Space, ModifiersState::empty()),
+            )
+            .unwrap();
+        assert!(
+            edit.stage(
+                &shortcuts,
+                ShortcutAction::PlayPause,
+                ShortcutAction::PlayPause.default_bindings()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn restoring_unassigned_default_removes_the_persisted_override() {
+        let mut shortcuts = ShortcutRegistry::default();
+        shortcuts
+            .rebind(
+                ShortcutAction::ToggleSettings,
+                ShortcutBinding::new(KeyCode::KeyB, ModifiersState::CONTROL),
+            )
+            .unwrap();
+        let mut edit = ShortcutEdit::default();
+        edit.stage(
+            &shortcuts,
+            ShortcutAction::ToggleSettings,
+            ShortcutAction::ToggleSettings.default_bindings(),
+        )
+        .unwrap();
+        assert!(edit.save(&mut shortcuts, ShortcutAction::ToggleSettings));
+        assert!(shortcuts.preferences().is_empty());
+        assert_eq!(
+            ShortcutRegistry::from_preferences(&shortcuts.preferences())
+                .display_for(ShortcutAction::ToggleSettings),
+            "—"
+        );
+    }
+
+    #[test]
     fn reset_restores_default_shortcuts() {
         let mut shortcuts = ShortcutRegistry::default();
         shortcuts
@@ -3617,6 +4243,82 @@ mod tests {
         assert_eq!(
             shortcuts.action_for(ShortcutBinding::new(KeyCode::KeyM, ModifiersState::empty())),
             Some(ShortcutAction::ToggleMute)
+        );
+    }
+
+    #[test]
+    fn shortcut_overrides_round_trip_as_physical_keys() {
+        let mut shortcuts = ShortcutRegistry::default();
+        let replacement = ShortcutBinding::new(
+            KeyCode::KeyB,
+            ModifiersState::CONTROL | ModifiersState::SHIFT,
+        );
+        shortcuts
+            .rebind(ShortcutAction::ToggleMute, replacement)
+            .expect("unused shortcut must be accepted");
+
+        let preferences = shortcuts.preferences();
+        assert_eq!(preferences.len(), 1);
+        let restored = ShortcutRegistry::from_preferences(&preferences);
+
+        assert_eq!(
+            restored.action_for(replacement),
+            Some(ShortcutAction::ToggleMute)
+        );
+        assert_eq!(
+            restored.display_for(ShortcutAction::ToggleMute),
+            "Ctrl+Shift+B"
+        );
+    }
+
+    #[test]
+    fn previously_unassigned_commands_can_receive_shortcuts() {
+        let mut shortcuts = ShortcutRegistry::default();
+        let binding = ShortcutBinding::new(
+            KeyCode::Comma,
+            ModifiersState::CONTROL | ModifiersState::SHIFT,
+        );
+
+        assert_eq!(shortcuts.display_for(ShortcutAction::ToggleSettings), "—");
+        shortcuts
+            .rebind(ShortcutAction::ToggleSettings, binding)
+            .expect("unused shortcut must be accepted");
+
+        assert_eq!(
+            shortcuts.action_for(binding),
+            Some(ShortcutAction::ToggleSettings)
+        );
+        assert_eq!(
+            shortcuts.display_for(ShortcutAction::ToggleSettings),
+            "Ctrl+Shift+,"
+        );
+    }
+
+    #[test]
+    fn invalid_shortcut_preferences_keep_safe_defaults() {
+        let restored = ShortcutRegistry::from_preferences(&[
+            ShortcutPreference {
+                action_id: ShortcutAction::ToggleMute as i32,
+                key_code: "not-json".to_owned(),
+                modifiers: 0,
+            },
+            ShortcutPreference {
+                action_id: ShortcutAction::PlayPause as i32,
+                key_code: serde_json::to_string(&KeyCode::KeyB).expect("key code must serialize"),
+                modifiers: u8::MAX,
+            },
+        ]);
+
+        assert_eq!(
+            restored.action_for(ShortcutBinding::new(KeyCode::KeyM, ModifiersState::empty())),
+            Some(ShortcutAction::ToggleMute)
+        );
+        assert_eq!(
+            restored.action_for(ShortcutBinding::new(
+                KeyCode::Space,
+                ModifiersState::empty()
+            )),
+            Some(ShortcutAction::PlayPause)
         );
     }
 
