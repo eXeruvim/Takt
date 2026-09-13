@@ -344,6 +344,7 @@ export component Slider inherits Rectangle {
         : 0;
     callback changed(float);
     private property <float> ratio: maximum > minimum ? (value - minimum) / (maximum - minimum) : 0;
+    private property <length> last-pointer-position: 0px;
 
     height: Theme.space-6;
     background: transparent;
@@ -396,11 +397,18 @@ export component Slider inherits Rectangle {
             if (event.button == PointerEventButton.left
                 && event.kind == PointerEventKind.down) {
                 focus.focus();
+                root.last-pointer-position = self.mouse-x;
                 root.update-value(self.mouse-x);
             }
         }
-        clicked => root.update-value(self.mouse-x);
-        moved => root.update-value(self.mouse-x);
+        // Press already applies a click. Applying it again on release repeats
+        // a seek (and its audio). Only horizontal drag movement needs updates.
+        moved => {
+            if (self.pressed && self.mouse-x != root.last-pointer-position) {
+                root.last-pointer-position = self.mouse-x;
+                root.update-value(self.mouse-x);
+            }
+        }
     }
 
     focus := FocusScope {
@@ -427,7 +435,9 @@ export component Slider inherits Rectangle {
     }
 
     function update-value(position: length) {
-        set-value(minimum + max(0, min(1, position / self.width)) * (maximum - minimum));
+        if (self.width > 0px) {
+            set-value(minimum + max(0, min(1, position / self.width)) * (maximum - minimum));
+        }
     }
 }
 

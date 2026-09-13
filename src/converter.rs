@@ -1,12 +1,11 @@
 use std::{
-    collections::VecDeque,
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
     process::Command,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -18,14 +17,57 @@ use crossbeam_channel::{Receiver, Sender};
 mod lifecycle_tests;
 mod output;
 mod process;
+mod queue;
 use output::{WorkingOutput, publish_output};
 use process::ManagedChild;
+use queue::PendingJobs;
 
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_ERROR_LOG_BYTES: usize = 32 * 1024;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const PROBE_OUTPUT_LIMIT: usize = 64 * 1024;
 const MAX_LINE_BYTES: usize = 8 * 1024;
+pub const COMMAND_CAPACITY: usize = 16;
+
+#[derive(Default)]
+pub struct ConverterControl {
+    cancel: Arc<AtomicBool>,
+    queue_generation: AtomicU64,
+    refresh_pending: AtomicBool,
+}
+
+impl ConverterControl {
+    pub fn cancel_active(&self) {
+        self.cancel.store(true, Ordering::Release);
+    }
+    pub fn clear_pending(&self) {
+        self.queue_generation.fetch_add(1, Ordering::AcqRel);
+    }
+    pub fn queue_generation(&self) -> u64 {
+        self.queue_generation.load(Ordering::Acquire)
+    }
+
+    pub fn request_refresh(&self, tx: &Sender<ConverterCommand>) -> Result<(), &'static str> {
+        if self.refresh_pending.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        if let Err(error) = submit(tx, ConverterCommand::RefreshAvailability) {
+            self.refresh_pending.store(false, Ordering::Release);
+            return Err(error);
+        }
+        Ok(())
+    }
+}
+
+pub fn submit(
+    tx: &Sender<ConverterCommand>,
+    command: ConverterCommand,
+) -> Result<(), &'static str> {
+    tx.try_send(command).map_err(|error| match error {
+        crossbeam_channel::TrySendError::Full(_) => "Слишком много запросов к конвертеру. Подождите немного и повторите — задача не добавлена",
+        crossbeam_channel::TrySendError::Disconnected(_) => "Конвертер недоступен. Перезапустите плеер",
+    })
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConversionPreset {
@@ -151,14 +193,13 @@ impl Default for ConversionOptions {
 pub enum ConverterCommand {
     RefreshAvailability,
     Start {
+        queue_generation: u64,
         source: PathBuf,
         output: PathBuf,
         preset: ConversionPreset,
         options: ConversionOptions,
         duration_seconds: f64,
     },
-    Cancel,
-    ClearQueue,
     Quit,
 }
 
@@ -288,15 +329,23 @@ struct JobMonitor<'a> {
     tx: &'a Sender<ConverterEvent>,
 }
 
-pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>, shutdown: Arc<AtomicBool>) {
+pub fn run(
+    rx: Receiver<ConverterCommand>,
+    tx: Sender<ConverterEvent>,
+    shutdown: Arc<AtomicBool>,
+    control: Arc<ConverterControl>,
+) {
     let mut installation = discover_ffmpeg(&shutdown);
     send_availability(&tx, installation.as_ref());
     let mut active_job: Option<ActiveJob> = None;
-    let mut pending_jobs = VecDeque::new();
+    let mut pending_jobs = PendingJobs::new(control.queue_generation());
 
     loop {
         if shutdown.load(Ordering::Acquire) {
             break;
+        }
+        if pending_jobs.synchronize(control.queue_generation()) {
+            let _ = tx.send(ConverterEvent::QueueUpdated { pending: 0 });
         }
         if active_job.as_ref().is_some_and(ActiveJob::is_finished)
             && let Some(job) = active_job.take()
@@ -305,12 +354,12 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>, shutdown:
         }
         if active_job.is_none()
             && let Some(installation) = installation.as_ref()
-            && let Some(job) = pending_jobs.pop_front()
+            && let Some(job) = pending_jobs.pop()
         {
             let _ = tx.send(ConverterEvent::QueueUpdated {
                 pending: pending_jobs.len(),
             });
-            active_job = spawn_job(installation, job, &tx);
+            active_job = spawn_job(installation, job, &tx, control.cancel.clone());
         }
 
         match rx.recv_timeout(WORKER_POLL_INTERVAL) {
@@ -319,14 +368,25 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>, shutdown:
                     installation = discover_ffmpeg(&shutdown);
                     send_availability(&tx, installation.as_ref());
                 }
+                control.refresh_pending.store(false, Ordering::Release);
             }
             Ok(ConverterCommand::Start {
+                queue_generation,
                 source,
                 output,
                 preset,
                 options,
                 duration_seconds,
             }) => {
+                let generation = control.queue_generation();
+                if pending_jobs.synchronize(generation) {
+                    let _ = tx.send(ConverterEvent::QueueUpdated { pending: 0 });
+                }
+                // Clear removes only requests submitted before it. New requests
+                // remain valid even if still waiting in the bounded command queue.
+                if queue_generation != generation {
+                    continue;
+                }
                 let Some(installation) = installation.as_ref() else {
                     let _ = tx.send(ConverterEvent::Rejected {
                         output,
@@ -345,7 +405,7 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>, shutdown:
                     continue;
                 }
                 if active_job.as_ref().is_some_and(|job| job.output == output)
-                    || pending_jobs.iter().any(|job| job.output == output)
+                    || pending_jobs.contains_output(&output)
                 {
                     let _ = tx.send(ConverterEvent::Rejected {
                         message: format!(
@@ -366,22 +426,20 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>, shutdown:
                     duration_seconds,
                 };
                 if active_job.is_some() {
-                    pending_jobs.push_back(job);
+                    if let Err(job) = pending_jobs.push(job) {
+                        let _ = tx.send(ConverterEvent::Rejected {
+                            output: job.output,
+                            message: format!("В очереди уже {} задач. Дождитесь завершения или очистите очередь — новая задача не добавлена", queue::MAX_PENDING_JOBS),
+                            active: true,
+                        });
+                        continue;
+                    }
                     let _ = tx.send(ConverterEvent::QueueUpdated {
                         pending: pending_jobs.len(),
                     });
                 } else {
-                    active_job = spawn_job(installation, job, &tx);
+                    active_job = spawn_job(installation, job, &tx, control.cancel.clone());
                 }
-            }
-            Ok(ConverterCommand::Cancel) => {
-                if let Some(job) = &active_job {
-                    job.cancel.store(true, Ordering::Release);
-                }
-            }
-            Ok(ConverterCommand::ClearQueue) => {
-                pending_jobs.clear();
-                let _ = tx.send(ConverterEvent::QueueUpdated { pending: 0 });
             }
             Ok(ConverterCommand::Quit) | Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                 break;
@@ -395,9 +453,12 @@ fn spawn_job(
     installation: &FfmpegInstallation,
     job: JobSpec,
     tx: &Sender<ConverterEvent>,
+    cancel: Arc<AtomicBool>,
 ) -> Option<ActiveJob> {
     let output = job.output.clone();
-    let cancel = Arc::new(AtomicBool::new(false));
+    // UI cancellation bypasses the command/event queues. Reset only when a new
+    // job takes ownership; the previous worker has already been joined.
+    cancel.store(false, Ordering::Release);
     let executable = installation.executable.clone();
     let worker_tx = tx.clone();
     let worker_cancel = cancel.clone();
@@ -592,9 +653,21 @@ fn run_job_with(
         }
     };
 
-    let _ = tx.send(ConverterEvent::Started {
+    let mut started = ConverterEvent::Started {
         output: output.to_path_buf(),
-    });
+    };
+    loop {
+        match tx.send_timeout(started, WORKER_POLL_INTERVAL) {
+            Ok(()) => break,
+            Err(crossbeam_channel::SendTimeoutError::Disconnected(_)) => return,
+            Err(crossbeam_channel::SendTimeoutError::Timeout(event)) => {
+                if cancel.load(Ordering::Acquire) {
+                    break;
+                }
+                started = event;
+            }
+        }
+    }
 
     monitor_child(
         &mut child,
@@ -843,7 +916,7 @@ fn monitor_child_result(child: &mut ManagedChild, monitor: &JobMonitor<'_>) -> R
             {
                 let fraction = (processed_seconds / monitor.duration_seconds).clamp(0.0, 1.0);
                 let remaining_seconds = estimate_remaining(started_at.elapsed(), fraction);
-                let _ = monitor.tx.send(ConverterEvent::Progress {
+                let _ = monitor.tx.try_send(ConverterEvent::Progress {
                     fraction,
                     remaining_seconds,
                     current_size_bytes,

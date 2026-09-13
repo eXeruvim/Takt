@@ -1648,6 +1648,7 @@ pub fn run(
     rx: Receiver<Event>,
     converter_tx: Sender<ConverterCommand>,
     converter_rx: Receiver<ConverterEvent>,
+    converter_control: Arc<crate::converter::ConverterControl>,
 ) -> Result<()> {
     let app = AppWindow::new()?;
     crate::ui::shortcut_close::install(&app);
@@ -2690,6 +2691,7 @@ pub fn run(
         let app_weak = app.as_weak();
         let converter_tx = converter_tx.clone();
 
+        let converter_control_for_refresh = converter_control.clone();
         app.on_open_converter(move || {
             if let Some(app) = app_weak.upgrade() {
                 app.set_command_palette_visible(false);
@@ -2698,7 +2700,10 @@ pub fn run(
                 app.set_settings_drawer_visible(false);
                 app.set_inspector_reserved(false);
                 app.set_converter_visible(true);
-                let _ = converter_tx.send(ConverterCommand::RefreshAvailability);
+                if let Err(message) = converter_control_for_refresh.request_refresh(&converter_tx) {
+                    app.set_error_message(message.into());
+                    app.set_error_visible(true);
+                }
             }
         });
     }
@@ -2764,6 +2769,7 @@ pub fn run(
         let app_weak = app.as_weak();
         let converter_tx = converter_tx.clone();
 
+        let converter_control_for_start = converter_control.clone();
         app.on_start_conversion(move |index| {
             let Some(app) = app_weak.upgrade() else {
                 return;
@@ -2786,32 +2792,39 @@ pub fn run(
                 app.set_conversion_status("Подготовка FFmpeg…".into());
                 app.set_conversion_size_status("Ожидание данных FFmpeg…".into());
             }
-            if converter_tx
-                .send(ConverterCommand::Start {
+            match crate::converter::submit(
+                &converter_tx,
+                ConverterCommand::Start {
+                    queue_generation: converter_control_for_start.queue_generation(),
                     source,
                     output,
                     preset,
                     options,
                     duration_seconds: app.get_duration_seconds() as f64,
-                })
-                .is_ok()
-            {
-                app.set_conversion_output_path("".into());
+                },
+            ) {
+                Ok(()) => app.set_conversion_output_path("".into()),
+                Err(message) => {
+                    if !app.get_conversion_running() {
+                        app.set_conversion_status("Задача не добавлена".into());
+                    }
+                    app.set_error_message(message.into());
+                    app.set_error_visible(true);
+                }
             }
         });
     }
 
     {
-        let converter_tx = converter_tx.clone();
+        let converter_control = converter_control.clone();
         app.on_cancel_conversion(move || {
-            let _ = converter_tx.send(ConverterCommand::Cancel);
+            converter_control.cancel_active();
         });
     }
 
     {
-        let converter_tx = converter_tx.clone();
         app.on_clear_conversion_queue(move || {
-            let _ = converter_tx.send(ConverterCommand::ClearQueue);
+            converter_control.clear_pending();
         });
     }
 
@@ -3134,606 +3147,646 @@ pub fn run(
     #[cfg(target_os = "windows")]
     let event_render_source = render_source.clone();
 
-    std::thread::spawn(move || {
-        while let Ok(event) = rx.recv() {
+    let player_bridge = super::event_delivery::spawn(
+        rx,
+        |previous, next| matches!((previous, next), (Event::TimePos(_), Event::TimePos(_))),
+        move |batch, completion| {
             let weak = weak.clone();
             let current_duration = current_duration.clone();
             #[cfg(target_os = "windows")]
             let render_source = event_render_source.clone();
 
             slint::invoke_from_event_loop(move || {
+                let _completion = completion;
                 let Some(app) = weak.upgrade() else {
                     return;
                 };
 
-                match event {
-                    #[cfg(target_os = "windows")]
-                    Event::RenderSource(source) => {
-                        if let Ok(mut target) = render_source.lock() {
-                            *target = Some(source);
+                for event in batch {
+                    match event {
+                        #[cfg(target_os = "windows")]
+                        Event::RenderSource(source) => {
+                            if let Ok(mut target) = render_source.lock() {
+                                *target = Some(source);
+                            }
+                            app.window().request_redraw();
                         }
-                        app.window().request_redraw();
-                    }
 
-                    #[cfg(not(target_os = "windows"))]
-                    Event::RenderSource(_) => {}
+                        #[cfg(not(target_os = "windows"))]
+                        Event::RenderSource(_) => {}
 
-                    Event::LoadStarted(name) => {
-                        app.set_resume_prompt_visible(false);
-                        let preserve_media_surface = app.get_media_presented();
-                        app.set_audio_display_name(media_name_without_extension(&name).into());
-                        app.set_file_name(name.into());
-                        app.set_track_title("".into());
-                        app.set_track_artist("".into());
-                        app.set_album_title("".into());
-                        app.set_album_art(Image::default());
-                        app.set_album_art_available(false);
-                        app.set_audio_tracks(ModelRc::new(VecModel::from(
-                            Vec::<AudioTrackEntry>::new(),
-                        )));
-                        app.set_subtitle_tracks(ModelRc::new(VecModel::from(Vec::<
-                            SubtitleTrackEntry,
-                        >::new(
-                        ))));
-                        app.set_subtitles_enabled(false);
-                        app.set_audio_delay(0.0);
-                        app.set_subtitle_delay(0.0);
-                        app.set_chapters(ModelRc::new(VecModel::from(Vec::<ChapterEntry>::new())));
-                        app.set_current_chapter_index(-1);
-                        app.set_aspect_ratio_index(AspectRatio::Original.ui_index());
-                        app.set_waiting_for_video_surface(false);
-                        app.set_media_transitioning(preserve_media_surface);
-                        app.set_is_playing(false);
-                        if !preserve_media_surface {
-                            app.set_audio_media(false);
-                            app.set_media_loaded(false);
-                            app.set_player_phase(PlayerPhase::Loading);
-                        }
-                        app.set_error_visible(false);
-                        app.set_error_message("".into());
-                    }
-
-                    Event::FileLoaded { name, path } => {
-                        app.set_audio_display_name(media_name_without_extension(&name).into());
-                        app.set_file_name(name.into());
-                        app.set_current_media_path(path.into());
-                        if !app.get_conversion_running() {
-                            app.set_conversion_output_path("".into());
-                            app.set_conversion_progress(0.0);
-                            app.set_conversion_status("".into());
-                            app.set_conversion_size_status("".into());
-                        }
-                        app.set_current_time("00:00".into());
-                        app.set_total_time("00:00".into());
-                        app.set_duration_seconds(0.0);
-                        app.set_progress(0.0);
-                        app.set_container_format("—".into());
-                        app.set_file_size_label("—".into());
-                        app.set_media_duration_label("—".into());
-                        app.set_media_bitrate_label("—".into());
-                        app.set_track_summary("—".into());
-                        app.set_error_visible(false);
-                        if let Ok(mut duration) = current_duration.lock() {
-                            *duration = 0.0;
-                        }
-                    }
-
-                    Event::MediaAvailable(available) => {
-                        app.set_media_loaded(available);
-                        app.set_media_transitioning(
-                            available && app.get_waiting_for_video_surface(),
-                        );
-                        if !available {
-                            app.set_waiting_for_video_surface(false);
-                            app.set_is_playing(false);
-                        }
-                    }
-
-                    Event::PlaybackState(state) => {
-                        app.set_is_playing(state && app.get_media_loaded());
-                        if app.get_media_loaded() {
-                            app.set_player_phase(if state {
-                                PlayerPhase::Playing
-                            } else {
-                                PlayerPhase::Paused
-                            });
-                        }
-                    }
-
-                    Event::PlaybackStopped => {
-                        app.set_resume_prompt_visible(false);
-                        app.set_media_transitioning(false);
-                        app.set_player_phase(PlayerPhase::Empty);
-                    }
-
-                    Event::PlaybackFinished => {
-                        app.set_resume_prompt_visible(false);
-                        app.set_media_transitioning(false);
-                        app.set_player_phase(PlayerPhase::Finished);
-                    }
-
-                    Event::PlaybackFailed(message) => {
-                        app.set_resume_prompt_visible(false);
-                        app.set_media_transitioning(false);
-                        app.set_waiting_for_video_surface(false);
-                        app.set_media_loaded(false);
-                        app.set_is_playing(false);
-                        app.set_player_phase(PlayerPhase::Error);
-                        app.set_error_message(message.into());
-                        app.set_error_visible(false);
-                    }
-
-                    Event::Volume(v) => {
-                        app.set_volume((v / 100.0) as f32);
-                        app.invoke_schedule_playback_defaults_save();
-                    }
-
-                    Event::Muted(muted) => {
-                        app.set_muted(muted);
-                    }
-
-                    Event::Speed(v) => {
-                        app.set_speed(v as f32);
-                        app.invoke_schedule_playback_defaults_save();
-                    }
-
-                    Event::AudioDelay(value) => {
-                        app.set_audio_delay(value as f32);
-                    }
-
-                    Event::SubtitleDelay(value) => {
-                        app.set_subtitle_delay(value as f32);
-                    }
-
-                    Event::TimePos(position) => {
-                        app.set_current_time(format_time(position).into());
-                        let duration = current_duration
-                            .lock()
-                            .map(|duration| *duration)
-                            .unwrap_or_default();
-                        if duration > 0.0 {
-                            app.set_progress((position / duration) as f32);
-                        }
-                    }
-
-                    Event::Duration(duration) => {
-                        if let Ok(mut current_duration) = current_duration.lock() {
-                            *current_duration = duration;
-                        }
-                        app.set_total_time(format_time(duration).into());
-                        app.set_duration_seconds(duration as f32);
-                        app.set_media_duration_label(if duration.is_finite() && duration > 0.0 {
-                            format_time(duration).into()
-                        } else {
-                            "—".into()
-                        });
-                    }
-
-                    Event::Playlist {
-                        items,
-                        current_index,
-                    } => {
-                        let items = items
-                            .into_iter()
-                            .map(SharedString::from)
-                            .collect::<Vec<_>>();
-                        let next_file = items.get(current_index + 1).cloned();
-                        app.set_playlist_items(ModelRc::new(VecModel::from(items)));
-                        app.set_playlist_current_index(
-                            i32::try_from(current_index).unwrap_or(i32::MAX),
-                        );
-                        app.set_playlist_focus_revision(
-                            app.get_playlist_focus_revision().wrapping_add(1),
-                        );
-                        if let Some(next_file) = next_file {
-                            app.set_next_file(next_file);
-                            app.set_next_card_visible(true);
-                        } else {
-                            app.set_next_card_visible(false);
-                        }
-                    }
-
-                    Event::RecentFiles(files) => {
-                        let files = files
-                            .into_iter()
-                            .map(|file| RecentFileEntry {
-                                name: file.name.into(),
-                                path: file.path.into(),
-                                location: file.location.into(),
-                            })
-                            .collect::<Vec<_>>();
-                        app.set_recent_files(ModelRc::new(VecModel::from(files)));
-                    }
-
-                    Event::ResumeAvailable(position) => {
-                        app.set_resume_position_label(format_time(position).into());
-                        app.set_resume_prompt_visible(true);
-                    }
-
-                    Event::MediaInfo {
-                        width,
-                        height,
-                        fps,
-                        codec,
-                        audio_codec,
-                        container,
-                        file_size_bytes,
-                        duration_seconds,
-                        average_bitrate_bps,
-                        video_track_count,
-                        audio_track_count,
-                        subtitle_track_count,
-                    } => {
-                        let audio_media = is_audio_only_media(width, height, &codec, &audio_codec);
-                        let wait_for_video =
-                            app.get_media_transitioning() && app.get_audio_media() && !audio_media;
-                        app.set_waiting_for_video_surface(wait_for_video);
-                        if !wait_for_video {
-                            app.set_audio_media(audio_media);
-                        }
-                        app.set_resolution(if width > 0 && height > 0 {
-                            format!("{width}×{height}").into()
-                        } else {
-                            "—".into()
-                        });
-                        app.set_fps(if fps.is_finite() && fps > 0.0 {
-                            format!("{fps:.2} FPS").into()
-                        } else {
-                            "—".into()
-                        });
-                        app.set_codec(format_codec(&codec).into());
-                        app.set_audio_codec(format_codec(&audio_codec).into());
-                        if !app.get_conversion_running() {
-                            apply_conversion_presets(&app, audio_media, &audio_codec);
-                        }
-                        app.set_container_format(format_container(&container).into());
-                        app.set_file_size_label(format_file_size(file_size_bytes).into());
-                        app.set_conversion_source_size(
-                            format_precise_file_size(file_size_bytes).into(),
-                        );
-                        app.set_media_duration_label(
-                            if duration_seconds.is_finite() && duration_seconds > 0.0 {
-                                format_time(duration_seconds).into()
-                            } else {
-                                "—".into()
-                            },
-                        );
-                        app.set_media_bitrate_label(format_bitrate(average_bitrate_bps).into());
-                        app.set_track_summary(
-                            format_track_summary(
-                                video_track_count,
-                                audio_track_count,
-                                subtitle_track_count,
-                            )
-                            .into(),
-                        );
-                    }
-
-                    Event::AudioMetadata {
-                        title,
-                        artist,
-                        album,
-                        artwork_rgba,
-                        artwork_width,
-                        artwork_height,
-                    } => {
-                        app.set_track_title(title.into());
-                        app.set_track_artist(artist.into());
-                        app.set_album_title(album.into());
-
-                        let expected_len = usize::try_from(artwork_width)
-                            .ok()
-                            .and_then(|width| {
-                                usize::try_from(artwork_height)
-                                    .ok()
-                                    .and_then(|height| width.checked_mul(height))
-                            })
-                            .and_then(|pixels| pixels.checked_mul(4));
-                        if expected_len == Some(artwork_rgba.len()) && !artwork_rgba.is_empty() {
-                            let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
-                                &artwork_rgba,
-                                artwork_width,
-                                artwork_height,
-                            );
-                            app.set_album_art(Image::from_rgba8(buffer));
-                            app.set_album_art_available(true);
-                        } else {
+                        Event::LoadStarted(name) => {
+                            app.set_resume_prompt_visible(false);
+                            let preserve_media_surface = app.get_media_presented();
+                            app.set_audio_display_name(media_name_without_extension(&name).into());
+                            app.set_file_name(name.into());
+                            app.set_track_title("".into());
+                            app.set_track_artist("".into());
+                            app.set_album_title("".into());
                             app.set_album_art(Image::default());
                             app.set_album_art_available(false);
-                        }
-                    }
-
-                    Event::AudioTracks(tracks) => {
-                        let tracks = tracks
-                            .into_iter()
-                            .filter_map(|track| {
-                                Some(AudioTrackEntry {
-                                    id: i32::try_from(track.id).ok()?,
-                                    label: track.label.into(),
-                                    selected: track.selected,
-                                })
-                            })
-                            .collect::<Vec<_>>();
-                        app.set_audio_tracks(ModelRc::new(VecModel::from(tracks)));
-                    }
-
-                    Event::SubtitleTracks(tracks) => {
-                        let tracks = tracks
-                            .into_iter()
-                            .filter_map(|track| {
-                                Some(SubtitleTrackEntry {
-                                    id: i32::try_from(track.id).ok()?,
-                                    label: track.label.into(),
-                                    selected: track.selected,
-                                })
-                            })
-                            .collect::<Vec<_>>();
-                        app.set_subtitles_enabled(tracks.iter().any(|track| track.selected));
-                        app.set_subtitle_tracks(ModelRc::new(VecModel::from(tracks)));
-                    }
-
-                    Event::Chapters {
-                        items,
-                        current_index,
-                    } => {
-                        let chapters = items
-                            .into_iter()
-                            .filter_map(|chapter| {
-                                Some(ChapterEntry {
-                                    index: i32::try_from(chapter.index).ok()?,
-                                    label: chapter.label.into(),
-                                })
-                            })
-                            .collect::<Vec<_>>();
-                        app.set_chapters(ModelRc::new(VecModel::from(chapters)));
-                        app.set_current_chapter_index(i32::try_from(current_index).unwrap_or(-1));
-                    }
-
-                    Event::ChapterChanged(index) => {
-                        app.set_current_chapter_index(i32::try_from(index).unwrap_or(-1));
-                    }
-
-                    Event::AspectRatioChanged(aspect_ratio) => {
-                        app.set_aspect_ratio_index(aspect_ratio.ui_index());
-                    }
-
-                    Event::HardwareDecoding { enabled, decoder } => {
-                        app.set_hardware_decoding_enabled(enabled);
-                        app.set_hardware_decoder(decoder.into());
-                    }
-
-                    Event::EqualizerChanged {
-                        enabled,
-                        preset,
-                        preamp_db,
-                        band_gains_db,
-                    } => {
-                        app.set_equalizer_enabled(enabled);
-                        app.set_equalizer_preset_index(preset.ui_index());
-                        app.set_equalizer_preamp_db(preamp_db as f32);
-                        let bands = ["60 Гц", "230 Гц", "910 Гц", "3,6 кГц", "14 кГц"]
-                            .into_iter()
-                            .zip(band_gains_db)
-                            .map(|(label, gain_db)| EqualizerBandEntry {
-                                label: label.into(),
-                                gain_db: gain_db as f32,
-                            })
-                            .collect::<Vec<_>>();
-                        app.set_equalizer_bands(ModelRc::new(VecModel::from(bands)));
-                    }
-
-                    Event::VideoOutputReady => {
-                        if app.get_waiting_for_video_surface() {
-                            app.set_audio_media(false);
+                            app.set_audio_tracks(ModelRc::new(VecModel::from(Vec::<
+                                AudioTrackEntry,
+                            >::new(
+                            ))));
+                            app.set_subtitle_tracks(ModelRc::new(VecModel::from(Vec::<
+                                SubtitleTrackEntry,
+                            >::new(
+                            ))));
+                            app.set_subtitles_enabled(false);
+                            app.set_audio_delay(0.0);
+                            app.set_subtitle_delay(0.0);
+                            app.set_chapters(ModelRc::new(VecModel::from(
+                                Vec::<ChapterEntry>::new(),
+                            )));
+                            app.set_current_chapter_index(-1);
+                            app.set_aspect_ratio_index(AspectRatio::Original.ui_index());
                             app.set_waiting_for_video_surface(false);
-                            app.set_media_transitioning(false);
+                            app.set_media_transitioning(preserve_media_surface);
+                            app.set_is_playing(false);
+                            if !preserve_media_surface {
+                                app.set_audio_media(false);
+                                app.set_media_loaded(false);
+                                app.set_player_phase(PlayerPhase::Loading);
+                            }
+                            app.set_error_visible(false);
+                            app.set_error_message("".into());
                         }
-                    }
 
-                    Event::LoopEnabled(enabled) => {
-                        app.set_loop_enabled(enabled);
-                    }
+                        Event::FileLoaded { name, path } => {
+                            app.set_audio_display_name(media_name_without_extension(&name).into());
+                            app.set_file_name(name.into());
+                            app.set_current_media_path(path.into());
+                            if !app.get_conversion_running() {
+                                app.set_conversion_output_path("".into());
+                                app.set_conversion_progress(0.0);
+                                app.set_conversion_status("".into());
+                                app.set_conversion_size_status("".into());
+                            }
+                            app.set_current_time("00:00".into());
+                            app.set_total_time("00:00".into());
+                            app.set_duration_seconds(0.0);
+                            app.set_progress(0.0);
+                            app.set_container_format("—".into());
+                            app.set_file_size_label("—".into());
+                            app.set_media_duration_label("—".into());
+                            app.set_media_bitrate_label("—".into());
+                            app.set_track_summary("—".into());
+                            app.set_error_visible(false);
+                            if let Ok(mut duration) = current_duration.lock() {
+                                *duration = 0.0;
+                            }
+                        }
 
-                    Event::FolderLoopEnabled(enabled) => {
-                        app.set_folder_loop_enabled(enabled);
-                    }
+                        Event::MediaAvailable(available) => {
+                            app.set_media_loaded(available);
+                            app.set_media_transitioning(
+                                available && app.get_waiting_for_video_surface(),
+                            );
+                            if !available {
+                                app.set_waiting_for_video_surface(false);
+                                app.set_is_playing(false);
+                            }
+                        }
 
-                    Event::ShuffleEnabled(enabled) => {
-                        app.set_shuffle_enabled(enabled);
-                    }
+                        Event::PlaybackState(state) => {
+                            app.set_is_playing(state && app.get_media_loaded());
+                            if app.get_media_loaded() {
+                                app.set_player_phase(if state {
+                                    PlayerPhase::Playing
+                                } else {
+                                    PlayerPhase::Paused
+                                });
+                            }
+                        }
 
-                    Event::Error(message) => {
-                        app.set_error_message(message.into());
-                        app.set_error_visible(true);
+                        Event::PlaybackStopped => {
+                            app.set_resume_prompt_visible(false);
+                            app.set_media_transitioning(false);
+                            app.set_player_phase(PlayerPhase::Empty);
+                        }
+
+                        Event::PlaybackFinished => {
+                            app.set_resume_prompt_visible(false);
+                            app.set_media_transitioning(false);
+                            app.set_player_phase(PlayerPhase::Finished);
+                        }
+
+                        Event::PlaybackFailed(message) => {
+                            app.set_resume_prompt_visible(false);
+                            app.set_media_transitioning(false);
+                            app.set_waiting_for_video_surface(false);
+                            app.set_media_loaded(false);
+                            app.set_is_playing(false);
+                            app.set_player_phase(PlayerPhase::Error);
+                            app.set_error_message(message.into());
+                            app.set_error_visible(false);
+                        }
+
+                        Event::Volume(v) => {
+                            app.set_volume((v / 100.0) as f32);
+                            app.invoke_schedule_playback_defaults_save();
+                        }
+
+                        Event::Muted(muted) => {
+                            app.set_muted(muted);
+                        }
+
+                        Event::Speed(v) => {
+                            app.set_speed(v as f32);
+                            app.invoke_schedule_playback_defaults_save();
+                        }
+
+                        Event::AudioDelay(value) => {
+                            app.set_audio_delay(value as f32);
+                        }
+
+                        Event::SubtitleDelay(value) => {
+                            app.set_subtitle_delay(value as f32);
+                        }
+
+                        Event::TimePos(position) => {
+                            app.set_current_time(format_time(position).into());
+                            let duration = current_duration
+                                .lock()
+                                .map(|duration| *duration)
+                                .unwrap_or_default();
+                            if duration > 0.0 {
+                                app.set_progress((position / duration) as f32);
+                            }
+                        }
+
+                        Event::Duration(duration) => {
+                            if let Ok(mut current_duration) = current_duration.lock() {
+                                *current_duration = duration;
+                            }
+                            app.set_total_time(format_time(duration).into());
+                            app.set_duration_seconds(duration as f32);
+                            app.set_media_duration_label(
+                                if duration.is_finite() && duration > 0.0 {
+                                    format_time(duration).into()
+                                } else {
+                                    "—".into()
+                                },
+                            );
+                        }
+
+                        Event::Playlist {
+                            items,
+                            current_index,
+                        } => {
+                            let items = items
+                                .into_iter()
+                                .map(SharedString::from)
+                                .collect::<Vec<_>>();
+                            let next_file = items.get(current_index + 1).cloned();
+                            app.set_playlist_items(ModelRc::new(VecModel::from(items)));
+                            app.set_playlist_current_index(
+                                i32::try_from(current_index).unwrap_or(i32::MAX),
+                            );
+                            app.set_playlist_focus_revision(
+                                app.get_playlist_focus_revision().wrapping_add(1),
+                            );
+                            if let Some(next_file) = next_file {
+                                app.set_next_file(next_file);
+                                app.set_next_card_visible(true);
+                            } else {
+                                app.set_next_card_visible(false);
+                            }
+                        }
+
+                        Event::RecentFiles(files) => {
+                            let files = files
+                                .into_iter()
+                                .map(|file| RecentFileEntry {
+                                    name: file.name.into(),
+                                    path: file.path.into(),
+                                    location: file.location.into(),
+                                })
+                                .collect::<Vec<_>>();
+                            app.set_recent_files(ModelRc::new(VecModel::from(files)));
+                        }
+
+                        Event::ResumeAvailable(position) => {
+                            app.set_resume_position_label(format_time(position).into());
+                            app.set_resume_prompt_visible(true);
+                        }
+
+                        Event::MediaInfo {
+                            width,
+                            height,
+                            fps,
+                            codec,
+                            audio_codec,
+                            container,
+                            file_size_bytes,
+                            duration_seconds,
+                            average_bitrate_bps,
+                            video_track_count,
+                            audio_track_count,
+                            subtitle_track_count,
+                        } => {
+                            let audio_media =
+                                is_audio_only_media(width, height, &codec, &audio_codec);
+                            let wait_for_video = app.get_media_transitioning()
+                                && app.get_audio_media()
+                                && !audio_media;
+                            app.set_waiting_for_video_surface(wait_for_video);
+                            if !wait_for_video {
+                                app.set_audio_media(audio_media);
+                            }
+                            app.set_resolution(if width > 0 && height > 0 {
+                                format!("{width}×{height}").into()
+                            } else {
+                                "—".into()
+                            });
+                            app.set_fps(if fps.is_finite() && fps > 0.0 {
+                                format!("{fps:.2} FPS").into()
+                            } else {
+                                "—".into()
+                            });
+                            app.set_codec(format_codec(&codec).into());
+                            app.set_audio_codec(format_codec(&audio_codec).into());
+                            if !app.get_conversion_running() {
+                                apply_conversion_presets(&app, audio_media, &audio_codec);
+                            }
+                            app.set_container_format(format_container(&container).into());
+                            app.set_file_size_label(format_file_size(file_size_bytes).into());
+                            app.set_conversion_source_size(
+                                format_precise_file_size(file_size_bytes).into(),
+                            );
+                            app.set_media_duration_label(
+                                if duration_seconds.is_finite() && duration_seconds > 0.0 {
+                                    format_time(duration_seconds).into()
+                                } else {
+                                    "—".into()
+                                },
+                            );
+                            app.set_media_bitrate_label(format_bitrate(average_bitrate_bps).into());
+                            app.set_track_summary(
+                                format_track_summary(
+                                    video_track_count,
+                                    audio_track_count,
+                                    subtitle_track_count,
+                                )
+                                .into(),
+                            );
+                        }
+
+                        Event::AudioMetadata {
+                            title,
+                            artist,
+                            album,
+                            artwork_rgba,
+                            artwork_width,
+                            artwork_height,
+                        } => {
+                            app.set_track_title(title.into());
+                            app.set_track_artist(artist.into());
+                            app.set_album_title(album.into());
+
+                            let expected_len = usize::try_from(artwork_width)
+                                .ok()
+                                .and_then(|width| {
+                                    usize::try_from(artwork_height)
+                                        .ok()
+                                        .and_then(|height| width.checked_mul(height))
+                                })
+                                .and_then(|pixels| pixels.checked_mul(4));
+                            if expected_len == Some(artwork_rgba.len()) && !artwork_rgba.is_empty()
+                            {
+                                let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+                                    &artwork_rgba,
+                                    artwork_width,
+                                    artwork_height,
+                                );
+                                app.set_album_art(Image::from_rgba8(buffer));
+                                app.set_album_art_available(true);
+                            } else {
+                                app.set_album_art(Image::default());
+                                app.set_album_art_available(false);
+                            }
+                        }
+
+                        Event::AudioTracks(tracks) => {
+                            let tracks = tracks
+                                .into_iter()
+                                .filter_map(|track| {
+                                    Some(AudioTrackEntry {
+                                        id: i32::try_from(track.id).ok()?,
+                                        label: track.label.into(),
+                                        selected: track.selected,
+                                    })
+                                })
+                                .collect::<Vec<_>>();
+                            app.set_audio_tracks(ModelRc::new(VecModel::from(tracks)));
+                        }
+
+                        Event::SubtitleTracks(tracks) => {
+                            let tracks = tracks
+                                .into_iter()
+                                .filter_map(|track| {
+                                    Some(SubtitleTrackEntry {
+                                        id: i32::try_from(track.id).ok()?,
+                                        label: track.label.into(),
+                                        selected: track.selected,
+                                    })
+                                })
+                                .collect::<Vec<_>>();
+                            app.set_subtitles_enabled(tracks.iter().any(|track| track.selected));
+                            app.set_subtitle_tracks(ModelRc::new(VecModel::from(tracks)));
+                        }
+
+                        Event::Chapters {
+                            items,
+                            current_index,
+                        } => {
+                            let chapters = items
+                                .into_iter()
+                                .filter_map(|chapter| {
+                                    Some(ChapterEntry {
+                                        index: i32::try_from(chapter.index).ok()?,
+                                        label: chapter.label.into(),
+                                    })
+                                })
+                                .collect::<Vec<_>>();
+                            app.set_chapters(ModelRc::new(VecModel::from(chapters)));
+                            app.set_current_chapter_index(
+                                i32::try_from(current_index).unwrap_or(-1),
+                            );
+                        }
+
+                        Event::ChapterChanged(index) => {
+                            app.set_current_chapter_index(i32::try_from(index).unwrap_or(-1));
+                        }
+
+                        Event::AspectRatioChanged(aspect_ratio) => {
+                            app.set_aspect_ratio_index(aspect_ratio.ui_index());
+                        }
+
+                        Event::HardwareDecoding { enabled, decoder } => {
+                            app.set_hardware_decoding_enabled(enabled);
+                            app.set_hardware_decoder(decoder.into());
+                        }
+
+                        Event::EqualizerChanged {
+                            enabled,
+                            preset,
+                            preamp_db,
+                            band_gains_db,
+                        } => {
+                            app.set_equalizer_enabled(enabled);
+                            app.set_equalizer_preset_index(preset.ui_index());
+                            app.set_equalizer_preamp_db(preamp_db as f32);
+                            let bands = ["60 Гц", "230 Гц", "910 Гц", "3,6 кГц", "14 кГц"]
+                                .into_iter()
+                                .zip(band_gains_db)
+                                .map(|(label, gain_db)| EqualizerBandEntry {
+                                    label: label.into(),
+                                    gain_db: gain_db as f32,
+                                })
+                                .collect::<Vec<_>>();
+                            app.set_equalizer_bands(ModelRc::new(VecModel::from(bands)));
+                        }
+
+                        Event::VideoOutputReady => {
+                            if app.get_waiting_for_video_surface() {
+                                app.set_audio_media(false);
+                                app.set_waiting_for_video_surface(false);
+                                app.set_media_transitioning(false);
+                            }
+                        }
+
+                        Event::LoopEnabled(enabled) => {
+                            app.set_loop_enabled(enabled);
+                        }
+
+                        Event::FolderLoopEnabled(enabled) => {
+                            app.set_folder_loop_enabled(enabled);
+                        }
+
+                        Event::ShuffleEnabled(enabled) => {
+                            app.set_shuffle_enabled(enabled);
+                        }
+
+                        Event::Error(message) => {
+                            app.set_error_message(message.into());
+                            app.set_error_visible(true);
+                        }
                     }
                 }
             })
-            .ok();
-        }
-    });
+            .is_ok()
+        },
+    )?;
 
     let converter_weak = app.as_weak();
-    std::thread::spawn(move || {
-        let mut conversion_history = Vec::new();
-        while let Ok(event) = converter_rx.recv() {
-            let history_snapshot = conversion_history_record(&event).map(|entry| {
-                conversion_history.insert(0, entry);
-                conversion_history.truncate(MAX_CONVERSION_HISTORY_ENTRIES);
-                conversion_history.clone()
-            });
+    let mut conversion_history = Vec::new();
+    let converter_bridge = super::event_delivery::spawn(
+        converter_rx,
+        |previous, next| {
+            matches!(
+                (previous, next),
+                (
+                    ConverterEvent::Progress { .. },
+                    ConverterEvent::Progress { .. }
+                )
+            )
+        },
+        move |batch, completion| {
+            let batch: Vec<_> = batch
+                .into_iter()
+                .map(|event| {
+                    let history_snapshot = conversion_history_record(&event).map(|entry| {
+                        conversion_history.insert(0, entry);
+                        conversion_history.truncate(MAX_CONVERSION_HISTORY_ENTRIES);
+                        conversion_history.clone()
+                    });
+                    (event, history_snapshot)
+                })
+                .collect();
             let weak = converter_weak.clone();
             slint::invoke_from_event_loop(move || {
+                let _completion = completion;
                 let Some(app) = weak.upgrade() else {
                     return;
                 };
 
-                if let Some(records) = history_snapshot {
-                    app.set_conversion_history(ModelRc::new(VecModel::from(
-                        conversion_history_entries(records),
-                    )));
-                }
+                for (event, history_snapshot) in batch {
+                    if let Some(records) = history_snapshot {
+                        app.set_conversion_history(ModelRc::new(VecModel::from(
+                            conversion_history_entries(records),
+                        )));
+                    }
 
-                match event {
-                    ConverterEvent::Availability { available, details } => {
-                        app.set_ffmpeg_available(available);
-                        app.set_ffmpeg_details(details.into());
-                        if !available && !app.get_conversion_running() {
-                            app.set_conversion_status("Установите FFmpeg для продолжения".into());
+                    match event {
+                        ConverterEvent::Availability { available, details } => {
+                            app.set_ffmpeg_available(available);
+                            app.set_ffmpeg_details(details.into());
+                            if !available && !app.get_conversion_running() {
+                                app.set_conversion_status(
+                                    "Установите FFmpeg для продолжения".into(),
+                                );
+                            }
                         }
-                    }
-                    ConverterEvent::Started { output } => {
-                        app.set_conversion_running(true);
-                        app.set_conversion_progress(0.0);
-                        app.set_conversion_status(
-                            format!("Конвертация: {}", output.display()).into(),
-                        );
-                        app.set_conversion_size_status("Записано: 0 Б".into());
-                    }
-                    ConverterEvent::QueueUpdated { pending } => {
-                        app.set_conversion_queue_count(i32::try_from(pending).unwrap_or(i32::MAX));
-                    }
-                    ConverterEvent::Progress {
-                        fraction,
-                        remaining_seconds,
-                        current_size_bytes,
-                    } => {
-                        app.set_conversion_progress(fraction.clamp(0.0, 1.0) as f32);
-                        let percent = (fraction.clamp(0.0, 1.0) * 100.0).round() as u32;
-                        app.set_conversion_status(
-                            remaining_seconds
-                                .map(|seconds| {
-                                    format!(
-                                        "{percent}% · осталось {}",
-                                        format_remaining_time(seconds)
-                                    )
-                                })
-                                .unwrap_or_else(|| format!("{percent}%"))
-                                .into(),
-                        );
-                        app.set_conversion_size_status(
-                            format!(
-                                "Записано сейчас: {}",
-                                format_precise_file_size(current_size_bytes)
-                            )
-                            .into(),
-                        );
-                    }
-                    ConverterEvent::Completed {
-                        output,
-                        source_size_bytes,
-                        output_size_bytes,
-                    } => {
-                        let has_next = app.get_conversion_queue_count() > 0;
-                        app.set_conversion_running(has_next);
-                        apply_conversion_presets(
-                            &app,
-                            app.get_audio_media(),
-                            app.get_audio_codec().as_str(),
-                        );
-                        app.set_conversion_progress(1.0);
-                        app.set_conversion_status(
-                            if has_next {
+                        ConverterEvent::Started { output } => {
+                            app.set_conversion_running(true);
+                            app.set_conversion_progress(0.0);
+                            app.set_conversion_status(
+                                format!("Конвертация: {}", output.display()).into(),
+                            );
+                            app.set_conversion_size_status("Записано: 0 Б".into());
+                        }
+                        ConverterEvent::QueueUpdated { pending } => {
+                            app.set_conversion_queue_count(
+                                i32::try_from(pending).unwrap_or(i32::MAX),
+                            );
+                        }
+                        ConverterEvent::Progress {
+                            fraction,
+                            remaining_seconds,
+                            current_size_bytes,
+                        } => {
+                            app.set_conversion_progress(fraction.clamp(0.0, 1.0) as f32);
+                            let percent = (fraction.clamp(0.0, 1.0) * 100.0).round() as u32;
+                            app.set_conversion_status(
+                                remaining_seconds
+                                    .map(|seconds| {
+                                        format!(
+                                            "{percent}% · осталось {}",
+                                            format_remaining_time(seconds)
+                                        )
+                                    })
+                                    .unwrap_or_else(|| format!("{percent}%"))
+                                    .into(),
+                            );
+                            app.set_conversion_size_status(
                                 format!(
-                                    "Готово: {} · запускается следующая задача",
-                                    output.display()
+                                    "Записано сейчас: {}",
+                                    format_precise_file_size(current_size_bytes)
                                 )
-                            } else {
-                                format!("Готово: {}", output.display())
-                            }
-                            .into(),
-                        );
-                        app.set_conversion_size_status(
-                            format_size_change(source_size_bytes, output_size_bytes).into(),
-                        );
-                        #[cfg(target_os = "windows")]
-                        if let Some(hwnd) = native_window_handle(app.window()) {
-                            let notification = format!(
-                                "{} · {}",
-                                conversion_output_title(&output),
-                                format_size_change(source_size_bytes, output_size_bytes)
-                            );
-                            system_notification::show(
-                                hwnd as usize,
-                                "Конвертация завершена",
-                                &notification,
-                                NotificationKind::Information,
+                                .into(),
                             );
                         }
-                    }
-                    ConverterEvent::Canceled { .. } => {
-                        let has_next = app.get_conversion_queue_count() > 0;
-                        app.set_conversion_running(has_next);
-                        apply_conversion_presets(
-                            &app,
-                            app.get_audio_media(),
-                            app.get_audio_codec().as_str(),
-                        );
-                        app.set_conversion_progress(0.0);
-                        app.set_conversion_status(
-                            if has_next {
-                                "Текущая задача отменена · запускается следующая"
-                            } else {
-                                "Конвертация отменена"
-                            }
-                            .into(),
-                        );
-                        app.set_conversion_size_status(
-                            "Временный файл удалён; исходник не изменён".into(),
-                        );
-                    }
-                    ConverterEvent::Rejected {
-                        message, active, ..
-                    } => {
-                        if !active {
-                            app.set_conversion_running(false);
-                            app.set_conversion_status("Задача не запущена".into());
-                        }
-                        app.set_error_message(message.into());
-                        app.set_error_visible(true);
-                    }
-                    ConverterEvent::Failed { output, message } => {
-                        let has_next = app.get_conversion_queue_count() > 0;
-                        app.set_conversion_running(has_next);
-                        apply_conversion_presets(
-                            &app,
-                            app.get_audio_media(),
-                            app.get_audio_codec().as_str(),
-                        );
-                        app.set_conversion_status(
-                            if has_next {
-                                "Ошибка конвертации · запускается следующая задача"
-                            } else {
-                                "Ошибка конвертации"
-                            }
-                            .into(),
-                        );
-                        app.set_conversion_size_status(
-                            "Итоговый файл не создан; исходник не изменён".into(),
-                        );
-                        #[cfg(target_os = "windows")]
-                        if let Some(hwnd) = native_window_handle(app.window()) {
-                            let notification = format!(
-                                "{} · {}",
-                                conversion_output_title(&output),
-                                compact_error_message(&message)
+                        ConverterEvent::Completed {
+                            output,
+                            source_size_bytes,
+                            output_size_bytes,
+                        } => {
+                            let has_next = app.get_conversion_queue_count() > 0;
+                            app.set_conversion_running(has_next);
+                            apply_conversion_presets(
+                                &app,
+                                app.get_audio_media(),
+                                app.get_audio_codec().as_str(),
                             );
-                            system_notification::show(
-                                hwnd as usize,
-                                "Ошибка конвертации",
-                                &notification,
-                                NotificationKind::Error,
+                            app.set_conversion_progress(1.0);
+                            app.set_conversion_status(
+                                if has_next {
+                                    format!(
+                                        "Готово: {} · запускается следующая задача",
+                                        output.display()
+                                    )
+                                } else {
+                                    format!("Готово: {}", output.display())
+                                }
+                                .into(),
+                            );
+                            app.set_conversion_size_status(
+                                format_size_change(source_size_bytes, output_size_bytes).into(),
+                            );
+                            #[cfg(target_os = "windows")]
+                            if let Some(hwnd) = native_window_handle(app.window()) {
+                                let notification = format!(
+                                    "{} · {}",
+                                    conversion_output_title(&output),
+                                    format_size_change(source_size_bytes, output_size_bytes)
+                                );
+                                system_notification::show(
+                                    hwnd as usize,
+                                    "Конвертация завершена",
+                                    &notification,
+                                    NotificationKind::Information,
+                                );
+                            }
+                        }
+                        ConverterEvent::Canceled { .. } => {
+                            let has_next = app.get_conversion_queue_count() > 0;
+                            app.set_conversion_running(has_next);
+                            apply_conversion_presets(
+                                &app,
+                                app.get_audio_media(),
+                                app.get_audio_codec().as_str(),
+                            );
+                            app.set_conversion_progress(0.0);
+                            app.set_conversion_status(
+                                if has_next {
+                                    "Текущая задача отменена · запускается следующая"
+                                } else {
+                                    "Конвертация отменена"
+                                }
+                                .into(),
+                            );
+                            app.set_conversion_size_status(
+                                "Временный файл удалён; исходник не изменён".into(),
                             );
                         }
-                        app.set_error_message(message.into());
-                        app.set_error_visible(true);
+                        ConverterEvent::Rejected {
+                            message, active, ..
+                        } => {
+                            if !active {
+                                app.set_conversion_running(false);
+                                app.set_conversion_status("Задача не запущена".into());
+                            }
+                            app.set_error_message(message.into());
+                            app.set_error_visible(true);
+                        }
+                        ConverterEvent::Failed { output, message } => {
+                            let has_next = app.get_conversion_queue_count() > 0;
+                            app.set_conversion_running(has_next);
+                            apply_conversion_presets(
+                                &app,
+                                app.get_audio_media(),
+                                app.get_audio_codec().as_str(),
+                            );
+                            app.set_conversion_status(
+                                if has_next {
+                                    "Ошибка конвертации · запускается следующая задача"
+                                } else {
+                                    "Ошибка конвертации"
+                                }
+                                .into(),
+                            );
+                            app.set_conversion_size_status(
+                                "Итоговый файл не создан; исходник не изменён".into(),
+                            );
+                            #[cfg(target_os = "windows")]
+                            if let Some(hwnd) = native_window_handle(app.window()) {
+                                let notification = format!(
+                                    "{} · {}",
+                                    conversion_output_title(&output),
+                                    compact_error_message(&message)
+                                );
+                                system_notification::show(
+                                    hwnd as usize,
+                                    "Ошибка конвертации",
+                                    &notification,
+                                    NotificationKind::Error,
+                                );
+                            }
+                            app.set_error_message(message.into());
+                            app.set_error_visible(true);
+                        }
                     }
                 }
             })
-            .ok();
-        }
-    });
+            .is_ok()
+        },
+    )?;
 
     let run_result = app.run();
+    drop(player_bridge);
+    drop(converter_bridge);
     #[cfg(target_os = "windows")]
     if let Some(hwnd) = native_window_handle(app.window()) {
         system_notification::clear(hwnd as usize);

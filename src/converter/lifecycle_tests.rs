@@ -119,6 +119,11 @@ fn helper_child() {
         "flood" => loop {
             io::stdout().write_all(&[b'x'; 4096]).unwrap();
         },
+        "progress-flood" => loop {
+            io::stdout()
+                .write_all(b"out_time_us=5000000\ntotal_size=14\n")
+                .unwrap();
+        },
         "tree" => {
             let go = PathBuf::from(std::env::var_os("OXIDE_TEST_CHILD_GO").unwrap());
             while !go.exists() {
@@ -283,6 +288,48 @@ fn failed_conversion_keeps_final_diagnostic_and_cleans_output() {
     assert!(rx.try_iter().any(|event| matches!(event, ConverterEvent::Failed { message, .. } if message.contains("fixture encoder failed without newline"))));
     assert!(!working.exists());
     assert_child_exited(&files.path("pid"));
+}
+
+#[test]
+fn cancellation_reaps_encoder_when_event_queue_is_full_before_or_after_started() {
+    for fill_before_started in [true, false] {
+        let files = TestFiles::new();
+        let spec = files.spec();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        if fill_before_started {
+            tx.send(ConverterEvent::QueueUpdated { pending: 0 })
+                .unwrap();
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
+        let (path_tx, path_rx) = crossbeam_channel::bounded(1);
+        let pid = files.path("pid");
+        let worker = thread::spawn(move || {
+            run_job_with(spec, &worker_cancel, &tx, |path| {
+                path_tx.send(path.to_owned()).unwrap();
+                let mut command = helper_command("progress-flood", &pid);
+                command.env("OXIDE_TEST_CHILD_OUTPUT", path);
+                command
+            });
+        });
+        let working = path_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        wait_until(|| files.path("pid").exists() && working.exists() && rx.is_full());
+        let started = Instant::now();
+        cancel.store(true, Ordering::Release);
+        // Do not drain the UI queue. Cancellation must stop the native process
+        // even when delivering Started or progress has no available capacity.
+        assert_child_exited(&files.path("pid"));
+        wait_until(|| !working.exists());
+        assert!(started.elapsed() < Duration::from_secs(3));
+        eprintln!(
+            "saturated converter: before_started={fill_before_started}, encoder stopped in {:?}",
+            started.elapsed()
+        );
+        drop(rx); // releases the terminal notification; not required to kill child
+        worker.join().unwrap();
+        assert!(!working.parent().unwrap().exists());
+        assert!(!files.path("result.mp4").exists());
+    }
 }
 
 #[test]
