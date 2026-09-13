@@ -4,6 +4,7 @@ mod ipc;
 mod player;
 mod render;
 mod settings;
+mod storage;
 mod ui;
 
 use crossbeam_channel::unbounded;

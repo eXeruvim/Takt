@@ -173,8 +173,15 @@ fn record_current_media(
 ) {
     if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path) {
         session.record_open(path);
-        let _ = session.save_if_dirty();
+        save_session(tx, session);
         send_recent_files(tx, session);
+    }
+}
+
+fn save_session(tx: &Sender<Event>, session: &mut SessionStore) {
+    if let Some(message) = session.save_and_take_error() {
+        eprintln!("{message}");
+        let _ = tx.send(Event::Error(message));
     }
 }
 
@@ -706,6 +713,10 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
     let mut playlist: Option<DirectoryPlaylist> = None;
     let mut options = PlaybackOptions::default();
     let mut session = SessionStore::load_default();
+    if let Some(message) = session.take_storage_notice() {
+        eprintln!("{message}");
+        let _ = tx.send(Event::Error(message));
+    }
     let mut last_session_save = Instant::now();
     let mut pending_resume_path: Option<PathBuf> = None;
     let mut pending_resume: Option<(PathBuf, f64)> = None;
@@ -756,7 +767,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                         let _ = tx.send(Event::TimePos(position));
                     } else {
                         session.clear_position(&path);
-                        session.save_if_dirty()?;
+                        save_session(&tx, &mut session);
                         mpv_error(mpv.set_property("time-pos", 0.0))?;
                         let _ = tx.send(Event::TimePos(0.0));
                     }
@@ -798,11 +809,11 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                 pending_resume_path = None;
                 if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path) {
                     session.clear_position(path);
-                    let _ = session.save_if_dirty();
+                    save_session(&tx, &mut session);
                 }
             }
             if matches!(&command, Command::Quit) {
-                let _ = session.save_if_dirty();
+                save_session(&tx, &mut session);
             }
 
             let makes_output_ready = matches!(
@@ -945,7 +956,7 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
         }
 
         if last_session_save.elapsed() >= SESSION_SAVE_INTERVAL {
-            let _ = session.save_if_dirty();
+            save_session(&tx, &mut session);
             last_session_save = Instant::now();
         }
 

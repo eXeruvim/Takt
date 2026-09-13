@@ -1,7 +1,9 @@
+use crate::storage::Persistence;
+#[cfg(test)]
+use std::path::Path;
 use std::{
-    fs,
     io::{Error, ErrorKind},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 const SETTINGS_FORMAT: &str = "OXIDE_SETTINGS";
@@ -147,7 +149,7 @@ pub struct AppSettings {
     completion_behavior: CompletionBehavior,
     hardware_decoding_enabled: bool,
     shortcut_overrides: Vec<ShortcutPreference>,
-    storage_path: Option<PathBuf>,
+    persistence: Persistence,
     dirty: bool,
 }
 
@@ -161,7 +163,7 @@ impl Default for AppSettings {
             completion_behavior: CompletionBehavior::Stop,
             hardware_decoding_enabled: false,
             shortcut_overrides: Vec::new(),
-            storage_path: None,
+            persistence: Persistence::default(),
             dirty: false,
         }
     }
@@ -169,13 +171,14 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn load_default() -> Self {
-        let Some(storage_path) = default_storage_path() else {
-            return Self::default();
-        };
-        Self::load_from(&storage_path).unwrap_or_else(|_| Self {
-            storage_path: Some(storage_path),
-            ..Self::default()
-        })
+        let (persistence, mut settings) = Persistence::load(default_storage_path(), Self::parse);
+        settings.dirty = persistence.needs_repair();
+        settings.persistence = persistence;
+        settings
+    }
+
+    pub fn take_storage_notice(&mut self) -> Option<String> {
+        self.persistence.take_notice()
     }
 
     pub const fn theme(&self) -> ThemePreference {
@@ -269,14 +272,6 @@ impl AppSettings {
         if !self.dirty {
             return Ok(());
         }
-        let Some(storage_path) = self.storage_path.as_ref() else {
-            self.dirty = false;
-            return Ok(());
-        };
-        if let Some(parent) = storage_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
         let mut content = format!(
             "{SETTINGS_FORMAT}\t{SETTINGS_VERSION}\ntheme\t{}\naccent\t{}\nvolume\t{}\nspeed\t{}\ncompletion_behavior\t{}\nhardware_decoding\t{}\n",
             self.theme.as_str(),
@@ -292,23 +287,20 @@ impl AppSettings {
                 preference.action_id, preference.key_code, preference.modifiers
             ));
         }
-        fs::write(storage_path, content)?;
+        self.persistence.save(&content)?;
         self.dirty = false;
         Ok(())
     }
 
+    #[cfg(test)]
     fn load_from(storage_path: &Path) -> std::io::Result<Self> {
-        let content = match fs::read_to_string(storage_path) {
-            Ok(content) => content,
-            Err(error) if error.kind() == ErrorKind::NotFound => {
-                return Ok(Self {
-                    storage_path: Some(storage_path.to_owned()),
-                    ..Self::default()
-                });
-            }
-            Err(error) => return Err(error),
-        };
+        let (persistence, mut settings) = Persistence::open(storage_path, Self::parse)?;
+        settings.dirty = persistence.needs_repair();
+        settings.persistence = persistence;
+        Ok(settings)
+    }
 
+    fn parse(content: &str) -> std::io::Result<Self> {
         let mut lines = content.lines();
         let Some(header) = lines.next() else {
             return Err(Error::new(ErrorKind::InvalidData, "пустой файл настроек"));
@@ -318,17 +310,20 @@ impl AppSettings {
         let version = header_fields
             .next()
             .and_then(|value| value.parse::<u32>().ok());
-        if format != Some(SETTINGS_FORMAT) || version != Some(SETTINGS_VERSION) {
+        if format != Some(SETTINGS_FORMAT) || header_fields.next().is_some() || version.is_none() {
             return Err(Error::new(
                 ErrorKind::InvalidData,
+                "повреждён заголовок настроек",
+            ));
+        }
+        if version != Some(SETTINGS_VERSION) {
+            return Err(Error::new(
+                ErrorKind::Unsupported,
                 "неподдерживаемая версия настроек",
             ));
         }
 
-        let mut settings = Self {
-            storage_path: Some(storage_path.to_owned()),
-            ..Self::default()
-        };
+        let mut settings = Self::default();
         for line in lines {
             let mut fields = line.splitn(2, '\t');
             match (fields.next(), fields.next()) {
@@ -421,28 +416,18 @@ fn default_storage_path() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use crate::storage::tests::TestDirectory;
 
     use super::{
         AccentPreference, AppSettings, CompletionBehavior, DEFAULT_SPEED, ShortcutPreference,
         ThemePreference,
     };
 
-    fn temporary_settings_path() -> std::path::PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time must be after Unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!("oxide-settings-{nonce}.txt"))
-    }
-
     #[test]
     fn theme_preference_round_trips_through_versioned_storage() {
-        let path = temporary_settings_path();
-        let mut settings = AppSettings {
-            storage_path: Some(path.clone()),
-            ..AppSettings::default()
-        };
+        let files = TestDirectory::new();
+        let path = files.path("settings.txt");
+        let mut settings = AppSettings::load_from(&path).unwrap();
         settings.set_theme(ThemePreference::Light);
         settings.set_accent(AccentPreference::Sage);
         settings.set_default_volume(0.42);
@@ -480,7 +465,8 @@ mod tests {
 
     #[test]
     fn invalid_theme_value_falls_back_to_system() {
-        let path = temporary_settings_path();
+        let files = TestDirectory::new();
+        let path = files.path("settings.txt");
         std::fs::write(&path, "OXIDE_SETTINGS\t1\ntheme\tneon\n").expect("fixture must be written");
 
         let loaded = AppSettings::load_from(&path).expect("known version must be loaded");
@@ -490,8 +476,71 @@ mod tests {
     }
 
     #[test]
+    fn damaged_settings_restore_previous_theme_and_keep_shortcuts() {
+        let files = TestDirectory::new();
+        let path = files.path("settings.txt");
+        let mut settings = AppSettings::load_from(&path).unwrap();
+        settings.set_theme(ThemePreference::Light);
+        settings.set_shortcut_overrides(vec![ShortcutPreference {
+            action_id: 5,
+            key_code: "null".into(),
+            modifiers: 0,
+        }]);
+        settings.save_if_dirty().unwrap();
+        settings.set_theme(ThemePreference::Dark);
+        settings.save_if_dirty().unwrap();
+        std::fs::write(&path, b"truncated").unwrap();
+        let mut recovered = AppSettings::load_from(&path).unwrap();
+        assert_eq!(recovered.theme(), ThemePreference::Light);
+        assert_eq!(
+            recovered.shortcut_overrides(),
+            settings.shortcut_overrides()
+        );
+        assert!(recovered.take_storage_notice().is_some());
+        assert!(recovered.dirty);
+        recovered.save_if_dirty().unwrap();
+        assert!(!recovered.dirty);
+        assert_eq!(
+            AppSettings::load_from(&path).unwrap().theme(),
+            ThemePreference::Light
+        );
+    }
+
+    #[test]
+    fn conflict_keeps_local_changes_dirty_without_overwriting_saved_preferences() {
+        let files = TestDirectory::new();
+        let path = files.path("settings.txt");
+        let mut first = AppSettings::load_from(&path).unwrap();
+        let mut second = AppSettings::load_from(&path).unwrap();
+        first.set_theme(ThemePreference::Light);
+        first.save_if_dirty().unwrap();
+        second.set_accent(AccentPreference::Sage);
+        assert!(second.save_if_dirty().is_err());
+        assert!(second.dirty);
+        assert_eq!(second.accent(), AccentPreference::Sage);
+        let saved = AppSettings::load_from(&path).unwrap();
+        assert_eq!(saved.theme(), ThemePreference::Light);
+        assert_eq!(saved.accent(), AccentPreference::Copper);
+    }
+
+    #[test]
+    fn newer_settings_schema_is_not_downgraded_to_backup() {
+        let files = TestDirectory::new();
+        let path = files.path("settings.txt");
+        let mut first = AppSettings::load_from(&path).unwrap();
+        first.set_theme(ThemePreference::Light);
+        first.save_if_dirty().unwrap();
+        std::fs::write(&path, "OXIDE_SETTINGS\t2\ntheme\tdark\n").unwrap();
+        assert_eq!(
+            AppSettings::load_from(&path).unwrap_err().kind(),
+            std::io::ErrorKind::Unsupported
+        );
+    }
+
+    #[test]
     fn invalid_playback_defaults_are_ignored_or_clamped() {
-        let path = temporary_settings_path();
+        let files = TestDirectory::new();
+        let path = files.path("settings.txt");
         std::fs::write(&path, "OXIDE_SETTINGS\t1\nvolume\t5\nspeed\tnot-a-number\n")
             .expect("fixture must be written");
 

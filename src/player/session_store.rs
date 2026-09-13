@@ -1,7 +1,7 @@
+use crate::storage::Persistence;
 use std::{
     collections::HashMap,
     fmt::Write as _,
-    fs,
     path::{Path, PathBuf},
 };
 
@@ -14,44 +14,42 @@ const RESUME_END_GUARD_SECONDS: f64 = 10.0;
 pub struct SessionStore {
     recent: Vec<PathBuf>,
     positions: HashMap<PathBuf, f64>,
-    storage_path: Option<PathBuf>,
+    persistence: Persistence,
+    last_save_error: Option<String>,
     dirty: bool,
 }
 
 impl SessionStore {
     pub fn load_default() -> Self {
-        let Some(storage_path) = default_storage_path() else {
-            return Self::default();
-        };
-        Self::load_from(&storage_path).unwrap_or_else(|_| Self {
-            storage_path: Some(storage_path),
-            ..Self::default()
-        })
+        let (persistence, mut store) = Persistence::load(default_storage_path(), Self::parse);
+        store.dirty = persistence.needs_repair();
+        store.persistence = persistence;
+        store
     }
 
+    #[cfg(test)]
     fn load_from(storage_path: &Path) -> std::io::Result<Self> {
-        let content = match fs::read_to_string(storage_path) {
-            Ok(content) => content,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self {
-                    storage_path: Some(storage_path.to_owned()),
-                    ..Self::default()
-                });
-            }
-            Err(error) => return Err(error),
-        };
+        let (persistence, mut store) = Persistence::open(storage_path, Self::parse)?;
+        store.dirty = persistence.needs_repair();
+        store.persistence = persistence;
+        Ok(store)
+    }
+
+    fn parse(content: &str) -> std::io::Result<Self> {
         let mut lines = content.lines();
-        if lines.next() != Some(STATE_HEADER) {
-            return Ok(Self {
-                storage_path: Some(storage_path.to_owned()),
-                ..Self::default()
-            });
+        let header = lines.next().unwrap_or_default();
+        if header != STATE_HEADER {
+            return Err(std::io::Error::new(
+                if header.starts_with("OXIDE_PLAYBACK_STATE_V") {
+                    std::io::ErrorKind::Unsupported
+                } else {
+                    std::io::ErrorKind::InvalidData
+                },
+                "Неизвестный или повреждённый формат истории воспроизведения",
+            ));
         }
 
-        let mut store = Self {
-            storage_path: Some(storage_path.to_owned()),
-            ..Self::default()
-        };
+        let mut store = Self::default();
         for line in lines {
             let mut fields = line.split('\t');
             match fields.next() {
@@ -79,6 +77,28 @@ impl SessionStore {
 
     pub fn recent(&self) -> &[PathBuf] {
         &self.recent
+    }
+
+    pub fn take_storage_notice(&mut self) -> Option<String> {
+        self.persistence.take_notice()
+    }
+
+    /// Surface an error once, not on every periodic save. Keep dirty for retry.
+    pub fn save_and_take_error(&mut self) -> Option<String> {
+        match self.save_if_dirty() {
+            Ok(()) => {
+                self.last_save_error = None;
+                None
+            }
+            Err(error) => {
+                let message = format!("Не удалось сохранить историю и позиции: {error}");
+                if self.last_save_error.as_ref() == Some(&message) {
+                    return None;
+                }
+                self.last_save_error = Some(message.clone());
+                Some(message)
+            }
+        }
     }
 
     pub fn record_open(&mut self, path: &Path) {
@@ -127,14 +147,6 @@ impl SessionStore {
         if !self.dirty {
             return Ok(());
         }
-        let Some(storage_path) = self.storage_path.as_ref() else {
-            self.dirty = false;
-            return Ok(());
-        };
-        if let Some(parent) = storage_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
         let mut content = String::from(STATE_HEADER);
         content.push('\n');
         for path in &self.recent {
@@ -143,7 +155,7 @@ impl SessionStore {
         for (path, seconds) in &self.positions {
             let _ = writeln!(content, "position\t{seconds:.3}\t{}", encode_path(path));
         }
-        fs::write(storage_path, content)?;
+        self.persistence.save(&content)?;
         self.dirty = false;
         Ok(())
     }
@@ -198,12 +210,76 @@ fn decode_path(value: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{SessionStore, decode_path, encode_path};
+    use crate::storage::tests::TestDirectory;
     use std::path::{Path, PathBuf};
 
     #[test]
     fn path_encoding_round_trips_unicode_without_delimiter_escaping() {
         let path = Path::new(r"C:\Музыка\трек с пробелом.flac");
         assert_eq!(decode_path(&encode_path(path)), Some(path.to_owned()));
+    }
+
+    #[test]
+    fn history_and_resume_position_round_trip_and_recover_together() {
+        let files = TestDirectory::new();
+        let path = files.path("playback-state.txt");
+        let track = Path::new("Музыка/мой трек.flac");
+        let mut store = SessionStore::load_from(&path).unwrap();
+        store.record_open(track);
+        store.record_position(track, 42.5, 100.0);
+        store.save_if_dirty().unwrap();
+        store.record_position(track, 60.0, 100.0);
+        store.save_if_dirty().unwrap();
+        assert_eq!(
+            SessionStore::load_from(&path)
+                .unwrap()
+                .resume_position(track, 100.0),
+            Some(60.0)
+        );
+        std::fs::write(&path, b"broken").unwrap();
+        let mut recovered = SessionStore::load_from(&path).unwrap();
+        assert_eq!(recovered.recent(), &[track.to_owned()]);
+        assert_eq!(recovered.resume_position(track, 100.0), Some(42.5));
+        assert!(recovered.take_storage_notice().is_some());
+        recovered.save_if_dirty().unwrap();
+        assert!(!recovered.dirty);
+    }
+
+    #[test]
+    fn failed_session_save_is_reported_once_and_can_be_retried() {
+        let files = TestDirectory::new();
+        let path = files.path("playback-state.txt");
+        let lock_path = files.path("playback-state.txt.lock");
+        let mut store = SessionStore::load_from(&path).unwrap();
+        store.record_open(Path::new("movie.mkv"));
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(lock_path)
+            .unwrap();
+        lock.try_lock().unwrap();
+        assert!(store.save_and_take_error().is_some());
+        assert!(store.dirty);
+        assert!(store.save_and_take_error().is_none());
+        drop(lock);
+        assert!(store.save_and_take_error().is_none());
+        assert!(!store.dirty);
+        assert_eq!(
+            SessionStore::load_from(&path).unwrap().recent(),
+            &[PathBuf::from("movie.mkv")]
+        );
+    }
+
+    #[test]
+    fn newer_history_schema_is_not_silently_reset() {
+        let files = TestDirectory::new();
+        let path = files.path("playback-state.txt");
+        std::fs::write(&path, "OXIDE_PLAYBACK_STATE_V2\n").unwrap();
+        assert_eq!(
+            SessionStore::load_from(&path).unwrap_err().kind(),
+            std::io::ErrorKind::Unsupported
+        );
     }
 
     #[test]

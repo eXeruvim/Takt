@@ -1655,7 +1655,12 @@ pub fn run(
     let settings = Arc::new(Mutex::new(AppSettings::load_default()));
     #[cfg(target_os = "windows")]
     app.set_system_dark_theme(windows_prefers_dark_apps().unwrap_or(false));
-    if let Ok(settings) = settings.lock() {
+    if let Ok(mut settings) = settings.lock() {
+        if let Some(message) = settings.take_storage_notice() {
+            eprintln!("{message}");
+            app.set_error_message(message.into());
+            app.set_error_visible(true);
+        }
         app.set_theme_mode(settings.theme().ui_index());
         app.set_accent_mode(settings.accent().ui_index());
         app.set_volume(settings.default_volume());
