@@ -19,6 +19,7 @@ use crate::converter::{
     suggested_output_path,
 };
 use crate::ipc::{AspectRatio, Command, EqualizerPreset, Event, FrameStepDirection};
+use crate::player::commands::{CommandSender, SendError as PlayerCommandError};
 use crate::player::playlist::{
     AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, is_media_file,
 };
@@ -1521,7 +1522,7 @@ fn sync_native_window_resizable(window: &slint::Window, fullscreen: bool) {
 fn activate_hwnd_video_fallback(
     slot: &mut Option<VideoHost>,
     app: &AppWindow,
-    tx: &Sender<Command>,
+    tx: &CommandSender,
 ) -> Result<()> {
     let mut host = VideoHost::create(app.window())?;
     sync_video_host(&mut host, app)?;
@@ -1644,13 +1645,32 @@ fn toggle_picture_in_picture(
 }
 
 pub fn run(
-    tx: Sender<Command>,
+    tx: CommandSender,
     rx: Receiver<Event>,
+    command_errors: Receiver<PlayerCommandError>,
     converter_tx: Sender<ConverterCommand>,
     converter_rx: Receiver<ConverterEvent>,
     converter_control: Arc<crate::converter::ConverterControl>,
 ) -> Result<()> {
     let app = AppWindow::new()?;
+    let error_weak = app.as_weak();
+    let command_error_bridge = super::event_delivery::spawn(
+        command_errors,
+        |_, _| true,
+        move |errors, completion| {
+            let weak = error_weak.clone();
+            slint::invoke_from_event_loop(move || {
+                let _completion = completion;
+                if let Some(app) = weak.upgrade()
+                    && let Some(error) = errors.last()
+                {
+                    app.set_error_message(error.message().into());
+                    app.set_error_visible(true);
+                }
+            })
+            .is_ok()
+        },
+    )?;
     crate::ui::shortcut_close::install(&app);
     app.set_app_version(format!("v{}", env!("CARGO_PKG_VERSION")).into());
     let settings = Arc::new(Mutex::new(AppSettings::load_default()));
@@ -3787,6 +3807,7 @@ pub fn run(
     let run_result = app.run();
     drop(player_bridge);
     drop(converter_bridge);
+    drop(command_error_bridge);
     #[cfg(target_os = "windows")]
     if let Some(hwnd) = native_window_handle(app.window()) {
         system_notification::clear(hwnd as usize);

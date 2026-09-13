@@ -1,5 +1,4 @@
 use std::{
-    collections::VecDeque,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
@@ -8,6 +7,7 @@ use std::{
 use crate::ipc::{Command, Event, FrameStepDirection, RecentFileInfo};
 use crate::player::{
     audio_metadata::AudioMetadata,
+    commands::{CommandReceiver, DISPATCH_BUDGET},
     equalizer::EqualizerSettings,
     media_info::{MediaInfo, read_audio_tracks, read_chapters, read_subtitle_tracks},
     playlist::DirectoryPlaylist,
@@ -15,7 +15,7 @@ use crate::player::{
 };
 use crate::render::mpv_opengl::MpvRenderSource;
 use anyhow::Context;
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Sender;
 use libmpv::{
     Format, Mpv,
     events::{Event as MpvEvent, PropertyData},
@@ -683,9 +683,17 @@ fn send_property_change(tx: &Sender<Event>, name: &str, change: PropertyData<'_>
     }
 }
 
-pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
+fn configure_seek_osd(initializer: &libmpv::MpvInitializer) -> Result<(), libmpv::Error> {
+    // Oxide's timeline already shows seeking. Disable mpv's duplicate overlay,
+    // not subtitle rendering or the application's own feedback.
+    initializer.set_property("osd-on-seek", "no")?;
+    initializer.set_property("osd-bar", false)
+}
+
+pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     let mpv = Arc::new(
         Mpv::with_initializer(|initializer| {
+            configure_seek_osd(&initializer)?;
             // Oxide renders embedded artwork inside its own audio scene. Prevent mpv
             // from promoting the attached picture to the native video surface.
             initializer.set_property("audio-display", "no".to_owned())?;
@@ -722,7 +730,6 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
     let mut pending_resume: Option<(PathBuf, f64)> = None;
     let mut events = mpv.create_event_context();
     let mut output_ready = !cfg!(target_os = "windows");
-    let mut pending_media_commands = VecDeque::new();
 
     let _ = tx.send(Event::RenderSource(MpvRenderSource::new(Arc::clone(&mpv))));
     send_equalizer(options.equalizer, &tx);
@@ -745,12 +752,10 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
     }
 
     loop {
-        let mut commands = VecDeque::new();
-        while let Ok(command) = rx.try_recv() {
-            commands.push_back(command);
-        }
-
-        while let Some(command) = commands.pop_front() {
+        for _ in 0..DISPATCH_BUDGET {
+            let Some(command) = rx.try_recv(output_ready) else {
+                break;
+            };
             if let Command::ResolveResume(continue_saved) = &command {
                 let resolution = (|| -> anyhow::Result<()> {
                     let Some((path, position)) = pending_resume.take() else {
@@ -799,11 +804,6 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                     | Command::PlayIndex(_)
                     | Command::RemoveIndex(_)
             );
-            if changes_media && !output_ready {
-                pending_media_commands.push_back(command);
-                continue;
-            }
-
             if matches!(&command, Command::Stop) {
                 pending_resume = None;
                 pending_resume_path = None;
@@ -834,9 +834,6 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
                     }
                     if makes_output_ready && !output_ready {
                         output_ready = true;
-                        while let Some(command) = pending_media_commands.pop_back() {
-                            commands.push_front(command);
-                        }
                     }
                 }
                 Ok(false) => return Ok(()),
@@ -854,7 +851,14 @@ pub fn run(rx: Receiver<Command>, tx: Sender<Event>) -> anyhow::Result<()> {
             }
         }
 
-        while let Some(event) = events.wait_event(0.0) {
+        // A continuous native event stream must not starve commands or Quit.
+        for _ in 0..64 {
+            if rx.quit_requested() {
+                break;
+            }
+            let Some(event) = events.wait_event(0.0) else {
+                break;
+            };
             match event {
                 Ok(MpvEvent::FileLoaded) if options.media_available => {
                     let mut resume_position = None;
@@ -971,6 +975,23 @@ mod tests {
         quote_mpv_command_arg, should_restart_current, video_background_color,
     };
     use crate::ipc::AspectRatio;
+
+    #[test]
+    fn native_seek_overlay_is_disabled_without_hiding_subtitles() {
+        let mpv = libmpv::Mpv::with_initializer(|initializer| {
+            initializer.set_property("config", "no")?;
+            initializer.set_property("load-scripts", "no")?;
+            initializer.set_property("terminal", "no")?;
+            initializer.set_property("vo", "null")?;
+            initializer.set_property("ao", "null")?;
+            initializer.set_property("sub-visibility", true)?;
+            super::configure_seek_osd(&initializer)
+        })
+        .expect("headless mpv must accept the seek OSD options");
+        assert!(!mpv.get_property::<bool>("osd-bar").unwrap());
+        assert_eq!(mpv.get_property::<String>("osd-on-seek").unwrap(), "no");
+        assert!(mpv.get_property::<bool>("sub-visibility").unwrap());
+    }
 
     #[test]
     fn maps_aspect_ratio_presets_to_mpv_values() {

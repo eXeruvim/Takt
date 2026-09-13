@@ -7,7 +7,7 @@ mod settings;
 mod storage;
 mod ui;
 
-use crossbeam_channel::{bounded, unbounded};
+use crossbeam_channel::bounded;
 use std::{
     sync::{
         Arc,
@@ -21,7 +21,7 @@ use ui::event_delivery::{CONVERTER_EVENT_CAPACITY, PLAYER_EVENT_CAPACITY};
 mod shutdown;
 
 fn main() -> anyhow::Result<()> {
-    let (ui_tx, player_rx) = unbounded::<ipc::Command>();
+    let (ui_tx, player_rx, command_errors) = player::commands::channel();
     let (player_tx, ui_rx) = bounded::<ipc::Event>(PLAYER_EVENT_CAPACITY);
     let (converter_tx, converter_rx) =
         bounded::<converter::ConverterCommand>(converter::COMMAND_CAPACITY);
@@ -54,6 +54,7 @@ fn main() -> anyhow::Result<()> {
     let ui_result = ui::ui_logic::run(
         ui_tx.clone(),
         ui_rx,
+        command_errors,
         converter_tx.clone(),
         converter_event_rx,
         converter_control,
