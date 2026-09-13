@@ -19,6 +19,7 @@ export component PlayerControls inherits Rectangle {
     in property <bool> info_open;
     in property <bool> settings_open;
     in property <bool> command_palette_open;
+    in property <bool> converter_open;
     in property <bool> picture_in_picture_active;
     in property <string> next_file;
     private property <bool> show_remaining_time: true;
@@ -28,8 +29,8 @@ export component PlayerControls inherits Rectangle {
         ? Theme.space-5
         : self.width >= 1100px ? Theme.space-3 : Theme.space-2;
     out property <length> left-actions-width: show-secondary-actions
-        ? 160px + group-spacing * 3
-        : 80px + group-spacing;
+        ? 200px + group-spacing * 4
+        : 120px + group-spacing * 2;
     out property <length> side-zone-width: show-volume-slider
         ? 360px + group-spacing * 5
         : show-secondary-actions
@@ -50,6 +51,7 @@ export component PlayerControls inherits Rectangle {
     callback toggle_fullscreen();
     callback toggle_picture_in_picture();
     callback show_more();
+    callback open_converter();
 
     height: Theme.player-controls-height;
     border-radius: 0px;
@@ -206,6 +208,15 @@ export component PlayerControls inherits Rectangle {
                             selected: root.info_open;
                             capture-focus: false;
                             clicked => root.toggle_info();
+                        }
+
+                        IconButton {
+                            icon: @image-url("../icons/convert.svg");
+                            accessible-name: "Конвертация медиа";
+                            circular: true;
+                            selected: root.converter_open;
+                            capture-focus: false;
+                            clicked => root.open_converter();
                         }
                     }
                 }

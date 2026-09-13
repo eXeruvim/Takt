@@ -7,7 +7,7 @@ import { ConversionHistoryEntry, ConversionPresetEntry, ConverterOverlay } from 
 import { AudioTrackEntry, ChapterEntry, EqualizerBandEntry, MediaInspector, RecentFileEntry, SubtitleTrackEntry } from "components/media_inspector.slint";
 import { ResumePrompt } from "components/resume_prompt.slint";
 import { MediaListItem, Toast } from "design_system/composites.slint";
-import { CaptionButton, EmptyState, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
+import { CaptionButton, EmptyState, IconButton, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
 
 export enum PlayerPhase {
     empty,
@@ -536,6 +536,8 @@ export component AppWindow inherits Window {
             }
 
             top-bar := Rectangle {
+                property <bool> show-converter: !root.media_presented && !root.picture_in_picture;
+                property <length> converter-space: show-converter ? Theme.space-12 : 0px;
                 x: 0px;
                 y: (!root.fullscreen_mode && !root.picture_in_picture)
                     || root.controls_visible ? 0px : -Theme.space-2;
@@ -556,7 +558,7 @@ export component AppWindow inherits Window {
                     enabled: !root.fullscreen_mode;
                     x: 132px;
                     width: max(0px, parent.width - self.x
-                        - Theme.caption-button-width * 3 - Theme.space-4);
+                        - Theme.caption-button-width * 3 - Theme.space-4 - top-bar.converter-space);
                     height: parent.height;
                     pointer-event(event) => {
                         if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
@@ -597,7 +599,7 @@ export component AppWindow inherits Window {
                 UiText {
                     x: 140px;
                     width: max(0px, parent.width - self.x
-                        - Theme.caption-button-width * 3 - Theme.space-6);
+                        - Theme.caption-button-width * 3 - Theme.space-6 - top-bar.converter-space);
                     height: parent.height;
                     text: root.player_phase != PlayerPhase.empty
                         ? root.file_name + "  ·  " + root.player_phase_label
@@ -606,6 +608,16 @@ export component AppWindow inherits Window {
                     color: Theme.text-secondary;
                     vertical-alignment: center;
                     overflow: elide;
+                }
+
+                if top-bar.show-converter : IconButton {
+                    x: parent.width - Theme.caption-button-width * 3 - Theme.space-12;
+                    y: (parent.height - self.height) / 2;
+                    icon: @image-url("icons/convert.svg");
+                    accessible-name: "Конвертация медиа";
+                    selected: root.converter_visible;
+                    capture-focus: false;
+                    clicked => root.open_converter();
                 }
 
                 HorizontalLayout {
@@ -678,6 +690,7 @@ export component AppWindow inherits Window {
                 info_open: root.info_drawer_visible;
                 settings_open: root.settings_drawer_visible;
                 command_palette_open: root.command_palette_visible;
+                converter_open: root.converter_visible;
                 picture_in_picture_active: root.picture_in_picture;
                 next_file: root.next_card_visible ? root.next_file : "";
                 open_file => root.open_file();
@@ -699,6 +712,7 @@ export component AppWindow inherits Window {
                 toggle_fullscreen => root.toggle_fullscreen();
                 toggle_picture_in_picture => root.toggle_picture_in_picture();
                 show_more => root.toggle_command_palette();
+                open_converter => root.open_converter();
 
                 animate opacity {
                     duration: Theme.motion-dismiss;
