@@ -1,10 +1,11 @@
 use super::*;
 use std::io::{self, Write};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-struct TestFiles(PathBuf);
+pub(super) struct TestFiles(PathBuf);
 
 impl TestFiles {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -15,7 +16,7 @@ impl TestFiles {
         Self(path)
     }
 
-    fn path(&self, name: &str) -> PathBuf {
+    pub(super) fn path(&self, name: &str) -> PathBuf {
         self.0.join(name)
     }
 
@@ -308,12 +309,12 @@ fn successful_conversion_commits_result_and_reports_completion() {
 fn worker_panic_is_terminal_and_raii_cleans_process_and_temporary_file() {
     let files = TestFiles::new();
     let output = files.path("result.mp4");
-    let working = files.path("partial.mp4");
-    let owned_path = working.clone();
+    let working = WorkingOutput::new(&output).unwrap();
+    let owned_path = working.path.clone();
     let pid = files.path("pid");
     let worker = thread::spawn(move || {
-        let _output = WorkingOutput(owned_path.clone());
-        fs::write(&owned_path, b"partial").unwrap();
+        let _output = working;
+        fs::write(&_output.path, b"partial").unwrap();
         let _child = ManagedChild::spawn(helper_command("hang", &pid)).unwrap();
         wait_until(|| pid.exists());
         panic!("job failure");
@@ -330,7 +331,7 @@ fn worker_panic_is_terminal_and_raii_cleans_process_and_temporary_file() {
         rx.try_recv().unwrap(),
         ConverterEvent::Failed { .. }
     ));
-    assert!(!working.exists());
+    assert!(!owned_path.exists());
     assert_child_exited(&files.path("pid"));
 }
 
@@ -348,6 +349,138 @@ fn dropping_owner_stops_descendant_that_keeps_pipes_open() {
     drop(child);
     assert_child_exited(&files.path("pid"));
     assert_child_exited(&files.path("descendant"));
+}
+
+#[test]
+fn destination_created_after_validation_is_not_replaced_or_reported_as_completed() {
+    let files = TestFiles::new();
+    let spec = files.spec();
+    let output = spec.output.clone();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let mut staging = PathBuf::new();
+    run_job_with(spec, &AtomicBool::new(false), &tx, |path| {
+        // validate_job already succeeded. Reproduce the exact race before the
+        // encoder finishes, with no timing-dependent sleeps or real FFmpeg.
+        fs::write(&output, b"created by another application").unwrap();
+        staging = path.parent().unwrap().to_owned();
+        let mut command = helper_command("success", &files.path("pid"));
+        command.env("OXIDE_TEST_CHILD_OUTPUT", path);
+        command
+    });
+    assert_eq!(fs::read(output).unwrap(), b"created by another application");
+    assert!(!staging.exists());
+    let events: Vec<_> = rx.try_iter().collect();
+    assert!(events.iter().any(|event| matches!(event,
+        ConverterEvent::Failed { message, .. } if message.contains("Он не изменён"))));
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, ConverterEvent::Completed { .. }))
+    );
+    assert_child_exited(&files.path("pid"));
+}
+
+#[test]
+fn late_destination_alias_cannot_replace_the_source_file() {
+    let files = TestFiles::new();
+    let spec = files.spec();
+    let source = spec.source.clone();
+    let output = spec.output.clone();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    run_job_with(spec, &AtomicBool::new(false), &tx, |path| {
+        fs::hard_link(&source, &output).unwrap();
+        let mut command = helper_command("success", &files.path("pid"));
+        command.env("OXIDE_TEST_CHILD_OUTPUT", path);
+        command
+    });
+    assert_eq!(fs::read(source).unwrap(), b"test source");
+    assert_eq!(fs::read(output).unwrap(), b"test source");
+    assert!(
+        rx.try_iter()
+            .any(|event| matches!(event, ConverterEvent::Failed { .. }))
+    );
+}
+
+#[test]
+fn two_publishers_cannot_overwrite_each_others_result() {
+    let files = TestFiles::new();
+    let output = files.path("результат с пробелами.mp4");
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let workers: Vec<_> = [b"first".as_slice(), b"second".as_slice()]
+        .into_iter()
+        .map(|bytes| {
+            let output = output.clone();
+            let barrier = barrier.clone();
+            thread::spawn(move || {
+                let staging = WorkingOutput::new(&output).unwrap();
+                fs::write(&staging.path, bytes).unwrap();
+                barrier.wait();
+                (bytes, publish_output(&staging.path, &output))
+            })
+        })
+        .collect();
+    let results: Vec<_> = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect();
+    assert_eq!(
+        results.iter().filter(|(_, result)| result.is_ok()).count(),
+        1
+    );
+    let winner = results.iter().find(|(_, result)| result.is_ok()).unwrap().0;
+    assert_eq!(fs::read(&output).unwrap(), winner);
+    let failure = results
+        .iter()
+        .find_map(|(_, result)| result.as_ref().err())
+        .unwrap();
+    assert_eq!(failure.kind(), io::ErrorKind::AlreadyExists);
+    assert_eq!(fs::read_dir(&files.0).unwrap().count(), 1);
+}
+
+#[test]
+fn staging_preserves_extension_is_unique_and_cleans_up_on_spawn_failure() {
+    let files = TestFiles::new();
+    let spec = files.spec();
+    {
+        let first = WorkingOutput::new(&spec.output).unwrap();
+        let second = WorkingOutput::new(&spec.output).unwrap();
+        assert_ne!(first.path, second.path);
+        assert_eq!(first.path.extension(), spec.output.extension());
+        assert!(!first.path.exists()); // FFmpeg -n can create the file itself.
+    }
+    let (tx, rx) = crossbeam_channel::unbounded();
+    run_job_with(spec, &AtomicBool::new(false), &tx, |_| {
+        converter_process(&files.path("encoder-does-not-exist.exe"))
+    });
+    assert!(
+        rx.try_iter()
+            .any(|event| matches!(event, ConverterEvent::Failed { .. }))
+    );
+    assert_eq!(fs::read_dir(&files.0).unwrap().count(), 1); // source only
+}
+
+#[cfg(windows)]
+#[test]
+fn publication_failure_keeps_destination_and_cleans_staging() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let files = TestFiles::new();
+    let output = files.path("result.mp4");
+    fs::write(&output, b"existing locked file").unwrap();
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&output)
+        .unwrap();
+    let staging_directory;
+    {
+        let staging = WorkingOutput::new(&output).unwrap();
+        staging_directory = staging.path.parent().unwrap().to_owned();
+        fs::write(&staging.path, b"converted").unwrap();
+        assert!(publish_output(&staging.path, &output).is_err());
+    }
+    drop(lock);
+    assert_eq!(fs::read(output).unwrap(), b"existing locked file");
+    assert!(!staging_directory.exists());
 }
 
 #[test]

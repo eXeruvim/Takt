@@ -9,14 +9,16 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use crossbeam_channel::{Receiver, Sender};
 
 #[cfg(test)]
 mod lifecycle_tests;
+mod output;
 mod process;
+use output::{WorkingOutput, publish_output};
 use process::ManagedChild;
 
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -237,14 +239,6 @@ impl Drop for ActiveJob {
         {
             eprintln!("Conversion worker panicked during shutdown");
         }
-    }
-}
-
-struct WorkingOutput(PathBuf);
-
-impl Drop for WorkingOutput {
-    fn drop(&mut self) {
-        remove_generated_output(&self.0);
     }
 }
 
@@ -567,7 +561,16 @@ fn run_job_with(
         return;
     }
 
-    let working_output = WorkingOutput(working_output_path(output));
+    let working_output = match WorkingOutput::new(output) {
+        Ok(working_output) => working_output,
+        Err(error) => {
+            let _ = tx.send(ConverterEvent::Failed {
+                output: output.to_path_buf(),
+                message: format!("Не удалось подготовить временный файл: {error}"),
+            });
+            return;
+        }
+    };
     let source_size_bytes = fs::metadata(source)
         .map(|metadata| metadata.len())
         .unwrap_or_default();
@@ -578,7 +581,7 @@ fn run_job_with(
         });
         return;
     }
-    let mut child = match ManagedChild::spawn(make_command(&working_output.0)) {
+    let mut child = match ManagedChild::spawn(make_command(&working_output.path)) {
         Ok(child) => child,
         Err(error) => {
             let _ = tx.send(ConverterEvent::Failed {
@@ -597,7 +600,7 @@ fn run_job_with(
         &mut child,
         JobMonitor {
             output,
-            working_output: &working_output.0,
+            working_output: &working_output.path,
             duration_seconds,
             source_size_bytes,
             cancel,
@@ -853,11 +856,15 @@ fn monitor_child_result(child: &mut ManagedChild, monitor: &JobMonitor<'_>) -> R
 
         match status {
             Some(status) if status.success() => {
-                if let Err(error) = fs::rename(monitor.working_output, monitor.output) {
+                if let Err(error) = publish_output(monitor.working_output, monitor.output) {
                     remove_generated_output(monitor.working_output);
                     let _ = monitor.tx.send(ConverterEvent::Failed {
                         output: monitor.output.to_path_buf(),
-                        message: format!("Не удалось сохранить готовый файл: {error}"),
+                        message: if error.kind() == std::io::ErrorKind::AlreadyExists {
+                            "Файл с выбранным именем появился во время конвертации. Он не изменён. Выберите другое имя и повторите конвертацию".to_owned()
+                        } else {
+                            format!("Не удалось сохранить готовый файл: {error}")
+                        },
                     });
                     return Ok(());
                 }
@@ -894,27 +901,6 @@ fn monitor_child_result(child: &mut ManagedChild, monitor: &JobMonitor<'_>) -> R
             None => thread::sleep(WORKER_POLL_INTERVAL),
         }
     }
-}
-
-fn working_output_path(output: &Path) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    let stem = output
-        .file_stem()
-        .map(|value| value.to_string_lossy())
-        .unwrap_or_default();
-    let extension = output
-        .extension()
-        .map(|value| value.to_string_lossy())
-        .unwrap_or_default();
-    let file_name = if extension.is_empty() {
-        format!(".{stem}.oxide-part-{nonce}")
-    } else {
-        format!(".{stem}.oxide-part-{nonce}.{extension}")
-    };
-    output.with_file_name(file_name)
 }
 
 fn remove_generated_output(path: &Path) {
@@ -1056,7 +1042,6 @@ mod tests {
     use super::{
         ConversionOptions, ConversionPreset, estimate_remaining, ffmpeg_arguments,
         last_error_lines, parse_progress_seconds, parse_progress_size, suggested_output_path,
-        working_output_path,
     };
     use std::{path::Path, time::Duration};
 
@@ -1227,20 +1212,6 @@ mod tests {
         assert_eq!(
             suggested_output_path(Path::new("C:/video/demo.mov"), ConversionPreset::Mp4H264),
             Some(Path::new("C:/video/demo-h264.mp4").to_path_buf())
-        );
-    }
-
-    #[test]
-    fn temporary_output_keeps_the_container_extension() {
-        let path = working_output_path(Path::new("C:/video/demo.mp4"));
-        assert_eq!(
-            path.extension().and_then(|value| value.to_str()),
-            Some("mp4")
-        );
-        assert!(
-            path.file_name()
-                .and_then(|value| value.to_str())
-                .is_some_and(|value| value.starts_with(".demo.oxide-part-"))
         );
     }
 
