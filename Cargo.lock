@@ -2446,7 +2446,6 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "libmpv"
 version = "2.0.1"
-source = "git+https://github.com/ParadoxSpiral/libmpv-rs.git#3e6c389b716f52a595cc5e8e3fa1f96cb76b3de7"
 dependencies = [
  "libmpv-sys",
 ]
@@ -2454,7 +2453,7 @@ dependencies = [
 [[package]]
 name = "libmpv-sys"
 version = "3.1.0"
-source = "git+https://github.com/ParadoxSpiral/libmpv-rs.git#3e6c389b716f52a595cc5e8e3fa1f96cb76b3de7"
+source = "git+https://github.com/ParadoxSpiral/libmpv-rs.git?rev=3e6c389b716f52a595cc5e8e3fa1f96cb76b3de7#3e6c389b716f52a595cc5e8e3fa1f96cb76b3de7"
 
 [[package]]
 name = "libredox"
@@ -3285,6 +3284,7 @@ dependencies = [
  "anyhow",
  "crossbeam-channel",
  "image",
+ "libc",
  "libmpv",
  "libmpv-sys",
  "lofty",

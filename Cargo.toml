@@ -11,8 +11,8 @@ slint = { version = "1.17.1", default-features = false, features = [
     "renderer-femtovg",
     "compat-1-2"
 ] }
-libmpv = { git = "https://github.com/ParadoxSpiral/libmpv-rs.git", default-features = false }
-libmpv-sys = { git = "https://github.com/ParadoxSpiral/libmpv-rs.git" }
+libmpv = { path = "vendor/libmpv", default-features = false }
+libmpv-sys = { git = "https://github.com/ParadoxSpiral/libmpv-rs.git", rev = "3e6c389b716f52a595cc5e8e3fa1f96cb76b3de7" }
 crossbeam-channel = { version = "0.5.16", default-features = false }
 anyhow = "1.0.104"
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png"] }
@@ -32,7 +32,14 @@ windows-sys = { version = "0.61.2", default-features = false, features = [
     "Win32_System_Com",
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+    "Win32_System_Pipes",
+    "Win32_Security",
 ] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.189"
 
 [build-dependencies]
 slint-build = { version = "1.17.1" }

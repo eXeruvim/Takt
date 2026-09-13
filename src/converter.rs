@@ -2,9 +2,8 @@ use std::{
     collections::VecDeque,
     ffi::OsString,
     fs,
-    io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::Command,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -13,10 +12,18 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::{Receiver, Sender};
+
+#[cfg(test)]
+mod lifecycle_tests;
+mod process;
+use process::ManagedChild;
 
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_ERROR_LOG_BYTES: usize = 32 * 1024;
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+const PROBE_OUTPUT_LIMIT: usize = 64 * 1024;
+const MAX_LINE_BYTES: usize = 8 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConversionPreset {
@@ -198,7 +205,76 @@ struct FfmpegInstallation {
 struct ActiveJob {
     output: PathBuf,
     cancel: Arc<AtomicBool>,
-    finished: Receiver<()>,
+    worker: Option<thread::JoinHandle<()>>,
+}
+
+impl ActiveJob {
+    fn is_finished(&self) -> bool {
+        self.worker
+            .as_ref()
+            .is_none_or(thread::JoinHandle::is_finished)
+    }
+
+    fn finish(mut self, tx: &Sender<ConverterEvent>) {
+        if self
+            .worker
+            .take()
+            .is_some_and(|worker| worker.join().is_err())
+        {
+            let _ = tx.send(ConverterEvent::Failed {
+                output: self.output.clone(),
+                message: "Задача конвертации аварийно завершилась".to_owned(),
+            });
+        }
+    }
+}
+
+impl Drop for ActiveJob {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take()
+            && worker.join().is_err()
+        {
+            eprintln!("Conversion worker panicked during shutdown");
+        }
+    }
+}
+
+struct WorkingOutput(PathBuf);
+
+impl Drop for WorkingOutput {
+    fn drop(&mut self) {
+        remove_generated_output(&self.0);
+    }
+}
+
+/// Keep a bounded partial line even if a child never writes a newline.
+#[derive(Default)]
+struct OutputLines {
+    pending: Vec<u8>,
+}
+
+impl OutputLines {
+    fn feed(&mut self, bytes: &[u8], finished: bool) -> Vec<String> {
+        let mut lines = Vec::new();
+        for &byte in bytes {
+            if byte == b'\n' {
+                lines.push(
+                    String::from_utf8_lossy(&self.pending)
+                        .trim_end_matches('\r')
+                        .to_owned(),
+                );
+                self.pending.clear();
+            } else if self.pending.len() < MAX_LINE_BYTES {
+                self.pending.push(byte);
+            }
+        }
+        if finished && !self.pending.is_empty() {
+            lines.push(String::from_utf8_lossy(&self.pending).into_owned());
+            self.pending.clear();
+        }
+        lines
+    }
 }
 
 struct JobSpec {
@@ -216,36 +292,37 @@ struct JobMonitor<'a> {
     source_size_bytes: u64,
     cancel: &'a AtomicBool,
     tx: &'a Sender<ConverterEvent>,
-    stdout_rx: Receiver<String>,
-    stderr_rx: Receiver<String>,
 }
 
-pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>) {
-    let mut installation = discover_ffmpeg();
+pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>, shutdown: Arc<AtomicBool>) {
+    let mut installation = discover_ffmpeg(&shutdown);
     send_availability(&tx, installation.as_ref());
     let mut active_job: Option<ActiveJob> = None;
     let mut pending_jobs = VecDeque::new();
 
     loop {
-        if active_job
-            .as_ref()
-            .is_some_and(|job| job.finished.try_recv().is_ok())
+        if shutdown.load(Ordering::Acquire) {
+            break;
+        }
+        if active_job.as_ref().is_some_and(ActiveJob::is_finished)
+            && let Some(job) = active_job.take()
         {
-            active_job = None;
-            if let (Some(installation), Some(job)) =
-                (installation.as_ref(), pending_jobs.pop_front())
-            {
-                let _ = tx.send(ConverterEvent::QueueUpdated {
-                    pending: pending_jobs.len(),
-                });
-                active_job = Some(spawn_job(installation, job, &tx));
-            }
+            job.finish(&tx);
+        }
+        if active_job.is_none()
+            && let Some(installation) = installation.as_ref()
+            && let Some(job) = pending_jobs.pop_front()
+        {
+            let _ = tx.send(ConverterEvent::QueueUpdated {
+                pending: pending_jobs.len(),
+            });
+            active_job = spawn_job(installation, job, &tx);
         }
 
         match rx.recv_timeout(WORKER_POLL_INTERVAL) {
             Ok(ConverterCommand::RefreshAvailability) => {
                 if active_job.is_none() {
-                    installation = discover_ffmpeg();
+                    installation = discover_ffmpeg(&shutdown);
                     send_availability(&tx, installation.as_ref());
                 }
             }
@@ -300,7 +377,7 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>) {
                         pending: pending_jobs.len(),
                     });
                 } else {
-                    active_job = Some(spawn_job(installation, job, &tx));
+                    active_job = spawn_job(installation, job, &tx);
                 }
             }
             Ok(ConverterCommand::Cancel) => {
@@ -313,10 +390,6 @@ pub fn run(rx: Receiver<ConverterCommand>, tx: Sender<ConverterEvent>) {
                 let _ = tx.send(ConverterEvent::QueueUpdated { pending: 0 });
             }
             Ok(ConverterCommand::Quit) | Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                if let Some(job) = &active_job {
-                    job.cancel.store(true, Ordering::Release);
-                    let _ = job.finished.recv_timeout(Duration::from_secs(5));
-                }
                 break;
             }
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
@@ -328,21 +401,30 @@ fn spawn_job(
     installation: &FfmpegInstallation,
     job: JobSpec,
     tx: &Sender<ConverterEvent>,
-) -> ActiveJob {
+) -> Option<ActiveJob> {
     let output = job.output.clone();
     let cancel = Arc::new(AtomicBool::new(false));
-    let (finished_tx, finished_rx) = unbounded();
     let executable = installation.executable.clone();
     let worker_tx = tx.clone();
     let worker_cancel = cancel.clone();
-    thread::spawn(move || {
-        run_job(&executable, job, &worker_cancel, &worker_tx);
-        let _ = finished_tx.send(());
-    });
-    ActiveJob {
-        output,
-        cancel,
-        finished: finished_rx,
+    let worker = thread::Builder::new()
+        .name("oxide-conversion".into())
+        .spawn(move || {
+            run_job(&executable, job, &worker_cancel, &worker_tx);
+        });
+    match worker {
+        Ok(worker) => Some(ActiveJob {
+            output,
+            cancel,
+            worker: Some(worker),
+        }),
+        Err(error) => {
+            let _ = tx.send(ConverterEvent::Failed {
+                output,
+                message: format!("Не удалось запустить задачу конвертации: {error}"),
+            });
+            None
+        }
     }
 }
 
@@ -359,29 +441,74 @@ fn send_availability(tx: &Sender<ConverterEvent>, installation: Option<&FfmpegIn
     let _ = tx.send(ConverterEvent::Availability { available, details });
 }
 
-fn discover_ffmpeg() -> Option<FfmpegInstallation> {
-    ffmpeg_candidates().into_iter().find_map(|candidate| {
-        let output = converter_process(&candidate)
-            .arg("-version")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
+fn discover_ffmpeg(shutdown: &AtomicBool) -> Option<FfmpegInstallation> {
+    for candidate in ffmpeg_candidates() {
+        if shutdown.load(Ordering::Acquire) {
+            break;
         }
+        let mut command = converter_process(&candidate);
+        command.arg("-version");
+        match probe_ffmpeg(command, shutdown, PROBE_TIMEOUT) {
+            Ok(details) => {
+                return Some(FfmpegInstallation {
+                    executable: candidate,
+                    details,
+                });
+            }
+            Err(error) => eprintln!("FFmpeg probe {}: {error}", candidate.display()),
+        }
+    }
+    None
+}
 
-        let version = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()
-            .unwrap_or("FFmpeg обнаружен")
-            .trim()
-            .to_owned();
-        Some(FfmpegInstallation {
-            details: version,
-            executable: candidate,
-        })
-    })
+fn probe_ffmpeg(
+    command: Command,
+    shutdown: &AtomicBool,
+    timeout: Duration,
+) -> std::io::Result<String> {
+    use std::io::{Error, ErrorKind};
+    let deadline = Instant::now() + timeout;
+    let mut child = ManagedChild::spawn(command)?;
+    let mut output = Vec::new();
+    let mut total_bytes: usize = 0;
+    loop {
+        if shutdown.load(Ordering::Acquire) {
+            return Err(ErrorKind::Interrupted.into());
+        }
+        if Instant::now() >= deadline {
+            return Err(ErrorKind::TimedOut.into());
+        }
+        let status = child.try_wait()?;
+        let stdout = child.stdout()?;
+        let stderr = child.stderr()?;
+        total_bytes = total_bytes
+            .saturating_add(stdout.len())
+            .saturating_add(stderr.len());
+        if total_bytes > PROBE_OUTPUT_LIMIT {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "FFmpeg probe output limit exceeded",
+            ));
+        }
+        let had_output = !stdout.is_empty() || !stderr.is_empty();
+        output.extend(stdout);
+        if let Some(status) = status {
+            if !status.success() {
+                return Err(Error::other("FFmpeg version probe failed"));
+            }
+            if had_output {
+                continue;
+            }
+            return String::from_utf8_lossy(&output)
+                .lines()
+                .find(|line| line.starts_with("ffmpeg version "))
+                .map(|line| line.chars().take(512).collect())
+                .ok_or_else(|| {
+                    Error::new(ErrorKind::InvalidData, "FFmpeg version header missing")
+                });
+        }
+        thread::sleep(WORKER_POLL_INTERVAL);
+    }
 }
 
 fn ffmpeg_candidates() -> Vec<PathBuf> {
@@ -408,12 +535,27 @@ const fn ffmpeg_binary_name() -> &'static str {
 }
 
 fn run_job(executable: &Path, job: JobSpec, cancel: &AtomicBool, tx: &Sender<ConverterEvent>) {
+    let source = job.source.clone();
+    let preset = job.preset;
+    let options = job.options;
+    run_job_with(job, cancel, tx, |working_output| {
+        let mut command = converter_process(executable);
+        command.args(ffmpeg_arguments(&source, working_output, preset, options));
+        command
+    });
+}
+
+fn run_job_with(
+    job: JobSpec,
+    cancel: &AtomicBool,
+    tx: &Sender<ConverterEvent>,
+    make_command: impl FnOnce(&Path) -> Command,
+) {
     let JobSpec {
         source,
         output,
-        preset,
-        options,
         duration_seconds,
+        ..
     } = job;
     let source = source.as_path();
     let output = output.as_path();
@@ -425,18 +567,18 @@ fn run_job(executable: &Path, job: JobSpec, cancel: &AtomicBool, tx: &Sender<Con
         return;
     }
 
-    let working_output = working_output_path(output);
+    let working_output = WorkingOutput(working_output_path(output));
     let source_size_bytes = fs::metadata(source)
         .map(|metadata| metadata.len())
         .unwrap_or_default();
 
-    let mut command = converter_process(executable);
-    command
-        .args(ffmpeg_arguments(source, &working_output, preset, options))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut child = match command.spawn() {
+    if cancel.load(Ordering::Acquire) {
+        let _ = tx.send(ConverterEvent::Canceled {
+            output: output.to_path_buf(),
+        });
+        return;
+    }
+    let mut child = match ManagedChild::spawn(make_command(&working_output.0)) {
         Ok(child) => child,
         Err(error) => {
             let _ = tx.send(ConverterEvent::Failed {
@@ -451,35 +593,15 @@ fn run_job(executable: &Path, job: JobSpec, cancel: &AtomicBool, tx: &Sender<Con
         output: output.to_path_buf(),
     });
 
-    let (stdout_tx, stdout_rx) = unbounded();
-    if let Some(stdout) = child.stdout.take() {
-        thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                let _ = stdout_tx.send(line);
-            }
-        });
-    }
-
-    let (stderr_tx, stderr_rx) = unbounded();
-    if let Some(stderr) = child.stderr.take() {
-        thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                let _ = stderr_tx.send(line);
-            }
-        });
-    }
-
     monitor_child(
         &mut child,
         JobMonitor {
             output,
-            working_output: &working_output,
+            working_output: &working_output.0,
             duration_seconds,
             source_size_bytes,
             cancel,
             tx,
-            stdout_rx,
-            stderr_rx,
         },
     );
 }
@@ -660,23 +782,55 @@ fn ffmpeg_arguments(
     arguments
 }
 
-fn monitor_child(child: &mut Child, monitor: JobMonitor<'_>) {
+fn monitor_child(child: &mut ManagedChild, monitor: JobMonitor<'_>) {
+    if let Err(message) = monitor_child_result(child, &monitor) {
+        let cleanup_error = child.terminate().err();
+        remove_generated_output(monitor.working_output);
+        let _ = monitor.tx.send(ConverterEvent::Failed {
+            output: monitor.output.to_path_buf(),
+            message: match cleanup_error {
+                Some(error) => format!("{message}\nНе удалось завершить FFmpeg: {error}"),
+                None => message,
+            },
+        });
+    }
+}
+
+fn monitor_child_result(child: &mut ManagedChild, monitor: &JobMonitor<'_>) -> Result<(), String> {
     let started_at = Instant::now();
     let mut error_log = String::new();
     let mut current_size_bytes = 0;
+    let mut stdout_lines = OutputLines::default();
+    let mut stderr_lines = OutputLines::default();
 
     loop {
         if monitor.cancel.load(Ordering::Acquire) {
-            let _ = child.kill();
-            let _ = child.wait();
+            child
+                .terminate()
+                .map_err(|error| format!("Не удалось отменить FFmpeg: {error}"))?;
             remove_generated_output(monitor.working_output);
             let _ = monitor.tx.send(ConverterEvent::Canceled {
                 output: monitor.output.to_path_buf(),
             });
-            return;
+            return Ok(());
         }
 
-        for line in monitor.stdout_rx.try_iter() {
+        let status = child
+            .try_wait()
+            .map_err(|error| format!("Не удалось получить состояние FFmpeg: {error}"))?;
+        if status.is_some() {
+            // End any inherited writer processes before reading the final pipe bytes.
+            child
+                .terminate()
+                .map_err(|error| format!("Не удалось завершить FFmpeg: {error}"))?;
+        }
+        let stdout = child
+            .stdout()
+            .map_err(|error| format!("Ошибка чтения прогресса FFmpeg: {error}"))?;
+        let stderr = child
+            .stderr()
+            .map_err(|error| format!("Ошибка чтения диагностики FFmpeg: {error}"))?;
+        for line in stdout_lines.feed(&stdout, status.is_some()) {
             if let Some(bytes) = parse_progress_size(&line) {
                 current_size_bytes = bytes;
             }
@@ -693,19 +847,19 @@ fn monitor_child(child: &mut Child, monitor: JobMonitor<'_>) {
                 });
             }
         }
-        for line in monitor.stderr_rx.try_iter() {
+        for line in stderr_lines.feed(&stderr, status.is_some()) {
             append_error_line(&mut error_log, &line);
         }
 
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => {
+        match status {
+            Some(status) if status.success() => {
                 if let Err(error) = fs::rename(monitor.working_output, monitor.output) {
                     remove_generated_output(monitor.working_output);
                     let _ = monitor.tx.send(ConverterEvent::Failed {
                         output: monitor.output.to_path_buf(),
                         message: format!("Не удалось сохранить готовый файл: {error}"),
                     });
-                    return;
+                    return Ok(());
                 }
                 let _ = monitor.tx.send(ConverterEvent::Progress {
                     fraction: 1.0,
@@ -722,13 +876,10 @@ fn monitor_child(child: &mut Child, monitor: JobMonitor<'_>) {
                     source_size_bytes: monitor.source_size_bytes,
                     output_size_bytes,
                 });
-                return;
+                return Ok(());
             }
-            Ok(Some(_)) => {
+            Some(_) => {
                 remove_generated_output(monitor.working_output);
-                for line in monitor.stderr_rx.try_iter() {
-                    append_error_line(&mut error_log, &line);
-                }
                 let message = last_error_lines(&error_log, 8);
                 let _ = monitor.tx.send(ConverterEvent::Failed {
                     output: monitor.output.to_path_buf(),
@@ -738,17 +889,9 @@ fn monitor_child(child: &mut Child, monitor: JobMonitor<'_>) {
                         format!("FFmpeg завершился с ошибкой:\n{message}")
                     },
                 });
-                return;
+                return Ok(());
             }
-            Ok(None) => thread::sleep(WORKER_POLL_INTERVAL),
-            Err(error) => {
-                remove_generated_output(monitor.working_output);
-                let _ = monitor.tx.send(ConverterEvent::Failed {
-                    output: monitor.output.to_path_buf(),
-                    message: format!("Не удалось получить состояние FFmpeg: {error}"),
-                });
-                return;
-            }
+            None => thread::sleep(WORKER_POLL_INTERVAL),
         }
     }
 }
@@ -775,8 +918,13 @@ fn working_output_path(output: &Path) -> PathBuf {
 }
 
 fn remove_generated_output(path: &Path) {
-    if path.is_file() {
-        let _ = fs::remove_file(path);
+    if let Err(error) = fs::remove_file(path)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        eprintln!(
+            "Could not remove conversion temporary file {}: {error}",
+            path.display()
+        );
     }
 }
 
@@ -838,10 +986,10 @@ fn append_error_line(log: &mut String, line: &str) {
     if log.len() >= MAX_ERROR_LOG_BYTES {
         return;
     }
-    let remaining = MAX_ERROR_LOG_BYTES - log.len();
+    let remaining = MAX_ERROR_LOG_BYTES - log.len() - 1;
     let slice_end = line
         .char_indices()
-        .take_while(|(index, _)| *index < remaining)
+        .take_while(|(index, character)| *index + character.len_utf8() <= remaining)
         .map(|(index, character)| index + character.len_utf8())
         .last()
         .unwrap_or(0);

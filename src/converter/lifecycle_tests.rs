@@ -1,0 +1,365 @@
+use super::*;
+use std::io::{self, Write};
+
+struct TestFiles(PathBuf);
+
+impl TestFiles {
+    fn new() -> Self {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("oxide-converter-{}-{nonce}", std::process::id()));
+        fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+
+    fn path(&self, name: &str) -> PathBuf {
+        self.0.join(name)
+    }
+
+    fn spec(&self) -> JobSpec {
+        let source = self.path("source.mp4");
+        fs::write(&source, b"test source").unwrap();
+        JobSpec {
+            source,
+            output: self.path("result.mp4"),
+            preset: ConversionPreset::Mp4H264,
+            options: ConversionOptions::default(),
+            duration_seconds: 10.0,
+        }
+    }
+}
+
+impl Drop for TestFiles {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn helper_command(mode: &str, pid_path: &Path) -> Command {
+    let mut command = converter_process(&std::env::current_exe().unwrap());
+    command
+        .args([
+            "--exact",
+            "converter::lifecycle_tests::helper_child",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("OXIDE_TEST_CHILD_MODE", mode)
+        .env("OXIDE_TEST_CHILD_PID", pid_path);
+    command
+}
+
+fn wait_until(mut ready: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !ready() {
+        assert!(
+            Instant::now() < deadline,
+            "test helper did not become ready"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn assert_child_exited(pid_path: &Path) {
+    let pid: u32 = fs::read_to_string(pid_path).unwrap().parse().unwrap();
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+        use windows_sys::Win32::{
+            Foundation::WAIT_OBJECT_0,
+            System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
+        };
+        // SAFETY: only waiting on our disposable helper; no foreign process mutation.
+        let raw = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+        if !raw.is_null() {
+            let handle = unsafe { OwnedHandle::from_raw_handle(raw) };
+            assert_eq!(
+                unsafe { WaitForSingleObject(handle.as_raw_handle(), 2000) },
+                WAIT_OBJECT_0
+            );
+        }
+    }
+    #[cfg(unix)]
+    assert_ne!(unsafe { libc::kill(pid as i32, 0) }, 0);
+}
+
+// Invoked only as a disposable subprocess by tests below. No UI, files supplied
+// by users, network requests or real media are involved.
+#[test]
+#[ignore = "subprocess fixture; run only through lifecycle tests"]
+fn helper_child() {
+    let mode = std::env::var("OXIDE_TEST_CHILD_MODE").expect("fixture mode required");
+    fs::write(
+        std::env::var_os("OXIDE_TEST_CHILD_PID").unwrap(),
+        std::process::id().to_string(),
+    )
+    .unwrap();
+    if let Some(path) = std::env::var_os("OXIDE_TEST_CHILD_OUTPUT") {
+        fs::write(path, b"partial output").unwrap();
+    }
+    match mode.as_str() {
+        "version" => {
+            println!("ffmpeg version fixture");
+            std::process::exit(0);
+        }
+        "fail" => {
+            eprint!("fixture encoder failed without newline");
+            io::stderr().flush().unwrap();
+            std::process::exit(7);
+        }
+        "success" => {
+            print!("out_time_us=5000000\ntotal_size=14\n");
+            io::stdout().flush().unwrap();
+            std::process::exit(0);
+        }
+        "flood" => loop {
+            io::stdout().write_all(&[b'x'; 4096]).unwrap();
+        },
+        "tree" => {
+            let go = PathBuf::from(std::env::var_os("OXIDE_TEST_CHILD_GO").unwrap());
+            while !go.exists() {
+                thread::sleep(Duration::from_millis(10));
+            }
+            let descendant =
+                PathBuf::from(std::env::var_os("OXIDE_TEST_CHILD_DESCENDANT").unwrap());
+            let mut child = helper_command("hang", &descendant);
+            // Keep inherited pipes open deliberately; the owned process tree must stop them.
+            child.spawn().unwrap().wait().unwrap();
+        }
+        "hang" => {}
+        _ => panic!("unknown fixture mode"),
+    }
+    loop {
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+
+#[test]
+fn probe_accepts_version_and_rejects_failed_exit() {
+    let files = TestFiles::new();
+    let stop = AtomicBool::new(false);
+    assert_eq!(
+        probe_ffmpeg(
+            helper_command("version", &files.path("pid")),
+            &stop,
+            Duration::from_secs(3)
+        )
+        .unwrap(),
+        "ffmpeg version fixture"
+    );
+    assert!(
+        probe_ffmpeg(
+            helper_command("fail", &files.path("pid")),
+            &stop,
+            Duration::from_secs(3)
+        )
+        .is_err()
+    );
+    assert_child_exited(&files.path("pid"));
+}
+
+#[test]
+fn hung_probe_times_out_and_is_reaped() {
+    let files = TestFiles::new();
+    let started = Instant::now();
+    let error = probe_ffmpeg(
+        helper_command("hang", &files.path("pid")),
+        &AtomicBool::new(false),
+        Duration::from_secs(1),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_child_exited(&files.path("pid"));
+}
+
+#[test]
+fn probe_shutdown_interrupts_wait_and_reaps_process() {
+    let files = TestFiles::new();
+    let command = helper_command("hang", &files.path("pid"));
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker_stop = stop.clone();
+    let worker =
+        thread::spawn(move || probe_ffmpeg(command, &worker_stop, Duration::from_secs(30)));
+    wait_until(|| files.path("pid").exists());
+    stop.store(true, Ordering::Release);
+    assert_eq!(
+        worker.join().unwrap().unwrap_err().kind(),
+        io::ErrorKind::Interrupted
+    );
+    assert_child_exited(&files.path("pid"));
+}
+
+#[test]
+fn probe_rejects_unbounded_output_without_newlines() {
+    let files = TestFiles::new();
+    let error = probe_ffmpeg(
+        helper_command("flood", &files.path("pid")),
+        &AtomicBool::new(false),
+        Duration::from_secs(5),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert_child_exited(&files.path("pid"));
+}
+
+#[test]
+fn cancel_stalled_conversion_reaps_child_and_removes_partial_output() {
+    let files = TestFiles::new();
+    let spec = files.spec();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let worker_cancel = cancel.clone();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let (path_tx, path_rx) = crossbeam_channel::bounded(1);
+    let pid = files.path("pid");
+    let worker = thread::spawn(move || {
+        run_job_with(spec, &worker_cancel, &tx, |working| {
+            path_tx.send(working.to_owned()).unwrap();
+            let mut command = helper_command("hang", &pid);
+            command.env("OXIDE_TEST_CHILD_OUTPUT", working);
+            command
+        })
+    });
+    let working = path_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    wait_until(|| working.exists());
+    cancel.store(true, Ordering::Release);
+    worker.join().unwrap();
+    assert!(
+        rx.try_iter()
+            .any(|event| matches!(event, ConverterEvent::Canceled { .. }))
+    );
+    assert!(!working.exists());
+    assert!(!files.path("result.mp4").exists());
+    assert_child_exited(&files.path("pid"));
+}
+
+#[test]
+fn dropping_active_job_cancels_and_joins_task() {
+    let files = TestFiles::new();
+    let spec = files.spec();
+    let output = spec.output.clone();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let worker_cancel = cancel.clone();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let pid = files.path("pid");
+    let worker = thread::spawn(move || {
+        run_job_with(spec, &worker_cancel, &tx, |path| {
+            let mut command = helper_command("hang", &pid);
+            command.env("OXIDE_TEST_CHILD_OUTPUT", path);
+            command
+        })
+    });
+    let job = ActiveJob {
+        output,
+        cancel,
+        worker: Some(worker),
+    };
+    wait_until(|| files.path("pid").exists());
+    // This is the same ownership path used by Quit, disconnect and dispatcher unwind.
+    drop(job);
+    assert!(
+        rx.try_iter()
+            .any(|event| matches!(event, ConverterEvent::Canceled { .. }))
+    );
+    assert_child_exited(&files.path("pid"));
+    assert_eq!(fs::read_dir(&files.0).unwrap().count(), 2); // source and PID only
+}
+
+#[test]
+fn failed_conversion_keeps_final_diagnostic_and_cleans_output() {
+    let files = TestFiles::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let mut working = PathBuf::new();
+    run_job_with(files.spec(), &AtomicBool::new(false), &tx, |path| {
+        working = path.to_owned();
+        let mut command = helper_command("fail", &files.path("pid"));
+        command.env("OXIDE_TEST_CHILD_OUTPUT", path);
+        command
+    });
+    assert!(rx.try_iter().any(|event| matches!(event, ConverterEvent::Failed { message, .. } if message.contains("fixture encoder failed without newline"))));
+    assert!(!working.exists());
+    assert_child_exited(&files.path("pid"));
+}
+
+#[test]
+fn successful_conversion_commits_result_and_reports_completion() {
+    let files = TestFiles::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    run_job_with(files.spec(), &AtomicBool::new(false), &tx, |path| {
+        let mut command = helper_command("success", &files.path("pid"));
+        command.env("OXIDE_TEST_CHILD_OUTPUT", path);
+        command
+    });
+    assert_eq!(
+        fs::read(files.path("result.mp4")).unwrap(),
+        b"partial output"
+    );
+    assert!(
+        rx.try_iter()
+            .any(|event| matches!(event, ConverterEvent::Completed { .. }))
+    );
+    assert_child_exited(&files.path("pid"));
+}
+
+#[test]
+fn worker_panic_is_terminal_and_raii_cleans_process_and_temporary_file() {
+    let files = TestFiles::new();
+    let output = files.path("result.mp4");
+    let working = files.path("partial.mp4");
+    let owned_path = working.clone();
+    let pid = files.path("pid");
+    let worker = thread::spawn(move || {
+        let _output = WorkingOutput(owned_path.clone());
+        fs::write(&owned_path, b"partial").unwrap();
+        let _child = ManagedChild::spawn(helper_command("hang", &pid)).unwrap();
+        wait_until(|| pid.exists());
+        panic!("job failure");
+    });
+    let job = ActiveJob {
+        output,
+        cancel: Arc::new(AtomicBool::new(false)),
+        worker: Some(worker),
+    };
+    wait_until(|| job.is_finished());
+    let (tx, rx) = crossbeam_channel::unbounded();
+    job.finish(&tx);
+    assert!(matches!(
+        rx.try_recv().unwrap(),
+        ConverterEvent::Failed { .. }
+    ));
+    assert!(!working.exists());
+    assert_child_exited(&files.path("pid"));
+}
+
+#[cfg(windows)]
+#[test]
+fn dropping_owner_stops_descendant_that_keeps_pipes_open() {
+    let files = TestFiles::new();
+    let mut command = helper_command("tree", &files.path("pid"));
+    command
+        .env("OXIDE_TEST_CHILD_GO", files.path("go"))
+        .env("OXIDE_TEST_CHILD_DESCENDANT", files.path("descendant"));
+    let child = ManagedChild::spawn(command).unwrap();
+    fs::write(files.path("go"), b"go").unwrap();
+    wait_until(|| files.path("descendant").exists());
+    drop(child);
+    assert_child_exited(&files.path("pid"));
+    assert_child_exited(&files.path("descendant"));
+}
+
+#[test]
+fn partial_lines_and_utf8_diagnostics_have_fixed_memory_limits() {
+    let mut lines = OutputLines::default();
+    lines.feed(&vec![b'x'; MAX_LINE_BYTES * 4], false);
+    assert_eq!(lines.pending.len(), MAX_LINE_BYTES);
+    assert_eq!(
+        lines.feed(b"\nout_time_us=5000000", true)[1],
+        "out_time_us=5000000"
+    );
+    let mut log = "x".repeat(MAX_ERROR_LOG_BYTES - 2);
+    append_error_line(&mut log, "я");
+    assert!(log.len() <= MAX_ERROR_LOG_BYTES);
+}

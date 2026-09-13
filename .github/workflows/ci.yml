@@ -24,6 +24,9 @@ jobs:
         run: |
           if ((Test-Path mpv.lib) -and (Test-Path mpv-2.dll)) {
             cargo test --all-targets --all-features
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            cargo test --locked -p libmpv --lib ownership_tests
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } else {
             Write-Warning "Linked tests are deferred until CI provisions the native libmpv runtime."
           }
