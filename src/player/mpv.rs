@@ -9,6 +9,7 @@ use crate::player::{
     audio_metadata::AudioMetadata,
     commands::{CommandReceiver, DISPATCH_BUDGET},
     equalizer::EqualizerSettings,
+    limits::{PATH_TEXT_BYTES, UI_TEXT_BYTES, bounded_text},
     media_info::{MediaInfo, read_audio_tracks, read_chapters, read_subtitle_tracks},
     playlist::DirectoryPlaylist,
     session_store::SessionStore,
@@ -82,7 +83,7 @@ fn send_hardware_decoding(mpv: &Mpv, tx: &Sender<Event>) {
         .unwrap_or_else(|_| "no".to_owned());
     let _ = tx.send(Event::HardwareDecoding {
         enabled: hwdec_is_enabled(&requested),
-        decoder,
+        decoder: bounded_text(&decoder, UI_TEXT_BYTES),
     });
 }
 
@@ -152,14 +153,14 @@ fn send_recent_files(tx: &Sender<Event>, session: &SessionStore) {
         .iter()
         .filter(|path| path.is_file())
         .map(|path| RecentFileInfo {
-            path: path.to_string_lossy().into_owned(),
+            path: bounded_text(&path.to_string_lossy(), PATH_TEXT_BYTES),
             name: path
                 .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.to_string_lossy().into_owned()),
+                .map(|name| bounded_text(&name.to_string_lossy(), UI_TEXT_BYTES))
+                .unwrap_or_else(|| bounded_text(&path.to_string_lossy(), UI_TEXT_BYTES)),
             location: path
                 .parent()
-                .map(|parent| parent.to_string_lossy().into_owned())
+                .map(|parent| bounded_text(&parent.to_string_lossy(), PATH_TEXT_BYTES))
                 .unwrap_or_default(),
         })
         .collect();
@@ -275,9 +276,13 @@ fn activate_playlist(
     mut next_playlist: DirectoryPlaylist,
     shuffled: bool,
 ) -> anyhow::Result<()> {
+    let limit_notice = next_playlist.limit_notice();
     next_playlist.set_shuffled(shuffled);
     load_current(mpv, tx, &next_playlist)?;
     *playlist = Some(next_playlist);
+    if let Some(message) = limit_notice {
+        let _ = tx.send(Event::Error(message));
+    }
     Ok(())
 }
 
@@ -286,15 +291,18 @@ fn load_current(mpv: &Mpv, tx: &Sender<Event>, playlist: &DirectoryPlaylist) -> 
         .current_path()
         .context("В плейлисте нет медиафайла для воспроизведения")?;
     if let Some(file_name) = path.file_name() {
-        let _ = tx.send(Event::LoadStarted(file_name.to_string_lossy().into_owned()));
+        let _ = tx.send(Event::LoadStarted(bounded_text(
+            &file_name.to_string_lossy(),
+            UI_TEXT_BYTES,
+        )));
     }
     load_file_in_mpv(mpv, path)?;
     send_audio_metadata(path, tx);
 
     if let Some(file_name) = path.file_name() {
         let _ = tx.send(Event::FileLoaded {
-            name: file_name.to_string_lossy().into_owned(),
-            path: path.to_string_lossy().into_owned(),
+            name: bounded_text(&file_name.to_string_lossy(), UI_TEXT_BYTES),
+            path: bounded_text(&path.to_string_lossy(), PATH_TEXT_BYTES),
         });
     }
     send_playlist(tx, playlist);
@@ -384,7 +392,7 @@ fn send_playback_finished(tx: &Sender<Event>) {
 fn send_playback_failed(tx: &Sender<Event>, message: String) {
     let _ = tx.send(Event::MediaAvailable(false));
     let _ = tx.send(Event::PlaybackState(false));
-    let _ = tx.send(Event::PlaybackFailed(message));
+    let _ = tx.send(Event::PlaybackFailed(bounded_text(&message, UI_TEXT_BYTES)));
 }
 
 fn handle_command(

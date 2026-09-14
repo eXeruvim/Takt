@@ -137,6 +137,15 @@ fn dropping_receiver_releases_pending_paths_and_reports_disconnect() {
 }
 
 #[test]
+fn oversized_path_payload_never_enters_the_mailbox() {
+    let (tx, rx, errors) = channel();
+    let result = tx.send(Command::OpenFile("x".repeat(PATH_TEXT_BYTES + 1)));
+    assert_eq!(result, Err(SendError::PayloadTooLarge));
+    assert_eq!(errors.try_recv(), Ok(SendError::PayloadTooLarge));
+    assert!(rx.try_recv(true).is_none());
+}
+
+#[test]
 fn absolute_settings_coalesce_without_losing_other_settings() {
     let (tx, rx, _) = channel();
     for command in [

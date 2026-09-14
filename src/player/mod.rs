@@ -1,6 +1,7 @@
 pub mod audio_metadata;
 pub mod commands;
 pub mod equalizer;
+pub mod limits;
 pub mod media_info;
 pub mod mpv;
 pub mod playlist;

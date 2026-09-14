@@ -7,6 +7,12 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 
+use crate::player::limits::{PATH_TEXT_BYTES, UI_TEXT_BYTES, bounded_text};
+
+const MAX_PLAYLIST_FILES: usize = 5_000;
+const MAX_PLAYLIST_PATH_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PLAYLIST_LABEL_BYTES: usize = 4 * 1024 * 1024;
+
 pub const VIDEO_EXTENSIONS: &[&str] = &[
     "mp4", "mkv", "webm", "mov", "avi", "m4v", "ts", "flv", "wmv", "mpg", "mpeg", "ogv",
 ];
@@ -42,6 +48,7 @@ pub fn is_media_file(path: &Path) -> bool {
 pub struct DirectoryPlaylist {
     files: Vec<PathBuf>,
     current_index: usize,
+    omitted_count: usize,
 }
 
 impl DirectoryPlaylist {
@@ -56,7 +63,10 @@ impl DirectoryPlaylist {
         let directory = path
             .parent()
             .context("Не удалось определить папку медиафайла")?;
-        let files = read_media_files(directory)?;
+        let PlaylistFiles {
+            files,
+            omitted_count,
+        } = read_media_files(directory, Some(path))?;
 
         let current_index = files
             .iter()
@@ -66,6 +76,7 @@ impl DirectoryPlaylist {
         Ok(Self {
             files,
             current_index,
+            omitted_count,
         })
     }
 
@@ -74,7 +85,10 @@ impl DirectoryPlaylist {
             bail!("Папка не найдена: {}", directory.display());
         }
 
-        let files = read_media_files(directory)?;
+        let PlaylistFiles {
+            files,
+            omitted_count,
+        } = read_media_files(directory, None)?;
         if files.is_empty() {
             bail!(
                 "В папке нет поддерживаемых видео или аудио: {}",
@@ -85,6 +99,7 @@ impl DirectoryPlaylist {
         Ok(Self {
             files,
             current_index: 0,
+            omitted_count,
         })
     }
 
@@ -201,9 +216,18 @@ impl DirectoryPlaylist {
             .iter()
             .filter_map(|path| {
                 path.file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
+                    .map(|name| bounded_text(&name.to_string_lossy(), UI_TEXT_BYTES))
             })
             .collect()
+    }
+
+    pub fn limit_notice(&self) -> Option<String> {
+        (self.omitted_count > 0).then(|| {
+            format!(
+                "Очередь ограничена {} файлами и бюджетом памяти: ещё {} не добавлено",
+                MAX_PLAYLIST_FILES, self.omitted_count
+            )
+        })
     }
 
     pub fn current_index(&self) -> usize {
@@ -211,16 +235,97 @@ impl DirectoryPlaylist {
     }
 }
 
-fn read_media_files(directory: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = fs::read_dir(directory)
+struct PlaylistFiles {
+    files: Vec<PathBuf>,
+    omitted_count: usize,
+}
+
+#[derive(Clone, Copy)]
+struct PlaylistLimits {
+    files: usize,
+    path_bytes: usize,
+    label_bytes: usize,
+    single_path_bytes: usize,
+}
+
+const PLAYLIST_LIMITS: PlaylistLimits = PlaylistLimits {
+    files: MAX_PLAYLIST_FILES,
+    path_bytes: MAX_PLAYLIST_PATH_BYTES,
+    label_bytes: MAX_PLAYLIST_LABEL_BYTES,
+    single_path_bytes: PATH_TEXT_BYTES,
+};
+
+struct PlaylistAccumulator {
+    files: Vec<PathBuf>,
+    path_bytes: usize,
+    label_bytes: usize,
+    omitted_count: usize,
+    limits: PlaylistLimits,
+}
+
+impl PlaylistAccumulator {
+    fn new(limits: PlaylistLimits) -> Self {
+        Self {
+            files: Vec::new(),
+            path_bytes: 0,
+            label_bytes: 0,
+            omitted_count: 0,
+            limits,
+        }
+    }
+
+    fn push(&mut self, path: PathBuf) -> bool {
+        let path_bytes = path.as_os_str().as_encoded_bytes().len();
+        let label_bytes = path
+            .file_name()
+            .map_or(0, |name| name.to_string_lossy().len())
+            .min(UI_TEXT_BYTES);
+        let fits = path_bytes <= self.limits.single_path_bytes
+            && self.files.len() < self.limits.files
+            && self.path_bytes.saturating_add(path_bytes) <= self.limits.path_bytes
+            && self.label_bytes.saturating_add(label_bytes) <= self.limits.label_bytes;
+        if !fits {
+            self.omitted_count = self.omitted_count.saturating_add(1);
+            return false;
+        }
+
+        self.files.push(path);
+        self.path_bytes += path_bytes;
+        self.label_bytes += label_bytes;
+        true
+    }
+
+    fn finish(mut self) -> PlaylistFiles {
+        sort_paths_naturally(&mut self.files);
+        PlaylistFiles {
+            files: self.files,
+            omitted_count: self.omitted_count,
+        }
+    }
+}
+
+fn read_media_files(directory: &Path, priority: Option<&Path>) -> Result<PlaylistFiles> {
+    let mut files = PlaylistAccumulator::new(PLAYLIST_LIMITS);
+    if let Some(priority) = priority
+        && !files.push(priority.to_path_buf())
+    {
+        bail!("Путь открываемого файла превышает безопасный размер очереди");
+    }
+
+    for entry in fs::read_dir(directory)
         .with_context(|| format!("Не удалось прочитать папку: {}", directory.display()))?
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|candidate| candidate.is_file() && is_media_file(candidate))
-        .collect::<Vec<_>>();
+        .flatten()
+    {
+        let candidate = entry.path();
+        if priority.is_some_and(|priority| candidate == priority) {
+            continue;
+        }
+        if candidate.is_file() && is_media_file(&candidate) {
+            files.push(candidate);
+        }
+    }
 
-    sort_paths_naturally(&mut files);
-
-    Ok(files)
+    Ok(files.finish())
 }
 
 fn sort_paths_naturally(files: &mut [PathBuf]) {
@@ -399,6 +504,7 @@ mod tests {
                 .map(PathBuf::from)
                 .to_vec(),
             current_index: 2,
+            omitted_count: 0,
         };
 
         assert_eq!(playlist.move_next(false), None);
@@ -416,6 +522,7 @@ mod tests {
                 .map(PathBuf::from)
                 .to_vec(),
             current_index: 1,
+            omitted_count: 0,
         };
         let current = playlist.current_path().cloned();
 
@@ -438,6 +545,7 @@ mod tests {
                 .map(PathBuf::from)
                 .to_vec(),
             current_index: 1,
+            omitted_count: 0,
         };
 
         assert_eq!(
@@ -454,6 +562,7 @@ mod tests {
         let mut playlist = DirectoryPlaylist {
             files: vec![PathBuf::from("one.mp4"), PathBuf::from("two.mp4")],
             current_index: 0,
+            omitted_count: 0,
         };
 
         assert_eq!(playlist.select(1), Some(PathBuf::from("two.mp4")));
@@ -469,6 +578,7 @@ mod tests {
                 .map(PathBuf::from)
                 .to_vec(),
             current_index: 1,
+            omitted_count: 0,
         };
 
         assert_eq!(playlist.remove(0), Some(false));
@@ -482,5 +592,26 @@ mod tests {
         assert_eq!(playlist.remove(0), Some(true));
         assert_eq!(playlist.current_path(), None);
         assert_eq!(playlist.remove(0), None);
+    }
+
+    #[test]
+    fn bounded_playlist_keeps_memory_and_entry_counts_fixed() {
+        let limits = PlaylistLimits {
+            files: 3,
+            path_bytes: 64,
+            label_bytes: 32,
+            single_path_bytes: 32,
+        };
+        let mut files = PlaylistAccumulator::new(limits);
+        assert!(files.push(PathBuf::from("selected.mp4")));
+        assert!(files.push(PathBuf::from("two.mp4")));
+        assert!(!files.push(PathBuf::from("this-name-is-too-long-for-budget.mp4")));
+        assert!(files.push(PathBuf::from("three.mp4")));
+        assert!(!files.push(PathBuf::from("four.mp4")));
+
+        let files = files.finish();
+        assert_eq!(files.files.len(), 3);
+        assert_eq!(files.omitted_count, 2);
+        assert!(files.files.contains(&PathBuf::from("selected.mp4")));
     }
 }

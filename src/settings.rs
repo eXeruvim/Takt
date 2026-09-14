@@ -10,6 +10,8 @@ const SETTINGS_FORMAT: &str = "OXIDE_SETTINGS";
 const SETTINGS_VERSION: u32 = 1;
 const DEFAULT_VOLUME: f32 = 0.65;
 const DEFAULT_SPEED: f32 = 1.0;
+const MAX_SHORTCUT_OVERRIDES: usize = 64;
+const MAX_SHORTCUT_KEY_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ThemePreference {
@@ -262,6 +264,7 @@ impl AppSettings {
     }
 
     pub fn set_shortcut_overrides(&mut self, overrides: Vec<ShortcutPreference>) {
+        let overrides = normalize_shortcut_overrides(overrides);
         if self.shortcut_overrides != overrides {
             self.shortcut_overrides = overrides;
             self.dirty = true;
@@ -369,6 +372,7 @@ impl AppSettings {
                     if shortcut.next().is_none()
                         && let (Some(action_id), Some(key_code), Some(modifiers)) =
                             (action_id, key_code, modifiers)
+                        && key_code.len() <= MAX_SHORTCUT_KEY_BYTES
                     {
                         let preference = ShortcutPreference {
                             action_id,
@@ -381,7 +385,7 @@ impl AppSettings {
                             .find(|entry| entry.action_id == action_id)
                         {
                             *existing = preference;
-                        } else {
+                        } else if settings.shortcut_overrides.len() < MAX_SHORTCUT_OVERRIDES {
                             settings.shortcut_overrides.push(preference);
                         }
                     }
@@ -391,6 +395,24 @@ impl AppSettings {
         }
         Ok(settings)
     }
+}
+
+fn normalize_shortcut_overrides(overrides: Vec<ShortcutPreference>) -> Vec<ShortcutPreference> {
+    let mut normalized = Vec::<ShortcutPreference>::new();
+    for preference in overrides {
+        if preference.key_code.len() > MAX_SHORTCUT_KEY_BYTES {
+            continue;
+        }
+        if let Some(existing) = normalized
+            .iter_mut()
+            .find(|entry| entry.action_id == preference.action_id)
+        {
+            *existing = preference;
+        } else if normalized.len() < MAX_SHORTCUT_OVERRIDES {
+            normalized.push(preference);
+        }
+    }
+    normalized
 }
 
 fn default_storage_path() -> Option<PathBuf> {
@@ -419,8 +441,8 @@ mod tests {
     use crate::storage::tests::TestDirectory;
 
     use super::{
-        AccentPreference, AppSettings, CompletionBehavior, DEFAULT_SPEED, ShortcutPreference,
-        ThemePreference,
+        AccentPreference, AppSettings, CompletionBehavior, DEFAULT_SPEED, MAX_SHORTCUT_KEY_BYTES,
+        MAX_SHORTCUT_OVERRIDES, ShortcutPreference, ThemePreference,
     };
 
     #[test]
@@ -551,5 +573,46 @@ mod tests {
         assert!(!loaded.hardware_decoding_enabled());
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
+    }
+
+    #[test]
+    fn shortcut_payloads_and_counts_are_bounded_while_parsing_and_setting() {
+        let mut content = String::from("OXIDE_SETTINGS\t1\n");
+        content.push_str(&format!(
+            "shortcut\t-1\t{}\t0\n",
+            "x".repeat(MAX_SHORTCUT_KEY_BYTES + 1)
+        ));
+        for action_id in 0..(MAX_SHORTCUT_OVERRIDES + 20) {
+            content.push_str(&format!("shortcut\t{action_id}\t\"KeyA\"\t0\n"));
+        }
+        let parsed = AppSettings::parse(&content).expect("bounded settings must parse");
+        assert_eq!(parsed.shortcut_overrides().len(), MAX_SHORTCUT_OVERRIDES);
+        assert!(
+            parsed
+                .shortcut_overrides()
+                .iter()
+                .all(|preference| preference.key_code.len() <= MAX_SHORTCUT_KEY_BYTES)
+        );
+
+        let mut settings = AppSettings::default();
+        settings.set_shortcut_overrides(vec![
+            ShortcutPreference {
+                action_id: 1,
+                key_code: "\"KeyA\"".into(),
+                modifiers: 0,
+            },
+            ShortcutPreference {
+                action_id: 1,
+                key_code: "\"KeyB\"".into(),
+                modifiers: 0,
+            },
+            ShortcutPreference {
+                action_id: 2,
+                key_code: "x".repeat(MAX_SHORTCUT_KEY_BYTES + 1),
+                modifiers: 0,
+            },
+        ]);
+        assert_eq!(settings.shortcut_overrides().len(), 1);
+        assert_eq!(settings.shortcut_overrides()[0].key_code, "\"KeyB\"");
     }
 }

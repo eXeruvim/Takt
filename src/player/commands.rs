@@ -1,6 +1,6 @@
 //! Bounded command mailbox. No native calls, UI callbacks or waits for capacity
 //! are allowed while its short queue mutex is held.
-use crate::ipc::Command;
+use crate::{ipc::Command, player::limits::PATH_TEXT_BYTES};
 use crossbeam_channel::{Receiver, Sender, bounded};
 use std::{
     collections::VecDeque,
@@ -17,6 +17,7 @@ pub const DISPATCH_BUDGET: usize = 8;
 pub enum SendError {
     Full,
     Disconnected,
+    PayloadTooLarge,
 }
 
 impl SendError {
@@ -26,6 +27,7 @@ impl SendError {
                 "Плеер занят: слишком много команд. Последнее действие не принято — повторите его чуть позже"
             }
             Self::Disconnected => "Плеер недоступен. Перезапустите приложение",
+            Self::PayloadTooLarge => "Слишком длинный путь к файлу. Команда не добавлена в очередь",
         }
     }
 }
@@ -82,6 +84,9 @@ impl CommandSender {
         if !self.shared.alive.load(Ordering::Acquire) {
             return Err(SendError::Disconnected);
         }
+        if !payload_is_bounded(&command) {
+            return Err(SendError::PayloadTooLarge);
+        }
         if matches!(command, Command::Quit) {
             self.shared.quit.store(true, Ordering::Release);
             return Ok(());
@@ -112,6 +117,15 @@ impl CommandSender {
             }
         }
         Ok(())
+    }
+}
+
+fn payload_is_bounded(command: &Command) -> bool {
+    match command {
+        Command::OpenFile(path) | Command::OpenFolder(path) | Command::LoadSubtitle(path) => {
+            path.len() <= PATH_TEXT_BYTES
+        }
+        _ => true,
     }
 }
 

@@ -1,7 +1,11 @@
 use std::path::Path;
 
 use crate::ipc::{AudioTrackInfo, ChapterInfo, SubtitleTrackInfo};
+use crate::player::limits::{UI_TEXT_BYTES, bounded_text};
 use libmpv::Mpv;
+
+const MAX_TRACKS: i64 = 256;
+const MAX_CHAPTERS: i64 = 1_000;
 
 #[derive(Debug, Default)]
 pub struct MediaInfo {
@@ -35,17 +39,13 @@ impl MediaInfo {
             width: non_negative_u32(mpv.get_property::<i64>("width").unwrap_or_default()),
             height: non_negative_u32(mpv.get_property::<i64>("height").unwrap_or_default()),
             fps: mpv.get_property::<f64>("container-fps").unwrap_or_default(),
-            codec: mpv
-                .get_property::<String>("current-tracks/video/codec")
-                .or_else(|_| mpv.get_property::<String>("video-format"))
-                .unwrap_or_default(),
-            audio_codec: mpv
-                .get_property::<String>("current-tracks/audio/codec")
-                .or_else(|_| mpv.get_property::<String>("audio-codec"))
-                .unwrap_or_default(),
-            container: mpv
-                .get_property::<String>("file-format")
-                .unwrap_or_default(),
+            codec: bounded_property(mpv, "current-tracks/video/codec", "video-format"),
+            audio_codec: bounded_property(mpv, "current-tracks/audio/codec", "audio-codec"),
+            container: bounded_text(
+                &mpv.get_property::<String>("file-format")
+                    .unwrap_or_default(),
+                UI_TEXT_BYTES,
+            ),
             file_size_bytes,
             duration_seconds,
             average_bitrate_bps: average_bitrate_bps(file_size_bytes, duration_seconds),
@@ -111,25 +111,30 @@ pub fn read_chapters(mpv: &Mpv) -> Vec<ChapterInfo> {
     let count = mpv
         .get_property::<i64>("chapter-list/count")
         .unwrap_or_default()
-        .max(0);
+        .clamp(0, MAX_CHAPTERS);
 
     (0..count)
         .map(|index| {
-            let title = mpv
-                .get_property::<String>(&format!("chapter-list/{index}/title"))
-                .unwrap_or_default();
+            let title = bounded_text(
+                &mpv.get_property::<String>(&format!("chapter-list/{index}/title"))
+                    .unwrap_or_default(),
+                UI_TEXT_BYTES,
+            );
             let time = mpv
                 .get_property::<f64>(&format!("chapter-list/{index}/time"))
                 .unwrap_or_default();
             let title = if title.trim().is_empty() {
                 format!("Глава {}", index + 1)
             } else {
-                title.trim().to_owned()
+                title
             };
 
             ChapterInfo {
                 index,
-                label: format!("{}  ·  {}", format_chapter_time(time), title),
+                label: bounded_text(
+                    &format!("{}  ·  {}", format_chapter_time(time), title),
+                    UI_TEXT_BYTES,
+                ),
             }
         })
         .collect()
@@ -162,7 +167,7 @@ fn read_tracks(mpv: &Mpv, track_type: &str) -> Vec<RawTrack> {
     let count = mpv
         .get_property::<i64>("track-list/count")
         .unwrap_or_default()
-        .max(0);
+        .clamp(0, MAX_TRACKS);
     let mut tracks = Vec::new();
 
     for index in 0..count {
@@ -178,15 +183,21 @@ fn read_tracks(mpv: &Mpv, track_type: &str) -> Vec<RawTrack> {
         let Ok(id) = mpv.get_property::<i64>(&property("id")) else {
             continue;
         };
-        let title = mpv
-            .get_property::<String>(&property("title"))
-            .unwrap_or_default();
-        let language = mpv
-            .get_property::<String>(&property("lang"))
-            .unwrap_or_default();
-        let codec = mpv
-            .get_property::<String>(&property("codec"))
-            .unwrap_or_default();
+        let title = bounded_text(
+            &mpv.get_property::<String>(&property("title"))
+                .unwrap_or_default(),
+            UI_TEXT_BYTES,
+        );
+        let language = bounded_text(
+            &mpv.get_property::<String>(&property("lang"))
+                .unwrap_or_default(),
+            UI_TEXT_BYTES,
+        );
+        let codec = bounded_text(
+            &mpv.get_property::<String>(&property("codec"))
+                .unwrap_or_default(),
+            UI_TEXT_BYTES,
+        );
         let selected = mpv
             .get_property::<bool>(&property("selected"))
             .unwrap_or(false);
@@ -195,7 +206,8 @@ fn read_tracks(mpv: &Mpv, track_type: &str) -> Vec<RawTrack> {
             .unwrap_or(false);
         let external_filename = mpv
             .get_property::<String>(&property("external-filename"))
-            .ok();
+            .ok()
+            .map(|value| bounded_text(&value, UI_TEXT_BYTES));
         let album_art = mpv
             .get_property::<bool>(&property("albumart"))
             .unwrap_or(false);
@@ -244,7 +256,16 @@ fn track_label(
         label.push_str("  ·  ");
         label.push_str(&details.join("  ·  "));
     }
-    label
+    bounded_text(&label, UI_TEXT_BYTES)
+}
+
+fn bounded_property(mpv: &Mpv, primary: &str, fallback: &str) -> String {
+    bounded_text(
+        &mpv.get_property::<String>(primary)
+            .or_else(|_| mpv.get_property::<String>(fallback))
+            .unwrap_or_default(),
+        UI_TEXT_BYTES,
+    )
 }
 
 fn non_negative_u32(value: i64) -> u32 {
@@ -306,5 +327,19 @@ mod tests {
         assert_eq!(format_chapter_time(65.2), "01:05");
         assert_eq!(format_chapter_time(3_661.0), "01:01:01");
         assert_eq!(format_chapter_time(-5.0), "00:00");
+    }
+
+    #[test]
+    fn generated_track_labels_have_a_fixed_utf8_payload() {
+        let label = track_label(
+            "Дорожка",
+            1,
+            &"я".repeat(super::UI_TEXT_BYTES),
+            &"language".repeat(1_000),
+            &"codec".repeat(1_000),
+            Some("Внешние"),
+        );
+        assert!(label.len() <= super::UI_TEXT_BYTES);
+        assert!(label.ends_with('…'));
     }
 }
