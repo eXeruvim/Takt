@@ -44,3 +44,8 @@ libc = "0.2.189"
 
 [build-dependencies]
 slint-build = { version = "1.17.1" }
+
+[profile.profiling]
+inherits = "release"
+debug = 1
+strip = "none"

@@ -309,3 +309,4 @@ dispatcher — её потоком. Ошибка или panic освобожда
 
 - [План разработки](internal notes)
 - [Архитектура](ARCHITECTURE.md)
+- [Методика и запуск бенчмарков](BENCHMARKING.md)

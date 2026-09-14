@@ -6,3 +6,4 @@
 /libmpv.dll.a
 .vscode/
 /.tmp/
+/benchmark-results/
