@@ -1,8 +1,13 @@
 #[cfg(target_os = "windows")]
 mod windows {
+    #![deny(clippy::undocumented_unsafe_blocks)]
+
     use std::{
         ffi::{OsStr, c_void},
+        marker::PhantomData,
         os::windows::ffi::OsStrExt,
+        ptr::NonNull,
+        rc::Rc,
         sync::{
             OnceLock,
             atomic::{AtomicBool, AtomicU64, Ordering},
@@ -25,9 +30,10 @@ mod windows {
     static LAST_POINTER_SCREEN_POSITION: AtomicU64 = AtomicU64::new(u64::MAX);
 
     pub struct VideoHost {
-        handle: usize,
+        handle: NonNull<c_void>,
         last_bounds: Option<(i32, i32, i32, i32)>,
         last_visible: Option<bool>,
+        _window_thread: PhantomData<Rc<()>>,
     }
 
     impl VideoHost {
@@ -43,6 +49,10 @@ mod windows {
             let parent = handle.hwnd.get() as *mut c_void;
             let class_name = VIDEO_WINDOW_CLASS.get_or_init(|| to_wide_null("OxideVideoHost"));
 
+            // SAFETY: The parent HWND is borrowed from the live Slint window.
+            // Class strings stay NUL-terminated for every call, the WNDCLASS
+            // callback uses the system ABI, and all optional Win32 handles are
+            // passed as null as documented.
             let child = unsafe {
                 let instance = GetModuleHandleW(std::ptr::null());
                 let window_class = WNDCLASSW {
@@ -75,16 +85,19 @@ mod windows {
             if child.is_null() {
                 return Err(anyhow!("Не удалось создать поверхность видео"));
             }
+            // SAFETY: The null case was rejected above.
+            let child = unsafe { NonNull::new_unchecked(child) };
 
             Ok(Self {
-                handle: child as usize,
+                handle: child,
                 last_bounds: None,
                 last_visible: None,
+                _window_thread: PhantomData,
             })
         }
 
         pub fn handle(&self) -> usize {
-            self.handle
+            self.handle.as_ptr() as usize
         }
 
         pub fn resize(
@@ -106,9 +119,11 @@ mod windows {
                 return Ok(());
             }
 
+            // SAFETY: self owns a live child HWND, dimensions are clamped to a
+            // positive size, and SetWindowPos does not retain any Rust data.
             let moved = unsafe {
                 SetWindowPos(
-                    self.handle as HWND,
+                    self.handle.as_ptr(),
                     std::ptr::null_mut(),
                     x,
                     y,
@@ -129,8 +144,13 @@ mod windows {
             if self.last_visible == Some(visible) {
                 return;
             }
+            // SAFETY: self owns a live child HWND and ShowWindow does not retain
+            // references to Rust memory.
             unsafe {
-                ShowWindow(self.handle as HWND, if visible { SW_SHOW } else { SW_HIDE });
+                ShowWindow(
+                    self.handle.as_ptr(),
+                    if visible { SW_SHOW } else { SW_HIDE },
+                );
             }
             self.last_visible = Some(visible);
         }
@@ -150,9 +170,12 @@ mod windows {
 
     impl Drop for VideoHost {
         fn drop(&mut self) {
+            // SAFETY: VideoHost is !Send and is created/dropped by Slint's
+            // rendering notifier on the owning window thread. IsWindow avoids
+            // destroying a handle already removed by the OS.
             unsafe {
-                if IsWindow(self.handle as HWND) != 0 {
-                    DestroyWindow(self.handle as HWND);
+                if IsWindow(self.handle.as_ptr()) != 0 {
+                    DestroyWindow(self.handle.as_ptr());
                 }
             }
         }
@@ -169,6 +192,8 @@ mod windows {
 
     fn record_pointer_activity(force: bool) {
         let mut point = POINT { x: 0, y: 0 };
+        // SAFETY: `point` is valid writable storage for the duration of
+        // GetCursorPos; the function retains no pointer.
         let position_changed = unsafe {
             if GetCursorPos(&mut point) == 0 {
                 false
@@ -188,6 +213,9 @@ mod windows {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> LRESULT {
+        // SAFETY: Windows calls this function with a valid HWND/message tuple.
+        // Each delegated Win32 call uses those values only for this invocation;
+        // the PAINTSTRUCT remains alive between BeginPaint and EndPaint.
         unsafe {
             match message {
                 WM_MOUSEMOVE => {

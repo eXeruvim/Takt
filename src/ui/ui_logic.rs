@@ -1,3 +1,7 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
+
+#[cfg(target_os = "windows")]
+use std::cell::RefCell;
 #[cfg(target_os = "windows")]
 use std::time::Duration;
 use std::{
@@ -1389,6 +1393,8 @@ fn native_window_handle(window: &slint::Window) -> Option<HWND> {
 
 #[cfg(target_os = "windows")]
 fn request_native_redraw(target: usize) {
+    // SAFETY: target comes from the live Slint Win32 window handle. RedrawWindow
+    // does not retain either null region pointer after the call.
     unsafe {
         RedrawWindow(
             target as HWND,
@@ -1402,6 +1408,7 @@ fn request_native_redraw(target: usize) {
 #[cfg(target_os = "windows")]
 fn cursor_screen_position() -> Option<(i32, i32)> {
     let mut point = POINT { x: 0, y: 0 };
+    // SAFETY: `point` is valid writable storage for this synchronous call.
     if unsafe { GetCursorPos(&mut point) } == 0 {
         return None;
     }
@@ -1418,6 +1425,8 @@ fn restored_window_size(hwnd: HWND) -> Option<(i32, i32)> {
         ptMaxPosition: POINT { x: 0, y: 0 },
         rcNormalPosition: Default::default(),
     };
+    // SAFETY: hwnd belongs to the live Slint window and placement has the
+    // required length plus writable storage.
     if unsafe { GetWindowPlacement(hwnd, &mut placement) } == 0 {
         return None;
     }
@@ -1470,6 +1479,8 @@ fn begin_manual_window_drag(window: &slint::Window, state: &Arc<Mutex<WindowDrag
             cursor_origin,
             window_origin: (window_origin.x, window_origin.y),
         };
+        // SAFETY: hwnd is the live Slint window on this UI thread. Capture is
+        // released by finish_manual_window_drag on every completed drag path.
         unsafe {
             SetCapture(hwnd);
         }
@@ -1504,6 +1515,8 @@ fn finish_manual_window_drag(state: &Arc<Mutex<WindowDragState>>) -> bool {
         .map(|mut state| std::mem::take(&mut state.active))
         .unwrap_or(false);
     if active {
+        // SAFETY: Called on the UI thread that acquired mouse capture; Windows
+        // ignores ReleaseCapture if ownership was already lost.
         unsafe {
             ReleaseCapture();
         }
@@ -1715,7 +1728,7 @@ pub fn run(
     let current_duration = Arc::new(Mutex::new(0.0));
     let dialog_active = Arc::new(AtomicBool::new(false));
     #[cfg(target_os = "windows")]
-    let video_host = Arc::new(Mutex::new(None::<VideoHost>));
+    let video_host = Rc::new(RefCell::new(None::<VideoHost>));
     #[cfg(target_os = "windows")]
     let render_source = Arc::new(Mutex::new(None::<MpvRenderSource>));
     #[cfg(target_os = "windows")]
@@ -2547,7 +2560,7 @@ pub fn run(
                     app.set_info_drawer_visible(true);
                     app.set_playlist_drawer_visible(false);
                     app.set_settings_drawer_visible(false);
-                    if let Ok(mut video_host) = panel_video_host.lock()
+                    if let Ok(mut video_host) = panel_video_host.try_borrow_mut()
                         && let Some(host) = video_host.as_mut()
                     {
                         let _ = sync_video_host(host, &app);
@@ -2599,7 +2612,7 @@ pub fn run(
                     app.set_playlist_drawer_visible(true);
                     app.set_info_drawer_visible(false);
                     app.set_settings_drawer_visible(false);
-                    if let Ok(mut video_host) = panel_video_host.lock()
+                    if let Ok(mut video_host) = panel_video_host.try_borrow_mut()
                         && let Some(host) = video_host.as_mut()
                     {
                         let _ = sync_video_host(host, &app);
@@ -2651,7 +2664,7 @@ pub fn run(
                     app.set_settings_drawer_visible(true);
                     app.set_info_drawer_visible(false);
                     app.set_playlist_drawer_visible(false);
-                    if let Ok(mut video_host) = panel_video_host.lock()
+                    if let Ok(mut video_host) = panel_video_host.try_borrow_mut()
                         && let Some(host) = video_host.as_mut()
                     {
                         let _ = sync_video_host(host, &app);
@@ -3028,7 +3041,7 @@ pub fn run(
                 let Some(app) = app_weak.upgrade() else {
                     return;
                 };
-                let Ok(mut video_host) = notifier_video_host.lock() else {
+                let Ok(mut video_host) = notifier_video_host.try_borrow_mut() else {
                     return;
                 };
 
@@ -3048,28 +3061,37 @@ pub fn run(
                                             native_window_handle(app.window()).map(|hwnd| hwnd as usize);
                                         let redraw_pending = Arc::new(AtomicBool::new(false));
                                         let wake_pending = Arc::clone(&redraw_pending);
-                                        MpvOpenGlRenderer::create(
-                                            source,
-                                            *get_proc_address,
-                                            move || {
-                                                if let Some(target) = native_redraw_hwnd {
-                                                    request_native_redraw(target);
-                                                }
-                                                if wake_pending.swap(true, Ordering::AcqRel) {
-                                                    return;
-                                                }
-                                                let event_pending = Arc::clone(&wake_pending);
-                                                if wake_app
-                                                    .upgrade_in_event_loop(move |app| {
-                                                        event_pending.store(false, Ordering::Release);
-                                                        app.window().request_redraw();
-                                                    })
-                                                    .is_err()
-                                                {
-                                                    wake_pending.store(false, Ordering::Release);
-                                                }
-                                            },
-                                        )
+                                        let wake_renderer = move || {
+                                            if let Some(target) = native_redraw_hwnd {
+                                                request_native_redraw(target);
+                                            }
+                                            if wake_pending.swap(true, Ordering::AcqRel) {
+                                                return;
+                                            }
+                                            let event_pending = Arc::clone(&wake_pending);
+                                            if wake_app
+                                                .upgrade_in_event_loop(move |app| {
+                                                    event_pending.store(false, Ordering::Release);
+                                                    app.window().request_redraw();
+                                                })
+                                                .is_err()
+                                            {
+                                                wake_pending.store(false, Ordering::Release);
+                                            }
+                                        };
+                                        // SAFETY: Slint invokes BeforeRendering
+                                        // with this window's OpenGL context
+                                        // current. The renderer stays inside
+                                        // this notifier and is destroyed during
+                                        // RenderingTeardown with that same
+                                        // context current.
+                                        unsafe {
+                                            MpvOpenGlRenderer::create(
+                                                source,
+                                                *get_proc_address,
+                                                wake_renderer,
+                                            )
+                                        }
                                     }
                                     _ => Err(anyhow::anyhow!(
                                         "FemtoVG did not expose a native OpenGL context"
@@ -3102,7 +3124,11 @@ pub fn run(
 
                         if let Some(renderer) = gl_renderer.as_mut() {
                             let size = app.window().size();
-                            if let Err(error) = renderer.render((size.width, size.height)) {
+                            // SAFETY: BeforeRendering guarantees the same
+                            // current OpenGL context used to create renderer.
+                            if let Err(error) = unsafe {
+                                renderer.render((size.width, size.height))
+                            } {
                                 eprintln!("OpenGL video render failed: {error:#}");
                                 gl_renderer = None;
                                 render_api_failed = true;
@@ -3116,7 +3142,9 @@ pub fn run(
                     }
                     slint::RenderingState::AfterRendering => {
                         if let Some(renderer) = gl_renderer.as_ref() {
-                            renderer.report_swap();
+                            // SAFETY: AfterRendering still has the window's
+                            // original OpenGL context current.
+                            unsafe { renderer.report_swap() };
                         } else if let Some(host) = video_host.as_mut()
                             && let Err(error) = sync_video_host(host, &app)
                         {

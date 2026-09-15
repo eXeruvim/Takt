@@ -1,8 +1,13 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 use std::{
     ffi::{CStr, c_void},
     fmt,
+    marker::PhantomData,
     os::raw::{c_char, c_int},
+    panic::{AssertUnwindSafe, catch_unwind},
     ptr::NonNull,
+    rc::Rc,
     sync::Arc,
 };
 
@@ -50,9 +55,17 @@ unsafe extern "C" fn load_opengl_proc(context: *mut c_void, name: *const c_char)
         return std::ptr::null_mut();
     }
 
+    // SAFETY: mpv receives a pointer to the stack-owned loader only for the
+    // duration of mpv_render_context_create(). Render parameters are borrowed
+    // for that call, and create() does not return until this callback finishes.
     let loader = unsafe { &*(context.cast::<ProcAddressLoader<'_>>()) };
+    // SAFETY: mpv documents `name` as a non-null, NUL-terminated GL symbol for
+    // the duration of this callback.
     let name = unsafe { CStr::from_ptr(name) };
-    (loader.get_proc_address)(name).cast_mut()
+    catch_unwind(AssertUnwindSafe(|| {
+        (loader.get_proc_address)(name).cast_mut()
+    }))
+    .unwrap_or(std::ptr::null_mut())
 }
 
 struct UpdateTarget {
@@ -60,12 +73,22 @@ struct UpdateTarget {
 }
 
 type GlGetIntegerv = unsafe extern "system" fn(u32, *mut i32);
+type GlGetFloatv = unsafe extern "system" fn(u32, *mut f32);
 type GlBindFramebuffer = unsafe extern "system" fn(u32, u32);
 type GlViewport = unsafe extern "system" fn(i32, i32, i32, i32);
 type GlScissor = unsafe extern "system" fn(i32, i32, i32, i32);
+type GlBlendFuncSeparate = unsafe extern "system" fn(u32, u32, u32, u32);
+type GlClearColor = unsafe extern "system" fn(f32, f32, f32, f32);
 type GlIsEnabled = unsafe extern "system" fn(u32) -> u8;
 type GlSetCapability = unsafe extern "system" fn(u32);
 
+const GL_BLEND: u32 = 0x0BE2;
+const GL_BLEND_DST_ALPHA: u32 = 0x80CA;
+const GL_BLEND_DST_RGB: u32 = 0x80C8;
+const GL_BLEND_SRC_ALPHA: u32 = 0x80CB;
+const GL_BLEND_SRC_RGB: u32 = 0x80C9;
+const GL_COLOR_CLEAR_VALUE: u32 = 0x0C22;
+const GL_DITHER: u32 = 0x0BD0;
 const GL_SCISSOR_TEST: u32 = 0x0C11;
 const GL_SCISSOR_BOX: u32 = 0x0C10;
 const GL_VIEWPORT: u32 = 0x0BA2;
@@ -76,9 +99,12 @@ const GL_READ_FRAMEBUFFER_BINDING: u32 = 0x8CAA;
 
 struct GlStateApi {
     get_integer: GlGetIntegerv,
+    get_float: GlGetFloatv,
     bind_framebuffer: GlBindFramebuffer,
     viewport: GlViewport,
     scissor: GlScissor,
+    blend_func_separate: GlBlendFuncSeparate,
+    clear_color: GlClearColor,
     is_enabled: GlIsEnabled,
     enable: GlSetCapability,
     disable: GlSetCapability,
@@ -94,24 +120,47 @@ impl GlStateApi {
         };
 
         Ok(Self {
+            // SAFETY: Each address was checked for null and comes from the
+            // current Slint OpenGL context for the exact named function. On
+            // Windows `extern "system"` matches OpenGL's APIENTRY convention.
             get_integer: unsafe {
                 std::mem::transmute::<*const c_void, GlGetIntegerv>(load(c"glGetIntegerv")?)
             },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
+            get_float: unsafe {
+                std::mem::transmute::<*const c_void, GlGetFloatv>(load(c"glGetFloatv")?)
+            },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
             bind_framebuffer: unsafe {
                 std::mem::transmute::<*const c_void, GlBindFramebuffer>(load(c"glBindFramebuffer")?)
             },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
             viewport: unsafe {
                 std::mem::transmute::<*const c_void, GlViewport>(load(c"glViewport")?)
             },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
             scissor: unsafe {
                 std::mem::transmute::<*const c_void, GlScissor>(load(c"glScissor")?)
             },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
+            blend_func_separate: unsafe {
+                std::mem::transmute::<*const c_void, GlBlendFuncSeparate>(load(
+                    c"glBlendFuncSeparate",
+                )?)
+            },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
+            clear_color: unsafe {
+                std::mem::transmute::<*const c_void, GlClearColor>(load(c"glClearColor")?)
+            },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
             is_enabled: unsafe {
                 std::mem::transmute::<*const c_void, GlIsEnabled>(load(c"glIsEnabled")?)
             },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
             enable: unsafe {
                 std::mem::transmute::<*const c_void, GlSetCapability>(load(c"glEnable")?)
             },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
             disable: unsafe {
                 std::mem::transmute::<*const c_void, GlSetCapability>(load(c"glDisable")?)
             },
@@ -123,13 +172,33 @@ impl GlStateApi {
         let mut read_framebuffer = 0;
         let mut viewport = [0; 4];
         let mut scissor = [0; 4];
+        let mut blend_src_rgb = 0;
+        let mut blend_dst_rgb = 0;
+        let mut blend_src_alpha = 0;
+        let mut blend_dst_alpha = 0;
+        let mut clear_color = [0.0; 4];
+        // SAFETY: The renderer can only be created through its unsafe
+        // constructor, whose caller guarantees that its original OpenGL
+        // context is current. All output pointers refer to initialized local
+        // storage of the size required by the queried enum.
         unsafe {
             (self.get_integer)(GL_DRAW_FRAMEBUFFER_BINDING, &mut draw_framebuffer);
             (self.get_integer)(GL_READ_FRAMEBUFFER_BINDING, &mut read_framebuffer);
             (self.get_integer)(GL_VIEWPORT, viewport.as_mut_ptr());
             (self.get_integer)(GL_SCISSOR_BOX, scissor.as_mut_ptr());
+            (self.get_integer)(GL_BLEND_SRC_RGB, &mut blend_src_rgb);
+            (self.get_integer)(GL_BLEND_DST_RGB, &mut blend_dst_rgb);
+            (self.get_integer)(GL_BLEND_SRC_ALPHA, &mut blend_src_alpha);
+            (self.get_integer)(GL_BLEND_DST_ALPHA, &mut blend_dst_alpha);
+            (self.get_float)(GL_COLOR_CLEAR_VALUE, clear_color.as_mut_ptr());
         }
+        // SAFETY: Same current-context invariant as above; glIsEnabled does not
+        // retain the enum value or access Rust memory.
         let scissor_enabled = unsafe { (self.is_enabled)(GL_SCISSOR_TEST) != 0 };
+        // SAFETY: Same current-context invariant as above.
+        let blend_enabled = unsafe { (self.is_enabled)(GL_BLEND) != 0 };
+        // SAFETY: Same current-context invariant as above.
+        let dither_enabled = unsafe { (self.is_enabled)(GL_DITHER) != 0 };
 
         GlStateSnapshot {
             api: self,
@@ -138,6 +207,13 @@ impl GlStateApi {
             viewport,
             scissor,
             scissor_enabled,
+            blend_src_rgb,
+            blend_dst_rgb,
+            blend_src_alpha,
+            blend_dst_alpha,
+            blend_enabled,
+            clear_color,
+            dither_enabled,
         }
     }
 }
@@ -149,10 +225,20 @@ struct GlStateSnapshot<'a> {
     viewport: [i32; 4],
     scissor: [i32; 4],
     scissor_enabled: bool,
+    blend_src_rgb: i32,
+    blend_dst_rgb: i32,
+    blend_src_alpha: i32,
+    blend_dst_alpha: i32,
+    blend_enabled: bool,
+    clear_color: [f32; 4],
+    dither_enabled: bool,
 }
 
 impl Drop for GlStateSnapshot<'_> {
     fn drop(&mut self) {
+        // SAFETY: The snapshot is scoped entirely inside one render() call, so
+        // the same OpenGL context remains current and all captured values are
+        // valid state for that context.
         unsafe {
             (self.api.bind_framebuffer)(GL_DRAW_FRAMEBUFFER, self.draw_framebuffer as u32);
             (self.api.bind_framebuffer)(GL_READ_FRAMEBUFFER, self.read_framebuffer as u32);
@@ -168,10 +254,32 @@ impl Drop for GlStateSnapshot<'_> {
                 self.scissor[2],
                 self.scissor[3],
             );
+            (self.api.blend_func_separate)(
+                self.blend_src_rgb as u32,
+                self.blend_dst_rgb as u32,
+                self.blend_src_alpha as u32,
+                self.blend_dst_alpha as u32,
+            );
+            (self.api.clear_color)(
+                self.clear_color[0],
+                self.clear_color[1],
+                self.clear_color[2],
+                self.clear_color[3],
+            );
             if self.scissor_enabled {
                 (self.api.enable)(GL_SCISSOR_TEST);
             } else {
                 (self.api.disable)(GL_SCISSOR_TEST);
+            }
+            if self.blend_enabled {
+                (self.api.enable)(GL_BLEND);
+            } else {
+                (self.api.disable)(GL_BLEND);
+            }
+            if self.dither_enabled {
+                (self.api.enable)(GL_DITHER);
+            } else {
+                (self.api.disable)(GL_DITHER);
             }
         }
     }
@@ -182,19 +290,38 @@ unsafe extern "C" fn request_redraw(context: *mut c_void) {
         return;
     }
 
+    // SAFETY: The pointer refers to MpvOpenGlRenderer::update_target. Drop
+    // unregisters the callback and frees the mpv render context before the Box
+    // is released, so the allocation outlives every registered callback.
     let target = unsafe { &*(context.cast::<UpdateTarget>()) };
-    (target.wake)();
+    // A panic must never unwind through libmpv's C callback boundary.
+    let _ = catch_unwind(AssertUnwindSafe(|| (target.wake)()));
 }
 
+/// A renderer tied to the OpenGL context and thread supplied by Slint.
+///
+/// The `Rc` marker deliberately makes this type `!Send` and `!Sync`: mpv requires
+/// every render operation and destruction to happen with the same current GL
+/// context. Oxide owns it only inside Slint's rendering notifier.
 pub struct MpvOpenGlRenderer {
     context: NonNull<mpv_render_context>,
-    update_target: NonNull<UpdateTarget>,
+    _update_target: Box<UpdateTarget>,
     gl_state: GlStateApi,
     _source: MpvRenderSource,
+    _render_thread: PhantomData<Rc<()>>,
 }
 
 impl MpvOpenGlRenderer {
-    pub fn create(
+    /// Creates the libmpv render context for the current OpenGL context.
+    ///
+    /// # Safety
+    ///
+    /// The caller must invoke this from Slint's rendering notifier while its
+    /// OpenGL context is current. The same context and thread must be current
+    /// for every call to [`Self::render`], [`Self::report_swap`], and when this
+    /// value is dropped. `get_proc_address` must return addresses with the ABI
+    /// and lifetime required by that context.
+    pub unsafe fn create(
         source: MpvRenderSource,
         get_proc_address: &dyn Fn(&CStr) -> *const c_void,
         wake: impl Fn() + Send + Sync + 'static,
@@ -221,8 +348,17 @@ impl MpvOpenGlRenderer {
             },
         ];
 
-        let result = unsafe {
-            mpv_render_context_create(&mut context, source.handle(), parameters.as_mut_ptr())
+        let result = {
+            // mpv 0.41 explicitly excludes viewport, scissor, blend factors,
+            // clear color, and dithering from its state-reset guarantee. This
+            // guard also protects Slint from initialization-time changes.
+            let _state = gl_state.capture();
+            // SAFETY: The caller upholds the current-context requirement. Every
+            // parameter and the loader context remain valid until the synchronous
+            // create call returns, and the array is terminated by INVALID.
+            unsafe {
+                mpv_render_context_create(&mut context, source.handle(), parameters.as_mut_ptr())
+            }
         };
         if result < 0 {
             return Err(anyhow!(
@@ -232,26 +368,36 @@ impl MpvOpenGlRenderer {
         let context =
             NonNull::new(context).ok_or_else(|| anyhow!("mpv returned an empty render context"))?;
 
-        let update_target = NonNull::from(Box::leak(Box::new(UpdateTarget {
+        let mut update_target = Box::new(UpdateTarget {
             wake: Box::new(wake),
-        })));
+        });
+        let update_target_ptr = NonNull::from(update_target.as_mut());
+        // SAFETY: The Box keeps a stable allocation until Drop. Setting the
+        // callback may invoke it immediately, after the allocation is ready.
         unsafe {
             mpv_render_context_set_update_callback(
                 context.as_ptr(),
                 Some(request_redraw),
-                update_target.as_ptr().cast(),
+                update_target_ptr.as_ptr().cast(),
             );
         }
 
         Ok(Self {
             context,
-            update_target,
+            _update_target: update_target,
             gl_state,
             _source: source,
+            _render_thread: PhantomData,
         })
     }
 
-    pub fn render(&mut self, size: (u32, u32)) -> Result<()> {
+    /// Renders into Slint's current default framebuffer.
+    ///
+    /// # Safety
+    ///
+    /// The OpenGL context used by [`Self::create`] must be current on this
+    /// thread for the entire call.
+    pub unsafe fn render(&mut self, size: (u32, u32)) -> Result<()> {
         let _state = self.gl_state.capture();
         let width = c_int::try_from(size.0).unwrap_or(c_int::MAX).max(1);
         let height = c_int::try_from(size.1).unwrap_or(c_int::MAX).max(1);
@@ -277,9 +423,13 @@ impl MpvOpenGlRenderer {
             },
         ];
 
+        // SAFETY: The caller guarantees the original context is current; the
+        // render context is owned by self and still alive.
         unsafe {
             mpv_render_context_update(self.context.as_ptr());
         }
+        // SAFETY: The parameter array and pointed-to FBO/flip values live for
+        // the synchronous call and are terminated by INVALID.
         let result =
             unsafe { mpv_render_context_render(self.context.as_ptr(), parameters.as_mut_ptr()) };
         if result < 0 {
@@ -288,7 +438,14 @@ impl MpvOpenGlRenderer {
         Ok(())
     }
 
-    pub fn report_swap(&self) {
+    /// Reports the presentation boundary to libmpv.
+    ///
+    /// # Safety
+    ///
+    /// The same OpenGL context used by [`Self::create`] must be current.
+    pub unsafe fn report_swap(&self) {
+        // SAFETY: The caller upholds the current-context invariant and self
+        // owns a live render context.
         unsafe {
             mpv_render_context_report_swap(self.context.as_ptr());
         }
@@ -297,6 +454,13 @@ impl MpvOpenGlRenderer {
 
 impl Drop for MpvOpenGlRenderer {
     fn drop(&mut self) {
+        // mpv can touch the same excluded OpenGL state while releasing GPU
+        // resources. Preserve it for the Slint teardown path as well.
+        let _state = self.gl_state.capture();
+        // SAFETY: The type is !Send and Oxide drops it only from Slint's
+        // RenderingTeardown (or a render failure), where Slint keeps the same
+        // OpenGL context current. The callback is removed first. The Box stays
+        // alive through context_free, covering a synchronous final callback.
         unsafe {
             mpv_render_context_set_update_callback(
                 self.context.as_ptr(),
@@ -304,7 +468,67 @@ impl Drop for MpvOpenGlRenderer {
                 std::ptr::null_mut(),
             );
             mpv_render_context_free(self.context.as_ptr());
-            drop(Box::from_raw(self.update_target.as_ptr()));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use super::{ProcAddressLoader, UpdateTarget, load_opengl_proc, request_redraw};
+
+    #[test]
+    fn ffi_callbacks_accept_null_contexts() {
+        // SAFETY: The callbacks explicitly accept and ignore null contexts.
+        unsafe {
+            request_redraw(std::ptr::null_mut());
+            assert!(load_opengl_proc(std::ptr::null_mut(), c"glGetIntegerv".as_ptr()).is_null());
+        }
+    }
+
+    #[test]
+    fn redraw_callback_invokes_target_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&calls);
+        let mut target = UpdateTarget {
+            wake: Box::new(move || {
+                observed.fetch_add(1, Ordering::Relaxed);
+            }),
+        };
+
+        // SAFETY: `target` remains alive and immovable for the synchronous call.
+        unsafe {
+            request_redraw(std::ptr::from_mut(&mut target).cast());
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn panics_do_not_cross_ffi_callback_boundaries() {
+        let mut target = UpdateTarget {
+            wake: Box::new(|| panic!("redraw panic fixture")),
+        };
+        let loader_callback =
+            |_name: &std::ffi::CStr| -> *const std::ffi::c_void { panic!("loader panic fixture") };
+        let mut loader = ProcAddressLoader {
+            get_proc_address: &loader_callback,
+        };
+
+        // SAFETY: Both stack values remain alive and immovable for these
+        // synchronous calls; the symbol name is a static C string.
+        unsafe {
+            request_redraw(std::ptr::from_mut(&mut target).cast());
+            assert!(
+                load_opengl_proc(
+                    std::ptr::from_mut(&mut loader).cast(),
+                    c"glGetIntegerv".as_ptr(),
+                )
+                .is_null()
+            );
         }
     }
 }

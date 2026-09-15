@@ -1,3 +1,5 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 use std::{ffi::c_void, mem};
 
 use anyhow::{Result, anyhow};
@@ -85,10 +87,13 @@ impl NativeFullscreen {
             length: mem::size_of::<WINDOWPLACEMENT>() as u32,
             ..Default::default()
         };
+        // SAFETY: hwnd belongs to the live Slint window and placement has the
+        // required length plus writable storage for the call.
         if unsafe { GetWindowPlacement(hwnd, &mut placement) } == 0 {
             return Err(anyhow!("Не удалось сохранить положение окна"));
         }
 
+        // SAFETY: hwnd is a live top-level window; no Rust pointers are passed.
         let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
         if monitor.is_null() {
             return Err(anyhow!(
@@ -100,12 +105,16 @@ impl NativeFullscreen {
             cbSize: mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
         };
+        // SAFETY: monitor was checked for null and monitor_info carries the
+        // documented structure size and writable storage.
         if unsafe { GetMonitorInfoW(monitor, &mut monitor_info) } == 0 {
             return Err(anyhow!("Не удалось получить размеры монитора"));
         }
 
         let bounds = monitor_info.rcMonitor;
         taskbar_mark_fullscreen(hwnd, true);
+        // SAFETY: hwnd and monitor bounds are valid for this synchronous call;
+        // SetWindowPos retains no Rust memory.
         let updated = unsafe {
             SetWindowPos(
                 hwnd,
@@ -132,6 +141,8 @@ impl NativeFullscreen {
         };
 
         taskbar_mark_fullscreen(hwnd, false);
+        // SAFETY: hwnd remains live while the Slint window exists. The flags
+        // explicitly ignore the placeholder position and size values.
         let restored_z_order = unsafe {
             SetWindowPos(
                 hwnd,
@@ -144,11 +155,29 @@ impl NativeFullscreen {
             )
         };
         if restored_z_order == 0 {
+            taskbar_mark_fullscreen(hwnd, true);
             self.saved_placement = Some(placement);
             return Err(anyhow!("Не удалось восстановить порядок окна"));
         }
+        // SAFETY: placement was filled by GetWindowPlacement for this HWND and
+        // retained unchanged while fullscreen was active.
         let restored = unsafe { SetWindowPlacement(hwnd, &placement) };
         if restored == 0 {
+            // Restore the topmost/fullscreen contract if restoring normal
+            // placement failed; the next exit attempt can retry safely.
+            // SAFETY: hwnd is still live and the flags ignore position/size.
+            unsafe {
+                SetWindowPos(
+                    hwnd,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_NOACTIVATE,
+                );
+            }
+            taskbar_mark_fullscreen(hwnd, true);
             self.saved_placement = Some(placement);
             return Err(anyhow!("Не удалось восстановить положение окна"));
         }
@@ -158,6 +187,11 @@ impl NativeFullscreen {
 }
 
 fn taskbar_mark_fullscreen(hwnd: HWND, fullscreen: bool) {
+    // SAFETY: The manually declared COM structs are repr(C), begin with the
+    // exact inherited IUnknown/ITaskbarList vtables, and use system-call ABI.
+    // A successful CoCreateInstance returns one owned reference, released once
+    // below. CoUninitialize is paired only with successful initialization on
+    // this same thread (including S_FALSE).
     unsafe {
         let initialize_result = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
         let should_uninitialize = initialize_result >= 0;
@@ -194,4 +228,35 @@ fn window_handle(window: &slint::Window) -> Result<HWND> {
     };
 
     Ok(handle.hwnd.get() as *mut c_void)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::mem::{offset_of, size_of};
+
+    use windows_sys::core::IUnknown_Vtbl;
+
+    use super::{TaskbarList, TaskbarList2, TaskbarList2Vtable, TaskbarListVtable};
+
+    #[test]
+    fn taskbar_com_layout_matches_inherited_vtables() {
+        let pointer = size_of::<usize>();
+
+        assert_eq!(size_of::<TaskbarList>(), pointer);
+        assert_eq!(size_of::<TaskbarList2>(), pointer);
+        assert_eq!(offset_of!(TaskbarListVtable, parent), 0);
+        assert_eq!(
+            size_of::<TaskbarListVtable>(),
+            size_of::<IUnknown_Vtbl>() + 5 * pointer
+        );
+        assert_eq!(offset_of!(TaskbarList2Vtable, parent), 0);
+        assert_eq!(
+            offset_of!(TaskbarList2Vtable, mark_fullscreen_window),
+            size_of::<TaskbarListVtable>()
+        );
+        assert_eq!(
+            size_of::<TaskbarList2Vtable>(),
+            size_of::<TaskbarListVtable>() + pointer
+        );
+    }
 }
