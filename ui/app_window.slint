@@ -106,6 +106,7 @@ export component AppWindow inherits Window {
     in-out property <bool> fullscreen_mode: false;
     in-out property <bool> picture_in_picture: false;
     in-out property <bool> window_active: true;
+    out property <bool> window_maximized: self.maximized;
     out property <bool> edge_to_edge: self.maximized || self.fullscreen_mode;
     in-out property <int> shortcut_capture_action: -1;
     in-out property <string> shortcut_capture_error: "";

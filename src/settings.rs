@@ -12,6 +12,10 @@ const DEFAULT_VOLUME: f32 = 0.65;
 const DEFAULT_SPEED: f32 = 1.0;
 const MAX_SHORTCUT_OVERRIDES: usize = 64;
 const MAX_SHORTCUT_KEY_BYTES: usize = 256;
+const MIN_WINDOW_WIDTH: u32 = 760;
+const MIN_WINDOW_HEIGHT: u32 = 520;
+const MAX_WINDOW_DIMENSION: u32 = 32_768;
+const MAX_WINDOW_COORDINATE: i32 = 1_000_000;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ThemePreference {
@@ -43,6 +47,31 @@ pub struct ShortcutPreference {
     /// Serialized physical key, or JSON `null` for an explicitly unassigned command.
     pub key_code: String,
     pub modifiers: u8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WindowPlacementPreference {
+    pub x: i32,
+    pub y: i32,
+    /// Normal-window client width in logical pixels.
+    pub width: u32,
+    /// Normal-window client height in logical pixels.
+    pub height: u32,
+}
+
+impl WindowPlacementPreference {
+    pub fn new(x: i32, y: i32, width: u32, height: u32) -> Option<Self> {
+        (x.unsigned_abs() <= MAX_WINDOW_COORDINATE as u32
+            && y.unsigned_abs() <= MAX_WINDOW_COORDINATE as u32
+            && (MIN_WINDOW_WIDTH..=MAX_WINDOW_DIMENSION).contains(&width)
+            && (MIN_WINDOW_HEIGHT..=MAX_WINDOW_DIMENSION).contains(&height))
+        .then_some(Self {
+            x,
+            y,
+            width,
+            height,
+        })
+    }
 }
 
 impl CompletionBehavior {
@@ -150,6 +179,7 @@ pub struct AppSettings {
     default_speed: f32,
     completion_behavior: CompletionBehavior,
     hardware_decoding_enabled: bool,
+    window_placement: Option<WindowPlacementPreference>,
     shortcut_overrides: Vec<ShortcutPreference>,
     persistence: Persistence,
     dirty: bool,
@@ -164,6 +194,7 @@ impl Default for AppSettings {
             default_speed: DEFAULT_SPEED,
             completion_behavior: CompletionBehavior::Stop,
             hardware_decoding_enabled: false,
+            window_placement: None,
             shortcut_overrides: Vec::new(),
             persistence: Persistence::default(),
             dirty: false,
@@ -205,6 +236,10 @@ impl AppSettings {
 
     pub const fn hardware_decoding_enabled(&self) -> bool {
         self.hardware_decoding_enabled
+    }
+
+    pub const fn window_placement(&self) -> Option<WindowPlacementPreference> {
+        self.window_placement
     }
 
     pub fn shortcut_overrides(&self) -> &[ShortcutPreference] {
@@ -263,6 +298,13 @@ impl AppSettings {
         }
     }
 
+    pub fn set_window_placement(&mut self, placement: WindowPlacementPreference) {
+        if self.window_placement != Some(placement) {
+            self.window_placement = Some(placement);
+            self.dirty = true;
+        }
+    }
+
     pub fn set_shortcut_overrides(&mut self, overrides: Vec<ShortcutPreference>) {
         let overrides = normalize_shortcut_overrides(overrides);
         if self.shortcut_overrides != overrides {
@@ -284,6 +326,12 @@ impl AppSettings {
             self.completion_behavior.as_str(),
             self.hardware_decoding_enabled
         );
+        if let Some(placement) = self.window_placement {
+            content.push_str(&format!(
+                "window_placement\t{}\t{}\t{}\t{}\n",
+                placement.x, placement.y, placement.width, placement.height
+            ));
+        }
         for preference in &self.shortcut_overrides {
             content.push_str(&format!(
                 "shortcut\t{}\t{}\t{}\n",
@@ -364,6 +412,19 @@ impl AppSettings {
                     "false" => settings.hardware_decoding_enabled = false,
                     _ => {}
                 },
+                (Some("window_placement"), Some(value)) => {
+                    let mut placement = value.split('\t');
+                    let x = placement.next().and_then(|value| value.parse::<i32>().ok());
+                    let y = placement.next().and_then(|value| value.parse::<i32>().ok());
+                    let width = placement.next().and_then(|value| value.parse::<u32>().ok());
+                    let height = placement.next().and_then(|value| value.parse::<u32>().ok());
+                    if placement.next().is_none()
+                        && let (Some(x), Some(y), Some(width), Some(height)) = (x, y, width, height)
+                    {
+                        settings.window_placement =
+                            WindowPlacementPreference::new(x, y, width, height);
+                    }
+                }
                 (Some("shortcut"), Some(value)) => {
                     let mut shortcut = value.split('\t');
                     let action_id = shortcut.next().and_then(|value| value.parse::<i32>().ok());
@@ -442,7 +503,7 @@ mod tests {
 
     use super::{
         AccentPreference, AppSettings, CompletionBehavior, DEFAULT_SPEED, MAX_SHORTCUT_KEY_BYTES,
-        MAX_SHORTCUT_OVERRIDES, ShortcutPreference, ThemePreference,
+        MAX_SHORTCUT_OVERRIDES, ShortcutPreference, ThemePreference, WindowPlacementPreference,
     };
 
     #[test]
@@ -456,6 +517,8 @@ mod tests {
         settings.set_default_speed(1.25);
         settings.set_completion_behavior(CompletionBehavior::RepeatPlaylist);
         settings.set_hardware_decoding_enabled(true);
+        settings
+            .set_window_placement(WindowPlacementPreference::new(-820, 140, 1280, 760).unwrap());
         settings.set_shortcut_overrides(vec![
             ShortcutPreference {
                 action_id: 5,
@@ -480,6 +543,10 @@ mod tests {
             CompletionBehavior::RepeatPlaylist
         );
         assert!(loaded.hardware_decoding_enabled());
+        assert_eq!(
+            loaded.window_placement(),
+            WindowPlacementPreference::new(-820, 140, 1280, 760)
+        );
         assert_eq!(loaded.shortcut_overrides(), settings.shortcut_overrides());
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
@@ -573,6 +640,31 @@ mod tests {
         assert!(!loaded.hardware_decoding_enabled());
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
+    }
+
+    #[test]
+    fn invalid_window_placements_are_ignored_without_rejecting_settings() {
+        let valid =
+            AppSettings::parse("OXIDE_SETTINGS\t1\nwindow_placement\t-1920\t40\t1280\t760\n")
+                .unwrap();
+        assert_eq!(
+            valid.window_placement(),
+            WindowPlacementPreference::new(-1920, 40, 1280, 760)
+        );
+
+        for value in [
+            "0\t0\t759\t760",
+            "0\t0\t1280\t519",
+            "0\t0\t99999999\t760",
+            "-2147483648\t0\t1280\t760",
+            "0\t0\t1280",
+            "left\t0\t1280\t760",
+        ] {
+            let parsed =
+                AppSettings::parse(&format!("OXIDE_SETTINGS\t1\nwindow_placement\t{value}\n"))
+                    .unwrap();
+            assert_eq!(parsed.window_placement(), None, "fixture: {value}");
+        }
     }
 
     #[test]
