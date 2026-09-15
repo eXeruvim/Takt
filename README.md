@@ -49,10 +49,16 @@ cargo run
 
 ```powershell
 cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets --all-features
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets --all-features
 cargo test --locked -p libmpv --lib ownership_tests
+cargo audit
 ```
+
+`cargo audit` запускается в CI на каждом изменении и по еженедельному расписанию.
+Разобранные RustSec-исключения и отпечатки локального native runtime описаны в
+[dependency review](dependency review); неизвестное происхождение DLL остаётся
+блокером публичной поставки, даже если её хеш совпадает.
 
 Для `libmpv` используется локальное исправление закреплённого исходного кода
 в `vendor/libmpv`: освобождение контекста при ошибке initializer и строковых

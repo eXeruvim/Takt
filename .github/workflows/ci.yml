@@ -3,27 +3,47 @@ name: CI
 on:
   push:
   pull_request:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
+        with:
+          toolchain: 1.94.1
+      - name: Install pinned cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Audit Cargo.lock
+        run: cargo audit
+
   quality:
+    if: github.event_name != 'schedule'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
         with:
+          toolchain: 1.94.1
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - name: Check
-        run: cargo check --all-targets --all-features
+        run: cargo check --locked --all-targets --all-features
       - name: Tests (when native libmpv is available)
         shell: pwsh
         run: |
           if ((Test-Path mpv.lib) -and (Test-Path mpv-2.dll)) {
-            cargo test --all-targets --all-features
+            cargo test --locked --all-targets --all-features
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             cargo test --locked -p libmpv --lib ownership_tests
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

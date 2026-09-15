@@ -1,0 +1,36 @@
+# Keep the RustSec gate strict while documenting the informational advisories
+# that have been reviewed for the current dependency graph. Remove an entry as
+# soon as the upstream dependency no longer pulls the affected crate.
+[advisories]
+ignore = [
+    # Lockfile-only optional dependency of typed-index-collections; it is not
+    # present in Oxide's active Windows dependency graph.
+    "RUSTSEC-2025-0141", # bincode 2.0.1 is unmaintained
+
+    # Build-time proc macro used by Lofty and Slint's image stack. This is an
+    # unmaintained notice, not a known vulnerability.
+    "RUSTSEC-2024-0436", # paste 1.0.15 is unmaintained
+
+    # Slint -> resvg -> usvg. Oxide feeds this stack only trusted, bundled UI
+    # assets; neither notice describes a known vulnerability.
+    "RUSTSEC-2026-0206", # rustybuzz 0.20.1 is unmaintained
+    "RUSTSEC-2026-0192", # ttf-parser 0.25.1 is unmaintained
+]
+informational_warnings = ["unmaintained", "unsound"]
+severity_threshold = "low"
+
+[database]
+fetch = true
+stale = false
+
+[output]
+# Any new informational warning, yanked crate, or vulnerability fails CI. Only
+# the explicitly reviewed advisory IDs above are accepted temporarily.
+deny = ["warnings"]
+format = "terminal"
+quiet = false
+show_tree = true
+
+[yanked]
+enabled = true
+update_index = true
