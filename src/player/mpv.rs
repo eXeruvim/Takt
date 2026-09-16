@@ -664,6 +664,7 @@ fn handle_command(
             }
         }
         Command::ResolveResume(_) => {}
+        Command::ClearPlaybackData => {}
         Command::Quit => return Ok(false),
     }
     Ok(true)
@@ -736,6 +737,10 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     let mut last_session_save = Instant::now();
     let mut pending_resume_path: Option<PathBuf> = None;
     let mut pending_resume: Option<(PathBuf, f64)> = None;
+    // Clearing local data must not be undone a few milliseconds later by a
+    // time-pos event from the media that was already playing. A newly loaded
+    // item starts a fresh history session and lifts this suppression.
+    let mut position_recording_suppressed_for: Option<PathBuf> = None;
     let mut events = mpv.create_event_context();
     let mut output_ready = !cfg!(target_os = "windows");
 
@@ -795,6 +800,28 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                 continue;
             }
 
+            if matches!(&command, Command::ClearPlaybackData) {
+                pending_resume = None;
+                pending_resume_path = None;
+                position_recording_suppressed_for = playlist
+                    .as_ref()
+                    .and_then(DirectoryPlaylist::current_path)
+                    .cloned();
+                match session.clear_playback_data() {
+                    Ok(()) => {
+                        send_recent_files(&tx, &session);
+                        let _ = tx.send(Event::PlaybackDataCleared);
+                    }
+                    Err(error) => {
+                        eprintln!("Не удалось очистить историю и позиции: {error}");
+                        let _ = tx.send(Event::Error(format!(
+                            "Не удалось очистить историю и позиции: {error}"
+                        )));
+                    }
+                }
+                continue;
+            }
+
             let previous_media_path = playlist
                 .as_ref()
                 .and_then(DirectoryPlaylist::current_path)
@@ -831,6 +858,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
             match handle_command(command, &mpv, &tx, &mut playlist, &mut options) {
                 Ok(true) => {
                     if changes_media {
+                        position_recording_suppressed_for = None;
                         pending_resume = None;
                         let current_media_path = playlist
                             .as_ref()
@@ -872,6 +900,9 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     let mut resume_position = None;
                     if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path)
                     {
+                        if position_recording_suppressed_for.as_deref() != Some(path) {
+                            position_recording_suppressed_for = None;
+                        }
                         let duration = mpv.get_property::<f64>("duration").unwrap_or_default();
                         if let Some(position) = session.resume_position(path, duration)
                             && mpv_error(mpv.set_property("pause", true)).is_ok()
@@ -884,7 +915,11 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                         pending_resume_path = None;
                         pending_resume = None;
                     }
-                    record_current_media(&tx, &playlist, &mut session);
+                    if playlist.as_ref().and_then(DirectoryPlaylist::current_path)
+                        != position_recording_suppressed_for.as_ref()
+                    {
+                        record_current_media(&tx, &playlist, &mut session);
+                    }
                     send_media_ready(&mpv, &tx);
                     if let Some(position) = resume_position {
                         let _ = tx.send(Event::ResumeAvailable(position));
@@ -951,6 +986,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                         if let Some(path) =
                             playlist.as_ref().and_then(DirectoryPlaylist::current_path)
                             && pending_resume_path.as_deref() != Some(path)
+                            && position_recording_suppressed_for.as_deref() != Some(path)
                         {
                             session.record_position(path, position, duration);
                         }

@@ -21,6 +21,7 @@ pub struct SessionStore {
     persistence: Persistence,
     last_save_error: Option<String>,
     dirty: bool,
+    forget_previous_pending: bool,
 }
 
 impl SessionStore {
@@ -179,6 +180,20 @@ impl SessionStore {
         }
     }
 
+    /// Forget every recent file and resume position without touching media.
+    ///
+    /// Two commits are intentional: the first publishes the empty state and
+    /// the second replaces the recovery copy that still contains the previous
+    /// state. A successful return therefore cannot resurrect cleared history
+    /// by falling back to the `.bak` file after later corruption.
+    pub fn clear_playback_data(&mut self) -> std::io::Result<()> {
+        self.recent.clear();
+        self.positions.clear();
+        self.dirty = true;
+        self.forget_previous_pending = true;
+        self.save_if_dirty()
+    }
+
     pub fn resume_position(&self, path: &Path, duration: f64) -> Option<f64> {
         let position = self.positions.get(path)?;
         (position >= RESUME_MIN_SECONDS
@@ -202,6 +217,12 @@ impl SessionStore {
             let _ = writeln!(content, "position\t{seconds:.3}\t{}", encode_path(path));
         }
         self.persistence.save(&content)?;
+        if self.forget_previous_pending {
+            // The first commit leaves the former primary as recovery data.
+            // Commit the empty state once more so recovery forgets it too.
+            self.persistence.save(&content)?;
+            self.forget_previous_pending = false;
+        }
         self.dirty = false;
         Ok(())
     }
@@ -500,5 +521,63 @@ mod tests {
 
         store.record_position(path, 95.0, 100.0);
         assert_eq!(store.resume_position(path, 100.0), None);
+    }
+
+    #[test]
+    fn clearing_playback_data_forgets_history_positions_and_recovery_copy() {
+        let files = TestDirectory::new();
+        let path = files.path("playback-state.txt");
+        let track = Path::new("Музыка/мой трек.flac");
+        let mut store = SessionStore::load_from(&path).unwrap();
+        store.record_open(track);
+        store.record_position(track, 42.5, 100.0);
+        store.save_if_dirty().unwrap();
+
+        store.clear_playback_data().unwrap();
+
+        assert!(store.recent().is_empty());
+        assert_eq!(store.resume_position(track, 100.0), None);
+        assert!(!store.dirty);
+        let loaded = SessionStore::load_from(&path).unwrap();
+        assert!(loaded.recent().is_empty());
+        assert_eq!(loaded.resume_position(track, 100.0), None);
+
+        std::fs::write(&path, b"broken").unwrap();
+        let mut recovered = SessionStore::load_from(&path).unwrap();
+        assert!(recovered.recent().is_empty());
+        assert_eq!(recovered.resume_position(track, 100.0), None);
+        assert!(recovered.take_storage_notice().is_some());
+    }
+
+    #[test]
+    fn failed_clear_retry_still_forgets_the_recovery_copy() {
+        let files = TestDirectory::new();
+        let path = files.path("playback-state.txt");
+        let lock_path = files.path("playback-state.txt.lock");
+        let track = Path::new("movie.mkv");
+        let mut store = SessionStore::load_from(&path).unwrap();
+        store.record_open(track);
+        store.record_position(track, 30.0, 100.0);
+        store.save_if_dirty().unwrap();
+
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(false)
+            .open(lock_path)
+            .unwrap();
+        lock.try_lock().unwrap();
+        assert!(store.clear_playback_data().is_err());
+        assert!(store.dirty);
+        assert!(store.forget_previous_pending);
+        drop(lock);
+
+        assert!(store.save_and_take_error().is_none());
+        assert!(!store.dirty);
+        assert!(!store.forget_previous_pending);
+        std::fs::write(&path, b"broken").unwrap();
+        let recovered = SessionStore::load_from(&path).unwrap();
+        assert!(recovered.recent().is_empty());
+        assert_eq!(recovered.resume_position(track, 100.0), None);
     }
 }

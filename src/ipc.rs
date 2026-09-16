@@ -134,6 +134,7 @@ pub enum Command {
 
     RequestMediaInfo,
     ResolveResume(bool),
+    ClearPlaybackData,
 
     Quit,
 }
@@ -196,6 +197,7 @@ pub enum Event {
     },
     RecentFiles(Vec<RecentFileInfo>),
     ResumeAvailable(f64),
+    PlaybackDataCleared,
 
     MediaInfo {
         width: u32,

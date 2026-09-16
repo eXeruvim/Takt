@@ -29,6 +29,12 @@ pub(super) struct Update {
 }
 
 impl Positions {
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+        self.path_bytes = 0;
+    }
+
     pub fn get(&self, path: &Path) -> Option<f64> {
         self.entries.get(path).copied()
     }
@@ -188,5 +194,19 @@ mod tests {
         assert!(positions.remove(Path::new("two")));
         assert!(!positions.remove(Path::new("missing")));
         assert_eq!(positions.path_bytes, 6);
+    }
+
+    #[test]
+    fn clearing_positions_resets_entries_order_and_byte_budget() {
+        let mut positions = Positions::default();
+        positions.record(Path::new("one"), 30.0, &[]);
+        positions.record(Path::new("two"), 40.0, &[]);
+
+        positions.clear();
+
+        assert!(positions.entries.is_empty());
+        assert!(positions.order.is_empty());
+        assert_eq!(positions.path_bytes, 0);
+        assert!(positions.iter().next().is_none());
     }
 }

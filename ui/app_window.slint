@@ -6,8 +6,9 @@ import { CommandEntry, CommandPaletteOverlay } from "components/command_palette.
 import { ConversionHistoryEntry, ConversionPresetEntry, ConverterOverlay } from "components/converter_overlay.slint";
 import { AudioTrackEntry, ChapterEntry, EqualizerBandEntry, MediaInspector, RecentFileEntry, SubtitleTrackEntry } from "components/media_inspector.slint";
 import { ResumePrompt } from "components/resume_prompt.slint";
+import { ClearPlaybackDataPrompt } from "components/clear_playback_data_prompt.slint";
 import { MediaListItem, Toast } from "design_system/composites.slint";
-import { CaptionButton, EmptyState, IconButton, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
+import { CaptionButton, EmptyState, FocusTouchArea, Icon, IconButton, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
 
 export enum PlayerPhase {
     empty,
@@ -149,6 +150,7 @@ export component AppWindow inherits Window {
     in-out property <float> conversion_progress: 0;
     in-out property <string> conversion_status: "";
     in-out property <bool> resume_prompt_visible: false;
+    in-out property <bool> clear_playback_data_prompt_visible: false;
     in-out property <string> resume_position_label: "00:00";
     in-out property <bool> controls_visible: true;
     in-out property <bool> controls_pointer_over: false;
@@ -162,6 +164,7 @@ export component AppWindow inherits Window {
         && !inspector_visible
         && !command_palette_visible && !converter_visible
         && !resume_prompt_visible
+        && !clear_playback_data_prompt_visible
         && !error_visible && !drop_target_visible;
     out property <length> controls_top_zone: Theme.top-bar-height + Theme.space-2;
     out property <length> controls_bottom_zone: media_presented
@@ -179,6 +182,9 @@ export component AppWindow inherits Window {
         : Theme.space-3;
     in-out property <bool> error_visible: false;
     in-out property <string> error_message: "";
+    in-out property <bool> notice_visible: false;
+    in-out property <string> notice_message: "";
+    in-out property <bool> playback_data_cleared: false;
     in-out property <bool> drop_target_visible: false;
     in property <[string]> playlist_items;
     in-out property <int> playlist_current_index: -1;
@@ -193,7 +199,7 @@ export component AppWindow inherits Window {
             ? 416px
             : edge_to_edge ? 0px : Theme.space-4;
     out property <bool> modal_overlay_active: command-palette.visible || converter-overlay.visible
-        || resume-prompt.visible || drop-overlay.visible;
+        || resume-prompt.visible || clear-data-prompt.visible || drop-overlay.visible;
 
     callback open_file();
     callback open_folder();
@@ -251,6 +257,7 @@ export component AppWindow inherits Window {
     callback open_recent(string);
     callback resume_saved_playback();
     callback restart_saved_playback();
+    callback clear_playback_data();
     callback drag_window();
 
     animate player_controls_slide_offset {
@@ -430,7 +437,8 @@ export component AppWindow inherits Window {
 
                     EmptyState {
                         width: parent.width;
-                        height: root.recent_files.length > 0 ? 180px : parent.height;
+                        height: root.recent_files.length > 0 || root.playback_data_cleared
+                            ? 180px : parent.height;
                         title: "Откройте медиафайл";
                         description: "Перетащите видео, аудио или папку в окно либо выберите их вручную";
                         action-text: "Открыть файл";
@@ -439,9 +447,28 @@ export component AppWindow inherits Window {
                         secondary-action => root.open_folder();
                     }
 
+                    if root.playback_data_cleared : Rectangle {
+                        width: min(parent.width, 360px);
+                        height: Theme.space-12;
+                        border-radius: Theme.radius-medium;
+                        border-width: 1px;
+                        border-color: Theme.accent;
+                        background: Theme.accent-subtle;
+
+                        UiText {
+                            width: parent.width;
+                            height: parent.height;
+                            text: "История и позиции очищены";
+                            variant: TextVariant.label;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+
                     if root.recent_files.length > 0 : Rectangle {
                         width: parent.width;
-                        height: Theme.space-10
+                        height: Theme.space-12
                             + min(root.recent_files.length, 3)
                                 * (Theme.space-12 + Theme.space-1)
                             + Theme.space-4;
@@ -458,12 +485,87 @@ export component AppWindow inherits Window {
                             padding-bottom: Theme.space-2;
                             spacing: Theme.space-1;
 
-                            UiText {
-                                height: Theme.space-6;
-                                text: "Недавние";
-                                variant: TextVariant.caption;
-                                color: Theme.text-secondary;
-                                vertical-alignment: center;
+                            Rectangle {
+                                height: Theme.space-10;
+                                background: transparent;
+
+                                UiText {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    text: "Недавние файлы";
+                                    variant: TextVariant.label;
+                                    color: Theme.text-secondary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                clear-history-action := Rectangle {
+                                    width: 108px;
+                                    height: Theme.space-8;
+                                    x: parent.width - self.width + Theme.space-1;
+                                    y: (parent.height - self.height) / 2;
+                                    border-radius: Theme.radius-medium;
+                                    background: clear-history-hit.pressed
+                                        ? Theme.surface-pressed
+                                        : clear-history-hit.has-hover
+                                            ? Theme.surface-hover : transparent;
+                                    border-width: clear-history-hit.has-focus ? Theme.focus-ring-width : 1px;
+                                    border-color: clear-history-hit.has-focus
+                                        ? Theme.focus-ring
+                                        : clear-history-hit.has-hover
+                                            ? Theme.accent : Theme.border-default;
+                                    accessible-role: button;
+                                    accessible-label: "Очистить историю";
+                                    accessible-action-default => {
+                                        root.clear_playback_data_prompt_visible = true;
+                                    }
+
+                                    clear-history-hit := FocusTouchArea {
+                                        width: parent.width;
+                                        height: parent.height;
+                                        clicked => {
+                                            root.clear_playback_data_prompt_visible = true;
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        width: parent.width;
+                                        height: parent.height;
+                                        spacing: Theme.space-1;
+                                        alignment: center;
+
+                                        Rectangle {
+                                            width: 16px;
+                                            height: parent.height;
+                                            background: transparent;
+
+                                            Icon {
+                                                y: (parent.height - self.height) / 2;
+                                                width: 16px;
+                                                height: 16px;
+                                                source: @image-url("icons/trash.svg");
+                                                tint: clear-history-hit.has-hover
+                                                    ? Theme.accent : Theme.text-muted;
+                                            }
+                                        }
+
+                                        UiText {
+                                            width: 56px;
+                                            height: parent.height;
+                                            text: "Очистить";
+                                            variant: TextVariant.caption;
+                                            color: clear-history-hit.has-hover
+                                                ? Theme.accent : Theme.text-secondary;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+
+                                    animate background, border-color {
+                                        duration: Theme.motion-fast;
+                                        easing: cubic-bezier(0.2, 0, 0, 1);
+                                    }
+                                }
                             }
 
                             ListView {
@@ -729,6 +831,7 @@ export component AppWindow inherits Window {
                 playback-open: root.settings_drawer_visible;
                 items: root.playlist_items;
                 recent-files: root.recent_files;
+                playback-data-cleared: root.playback_data_cleared;
                 current-index: root.playlist_current_index;
                 playlist-focus-revision: root.playlist_focus_revision;
                 file-name: root.file_name;
@@ -801,6 +904,9 @@ export component AppWindow inherits Window {
                 reset-equalizer => root.reset_equalizer();
                 set-folder-loop(enabled) => root.set_folder_loop(enabled);
                 toggle-shuffle => root.toggle_shuffle();
+                request-clear-playback-data => {
+                    root.clear_playback_data_prompt_visible = true;
+                }
             }
 
             command-palette := CommandPaletteOverlay {
@@ -887,6 +993,15 @@ export component AppWindow inherits Window {
                 restart => root.restart_saved_playback();
             }
 
+            clear-data-prompt := ClearPlaybackDataPrompt {
+                open: root.clear_playback_data_prompt_visible;
+                cancel => { root.clear_playback_data_prompt_visible = false; }
+                confirm => {
+                    root.clear_playback_data_prompt_visible = false;
+                    root.clear_playback_data();
+                }
+            }
+
             drop-overlay := Rectangle {
                 visible: root.drop_target_visible || self.opacity > 0.01;
                 opacity: root.drop_target_visible ? 1 : 0;
@@ -919,11 +1034,20 @@ export component AppWindow inherits Window {
             }
 
             Toast {
+                shown: root.notice_visible;
+                message: root.notice_message;
+                x: parent.width - self.width - Theme.space-6;
+                y: Theme.space-12 + Theme.space-8;
+                dismissed => { root.notice_visible = false; }
+            }
+
+            Toast {
                 shown: root.error_visible;
                 message: root.error_message;
                 danger: true;
                 x: parent.width - self.width - Theme.space-6;
-                y: Theme.space-12 + Theme.space-8;
+                y: Theme.space-12 + Theme.space-8
+                    + (root.notice_visible ? self.height + Theme.space-2 : 0px);
                 dismissed => { root.error_visible = false; }
             }
         }

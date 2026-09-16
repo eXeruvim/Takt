@@ -381,6 +381,7 @@ export component MediaInspector inherits Rectangle {
     in property <bool> playback-open;
     in property <[string]> items;
     in property <[RecentFileEntry]> recent-files;
+    in property <bool> playback-data-cleared: false;
     in property <int> current-index: -1;
     in property <int> playlist-focus-revision: 0;
     in property <string> file-name;
@@ -420,6 +421,7 @@ export component MediaInspector inherits Rectangle {
     out property <length> slide-offset: open || prewarming
         ? 0px : self.width + Theme.space-5;
     private property <length> playback-content-height: 535px
+        + 196px
         + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
         + (media-loaded && !audio-media ? 116px : 0px)
         + (media-loaded && !audio-media ? 64px : 0px)
@@ -463,6 +465,7 @@ export component MediaInspector inherits Rectangle {
     callback reset-equalizer();
     callback set-folder-loop(bool);
     callback toggle-shuffle();
+    callback request-clear-playback-data();
 
     width: min(392px, parent-width - Theme.space-8);
     height: max(0px, parent-height - self.y
@@ -1035,6 +1038,87 @@ export component MediaInspector inherits Rectangle {
                         title: "Случайный порядок";
                         checked: root.shuffle-enabled;
                         toggled => root.toggle-shuffle();
+                    }
+                }
+
+                Divider { }
+
+                UiText {
+                    text: "История";
+                    variant: TextVariant.caption;
+                    color: Theme.text-muted;
+                }
+
+                Rectangle {
+                    height: 156px;
+                    horizontal-stretch: 1;
+                    border-radius: Theme.radius-large;
+                    border-width: 1px;
+                    border-color: root.playback-data-cleared
+                        ? Theme.accent : Theme.border-default;
+                    background: root.playback-data-cleared
+                        ? Theme.accent-subtle : Theme.surface-control;
+
+                    VerticalLayout {
+                        padding: Theme.space-3;
+                        spacing: Theme.space-2;
+
+                        UiText {
+                            text: "Недавние файлы";
+                            variant: TextVariant.label;
+                            horizontal-alignment: center;
+                        }
+
+                        UiText {
+                            text: root.playback-data-cleared
+                                ? "Ранее открытые файлы и места остановки удалены. Новая история появится, когда вы откроете следующий файл."
+                                : "Здесь сохраняются недавно открытые файлы и места, на которых вы остановились. Это помогает быстро вернуться к просмотру или прослушиванию.";
+                            variant: TextVariant.caption;
+                            color: root.playback-data-cleared
+                                ? Theme.text-secondary : Theme.text-muted;
+                            height: 44px;
+                            wrap: word-wrap;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        if !root.playback-data-cleared : Rectangle {
+                            height: Theme.space-10 + Theme.space-1;
+                            horizontal-stretch: 1;
+                            background: transparent;
+
+                            Button {
+                                y: Theme.space-1;
+                                width: parent.width;
+                                height: Theme.space-10;
+                                text: "Очистить историю";
+                                clicked => root.request-clear-playback-data();
+                            }
+                        }
+
+                        if root.playback-data-cleared : Rectangle {
+                            height: Theme.space-10 + Theme.space-1;
+                            horizontal-stretch: 1;
+                            background: transparent;
+
+                            Rectangle {
+                                y: Theme.space-1;
+                                width: parent.width;
+                                height: Theme.space-10;
+                                border-radius: Theme.radius-medium;
+                                background: Theme.accent-subtle;
+
+                                UiText {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    text: "Готово — история очищена";
+                                    variant: TextVariant.label;
+                                    color: Theme.accent;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
                     }
                 }
 

@@ -2171,6 +2171,14 @@ pub fn run(
                         return EventResult::PreventDefault;
                     }
 
+                    if app.get_clear_playback_data_prompt_visible() {
+                        if code == KeyCode::Escape {
+                            app.set_clear_playback_data_prompt_visible(false);
+                            return EventResult::PreventDefault;
+                        }
+                        return EventResult::Propagate;
+                    }
+
                     if app.get_converter_visible() {
                         if code == KeyCode::Escape {
                             app.set_converter_visible(false);
@@ -2373,6 +2381,13 @@ pub fn run(
         let tx = tx.clone();
         app.on_open_recent(move |path| {
             let _ = tx.send(Command::OpenFile(path.to_string()));
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        app.on_clear_playback_data(move || {
+            let _ = tx.send(Command::ClearPlaybackData);
         });
     }
 
@@ -3634,6 +3649,9 @@ pub fn run(
                         }
 
                         Event::RecentFiles(files) => {
+                            if !files.is_empty() {
+                                app.set_playback_data_cleared(false);
+                            }
                             let files = files
                                 .into_iter()
                                 .map(|file| RecentFileEntry {
@@ -3648,6 +3666,23 @@ pub fn run(
                         Event::ResumeAvailable(position) => {
                             app.set_resume_position_label(format_time(position).into());
                             app.set_resume_prompt_visible(true);
+                        }
+
+                        Event::PlaybackDataCleared => {
+                            app.set_resume_prompt_visible(false);
+                            app.set_clear_playback_data_prompt_visible(false);
+                            app.set_playback_data_cleared(true);
+                            app.set_notice_message("История очищена".into());
+                            app.set_notice_visible(true);
+                            let notice_app = app.as_weak();
+                            slint::Timer::single_shot(
+                                std::time::Duration::from_millis(2600),
+                                move || {
+                                    if let Some(app) = notice_app.upgrade() {
+                                        app.set_notice_visible(false);
+                                    }
+                                },
+                            );
                         }
 
                         Event::MediaInfo {

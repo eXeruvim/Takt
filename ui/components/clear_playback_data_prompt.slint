@@ -1,0 +1,114 @@
+import { Theme } from "../theme.slint";
+import { Button, Divider, UiText, TextVariant } from "../design_system/primitives.slint";
+
+export component ClearPlaybackDataPrompt inherits Rectangle {
+    in property <bool> open: false;
+    callback cancel();
+    callback confirm();
+
+    visible: open || self.opacity > 0.01;
+    opacity: open ? 1 : 0;
+    background: Theme.backdrop;
+
+    animate opacity {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    TouchArea { clicked => root.cancel(); }
+
+    dialog := Rectangle {
+        width: min(parent.width - Theme.space-8, 520px);
+        height: 292px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2 + (root.open ? 0px : Theme.space-3);
+        border-radius: Theme.radius-xlarge;
+        border-width: 1px;
+        border-color: Theme.border-default;
+        background: Theme.surface-modal;
+        drop-shadow-color: Theme.shadow-high;
+        drop-shadow-blur: Theme.elevation-high-blur;
+        drop-shadow-offset-y: Theme.elevation-high-y;
+
+        animate y {
+            duration: Theme.motion-normal;
+            easing: cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        TouchArea { }
+
+        VerticalLayout {
+            padding: Theme.space-5;
+            spacing: Theme.space-4;
+
+            UiText {
+                text: "Очистить историю?";
+                variant: TextVariant.title;
+            }
+
+            VerticalLayout {
+                spacing: Theme.space-3;
+                vertical-stretch: 1;
+
+                UiText {
+                    text: "Будут удалены сведения о ранее открытых файлах и местах, на которых вы остановились.";
+                    wrap: word-wrap;
+                    color: Theme.text-secondary;
+                }
+
+                VerticalLayout {
+                    spacing: Theme.space-2;
+
+                    UiText {
+                        text: "• список «Недавние» станет пустым";
+                        variant: TextVariant.label;
+                    }
+                    UiText {
+                        text: "• плеер не предложит продолжить с прежнего места";
+                        variant: TextVariant.label;
+                    }
+                }
+
+                Rectangle {
+                    height: 52px;
+                    border-radius: Theme.radius-medium;
+                    background: Theme.accent-subtle;
+                    border-width: 1px;
+                    border-color: Theme.accent;
+
+                    UiText {
+                        x: Theme.space-3;
+                        width: parent.width - Theme.space-6;
+                        height: parent.height;
+                        text: "Сами видео и музыка останутся на компьютере.";
+                        variant: TextVariant.label;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Divider { }
+
+            HorizontalLayout {
+                height: Theme.space-10;
+                spacing: Theme.space-2;
+
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+
+                Button {
+                    width: 112px;
+                    text: "Отмена";
+                    clicked => root.cancel();
+                }
+
+                Button {
+                    width: 168px;
+                    text: "Очистить историю";
+                    primary: true;
+                    clicked => root.confirm();
+                }
+            }
+        }
+    }
+}
