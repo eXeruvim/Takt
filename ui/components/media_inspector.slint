@@ -406,6 +406,7 @@ export component MediaInspector inherits Rectangle {
     in property <int> aspect-ratio-index: 0;
     in property <bool> hardware-decoding-enabled: false;
     in property <string> hardware-decoder: "no";
+    in property <bool> integrated-video-renderer: false;
     in property <int> theme-mode: 0;
     in property <int> accent-mode: 0;
     in property <bool> equalizer-enabled: false;
@@ -924,10 +925,10 @@ export component MediaInspector inherits Rectangle {
                     height: Theme.space-12;
                     title: "Аппаратное декодирование";
                     description: !root.hardware-decoding-enabled
-                        ? "Надёжный режим · программное"
+                        ? "Программное · " + (root.integrated-video-renderer ? "OpenGL" : "HWND")
                         : root.hardware-decoder == "" || root.hardware-decoder == "no"
-                            ? "Автовыбор · сейчас программное"
-                            : "Активно · " + root.hardware-decoder;
+                            ? "Автовыбор: программное · " + (root.integrated-video-renderer ? "OpenGL" : "HWND")
+                            : root.hardware-decoder + " · " + (root.integrated-video-renderer ? "OpenGL" : "HWND");
                     Toggle {
                         checked: root.hardware-decoding-enabled;
                         toggled(checked) => root.set-hardware-decoding(checked);

@@ -12,6 +12,23 @@ param(
 
     [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\oxide.exe'),
 
+    [ValidateSet('not-recorded', 'software', 'd3d11va-copy')]
+    [string]$DecoderMode = 'not-recorded',
+
+    [ValidateSet('not-recorded', 'integrated-opengl', 'native-hwnd-fallback')]
+    [string]$RendererBackend = 'not-recorded',
+
+    [ValidateSet('windowed', 'maximized', 'fullscreen', 'picture-in-picture')]
+    [string]$WindowMode = 'windowed',
+
+    [ValidateSet('system', 'dark', 'light')]
+    [string]$Theme = 'system',
+
+    [string]$MediaPath = '',
+
+    [ValidateLength(0, 1000)]
+    [string]$Notes = '',
+
     [switch]$ValidateOnly
 )
 
@@ -69,6 +86,101 @@ function Invoke-TextCommand {
     }
 }
 
+function Get-WindowSnapshot {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Diagnostics.Process]$Process
+    )
+
+    try {
+        if (-not ('OxideBenchmark.NativeWindow' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace OxideBenchmark {
+    public static class NativeWindow {
+        [StructLayout(LayoutKind.Sequential)]
+        public struct Rect {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [DllImport("user32.dll")]
+        public static extern uint GetDpiForWindow(IntPtr window);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetClientRect(IntPtr window, out Rect rect);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsZoomed(IntPtr window);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsIconic(IntPtr window);
+    }
+}
+'@
+        }
+
+        $Process.Refresh()
+        $handle = $Process.MainWindowHandle
+        if ($handle -eq [IntPtr]::Zero) {
+            return [ordered]@{ available = $false; reason = 'main window handle is unavailable' }
+        }
+
+        $rect = [OxideBenchmark.NativeWindow+Rect]::new()
+        if (-not [OxideBenchmark.NativeWindow]::GetClientRect($handle, [ref]$rect)) {
+            return [ordered]@{ available = $false; reason = 'GetClientRect failed' }
+        }
+        $dpi = [OxideBenchmark.NativeWindow]::GetDpiForWindow($handle)
+        if ($dpi -eq 0) {
+            $dpi = 96
+        }
+        $width = [Math]::Max(0, $rect.Right - $rect.Left)
+        $height = [Math]::Max(0, $rect.Bottom - $rect.Top)
+        return [ordered]@{
+            available = $true
+            dpi = $dpi
+            scale_percent = [Math]::Round(($dpi / 96.0) * 100.0, 1)
+            client_width_physical = $width
+            client_height_physical = $height
+            client_width_logical = [Math]::Round(($width * 96.0) / $dpi, 1)
+            client_height_logical = [Math]::Round(($height * 96.0) / $dpi, 1)
+            maximized = [OxideBenchmark.NativeWindow]::IsZoomed($handle)
+            minimized = [OxideBenchmark.NativeWindow]::IsIconic($handle)
+        }
+    }
+    catch {
+        return [ordered]@{ available = $false; reason = $_.Exception.Message }
+    }
+}
+
+function Get-MediaDescriptor {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+    $resolved = [System.IO.Path]::GetFullPath($Path)
+    if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+        throw "Тестовый медиафайл не найден: $resolved"
+    }
+    $item = Get-Item -LiteralPath $resolved -ErrorAction Stop
+    return [ordered]@{
+        extension = $item.Extension.ToLowerInvariant()
+        size_bytes = $item.Length
+        sha256 = (Get-FileHash -LiteralPath $resolved -Algorithm SHA256).Hash
+    }
+}
+
 $repository = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $executablePath = [System.IO.Path]::GetFullPath($Executable)
 $expectedExecutable = [System.IO.Path]::GetFullPath((Join-Path $repository 'target\profiling\oxide.exe'))
@@ -77,6 +189,16 @@ if ($executablePath -ne $expectedExecutable) {
 }
 if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
     throw "Сборка не найдена. Выполните: cargo build --profile profiling --locked --offline"
+}
+$videoScenario = $Scenario -eq 'video-1080p' -or $Scenario -eq 'video-4k'
+if ($videoScenario -and ($DecoderMode -eq 'not-recorded' -or $RendererBackend -eq 'not-recorded')) {
+    throw 'Для video-сценария явно укажите -DecoderMode и -RendererBackend.'
+}
+$mediaDescriptor = if ([string]::IsNullOrWhiteSpace($MediaPath)) {
+    $null
+}
+else {
+    Get-MediaDescriptor -Path $MediaPath
 }
 $runtimePath = Join-Path (Split-Path -Parent $executablePath) 'libmpv-2.dll'
 if (-not (Test-Path -LiteralPath $runtimePath -PathType Leaf)) {
@@ -122,6 +244,7 @@ $process.Refresh()
 if ($process.HasExited) {
     throw "Oxide завершился до начала замера с кодом $($process.ExitCode)"
 }
+$windowSnapshot = Get-WindowSnapshot -Process $process
 
 $logicalProcessors = [Math]::Max(1, [Environment]::ProcessorCount)
 $samples = [System.Collections.Generic.List[object]]::new()
@@ -174,24 +297,62 @@ $samples | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding utf8
 
 $cargoLockPath = Join-Path $repository 'Cargo.lock'
 $os = Get-CimInstance Win32_OperatingSystem
-$processors = @(Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Name)
+$computer = Get-CimInstance Win32_ComputerSystem
+$processors = @(Get-CimInstance Win32_Processor | ForEach-Object {
+    [ordered]@{
+        name = $_.Name
+        physical_cores = $_.NumberOfCores
+        logical_processors = $_.NumberOfLogicalProcessors
+        max_clock_mhz = $_.MaxClockSpeed
+    }
+})
 $gpus = @(Get-CimInstance Win32_VideoController | ForEach-Object {
     [ordered]@{
         name = $_.Name
         driver_version = $_.DriverVersion
+        adapter_ram_mib = if ($null -ne $_.AdapterRAM) { [Math]::Round($_.AdapterRAM / 1MB, 0) } else { $null }
+        current_resolution = if ($null -ne $_.CurrentHorizontalResolution -and $null -ne $_.CurrentVerticalResolution) {
+            "$($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution)"
+        } else { $null }
+        current_refresh_hz = $_.CurrentRefreshRate
     }
 })
+$drives = @(Get-CimInstance Win32_DiskDrive | ForEach-Object {
+    [ordered]@{
+        model = $_.Model
+        media_type = $_.MediaType
+        interface_type = $_.InterfaceType
+        firmware_revision = $_.FirmwareRevision
+        size_gib = if ($null -ne $_.Size) { [Math]::Round($_.Size / 1GB, 1) } else { $null }
+    }
+})
+$powerPlan = Invoke-TextCommand -FilePath 'powercfg.exe' -Arguments @('/getactivescheme')
+$powerLineStatus = try {
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.SystemInformation]::PowerStatus.PowerLineStatus.ToString()
+}
+catch {
+    "unavailable: $($_.Exception.Message)"
+}
 $workingTree = Invoke-TextCommand -FilePath 'git' -Arguments @('-C', $repository, 'status', '--porcelain')
 $firstSample = if ($samples.Count -gt 0) { $samples[0] } else { $null }
 $lastSample = if ($samples.Count -gt 0) { $samples[$samples.Count - 1] } else { $null }
 $summary = [ordered]@{
-    schema = 1
+    schema = 2
     scenario = $Scenario
     started_utc = $startedAt.ToString('O')
     finished_utc = $finishedAt.ToString('O')
     requested_duration_seconds = $DurationSeconds
     sample_interval_ms = $SampleIntervalMs
     samples = $samples.Count
+    run_configuration = [ordered]@{
+        decoder_mode = $DecoderMode
+        renderer_backend = $RendererBackend
+        window_mode = $WindowMode
+        theme = $Theme
+        media = $mediaDescriptor
+        notes = $Notes
+    }
     cpu_percent_total_capacity = Get-Stats -Values @($samples | ForEach-Object { [double]$_.cpu_percent })
     working_set_mib = Get-Stats -Values @($samples | ForEach-Object { [double]$_.working_set_mib })
     private_bytes_mib = Get-Stats -Values @($samples | ForEach-Object { [double]$_.private_bytes_mib })
@@ -210,12 +371,19 @@ $summary = [ordered]@{
     threads_max = if ($samples.Count -gt 0) { ($samples.threads | Measure-Object -Maximum).Maximum } else { $null }
     environment = [ordered]@{
         executable = $executablePath
+        executable_sha256 = (Get-FileHash -LiteralPath $executablePath -Algorithm SHA256).Hash
         logical_processors = $logicalProcessors
         processor = $processors
         gpu = $gpus
+        storage = $drives
         os = $os.Caption
         os_version = $os.Version
-        physical_memory_mib = [Math]::Round($os.TotalVisibleMemorySize / 1KB, 0)
+        os_build = $os.BuildNumber
+        os_architecture = $os.OSArchitecture
+        physical_memory_mib = [Math]::Round($computer.TotalPhysicalMemory / 1MB, 0)
+        active_power_plan = $powerPlan
+        power_line_status = $powerLineStatus
+        oxide_window = $windowSnapshot
         git_commit = Invoke-TextCommand -FilePath 'git' -Arguments @('-C', $repository, 'rev-parse', 'HEAD')
         working_tree_clean = [string]::IsNullOrWhiteSpace($workingTree)
         working_tree_changes = $workingTree
@@ -230,6 +398,14 @@ $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $summaryPath -Enco
 
 Write-Host "Готово: $csvPath"
 Write-Host "Сводка: $summaryPath"
+if ($windowSnapshot.available) {
+    Write-Host ("Окружение: DPI {0}, масштаб {1}%, клиентская область {2}x{3} px." -f `
+        $windowSnapshot.dpi, $windowSnapshot.scale_percent, `
+        $windowSnapshot.client_width_physical, $windowSnapshot.client_height_physical)
+}
+else {
+    Write-Warning "Параметры окна не зафиксированы: $($windowSnapshot.reason)"
+}
 if (-not $process.HasExited) {
     Write-Host 'Oxide оставлен открытым — закройте его вручную после нужных проверок.'
 }
