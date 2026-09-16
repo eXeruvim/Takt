@@ -68,6 +68,28 @@ JSON фиксирует commit, чистоту рабочего дерева, в
 .\scripts\measure-oxide.ps1 -Scenario idle -ValidateOnly
 ```
 
+## Сводка повторных прогонов
+
+После минимум пяти одинаковых измерений соберите серию:
+
+```powershell
+.\scripts\summarize-benchmark-results.ps1 -Scenario idle
+```
+
+Скрипт не объединяет результаты только по похожему имени. В одну группу попадают
+лишь совпадающие commit и хеши сборки/runtime, длительность и интервал, медиа,
+decoder/backend, тема, режим и размер окна, DPI, оборудование, драйверы и питание.
+Незавершённые прогоны и dirty working tree по умолчанию исключаются. Для черновой
+проверки механики можно явно передать `-IncludeDirty`, но такой отчёт получает тип
+`pilot-aggregate`, а не `baseline-candidate`.
+
+Итоговый `aggregate-*.json` хранит исходные значения и min/p50/p95/max между
+прогонами для CPU, working/private memory, handles и threads. Самопроверка:
+
+```powershell
+.\scripts\summarize-benchmark-results.ps1 -Scenario idle -ValidateOnly
+```
+
 ### Fixture большой очереди
 
 Для проверки границы в 5000 элементов создайте 5100 имён короткого беззвучного
