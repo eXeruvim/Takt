@@ -3279,7 +3279,7 @@ dependencies = [
 
 [[package]]
 name = "oxide"
-version = "0.8.0-alpha.18"
+version = "0.8.0-alpha.19"
 dependencies = [
  "anyhow",
  "crossbeam-channel",

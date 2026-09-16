@@ -1,0 +1,110 @@
+import { Theme } from "../theme.slint";
+import { Button, Divider, UiText, TextVariant } from "../design_system/primitives.slint";
+
+export component ResetSettingsPrompt inherits Rectangle {
+    in property <bool> open: false;
+    callback cancel();
+    callback confirm();
+
+    visible: open || self.opacity > 0.01;
+    opacity: open ? 1 : 0;
+    background: Theme.backdrop;
+
+    animate opacity {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    TouchArea { clicked => root.cancel(); }
+
+    dialog := Rectangle {
+        width: min(parent.width - Theme.space-8, 540px);
+        height: 336px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2 + (root.open ? 0px : Theme.space-3);
+        border-radius: Theme.radius-xlarge;
+        border-width: 1px;
+        border-color: Theme.border-default;
+        background: Theme.surface-modal;
+        drop-shadow-color: Theme.shadow-high;
+        drop-shadow-blur: Theme.elevation-high-blur;
+        drop-shadow-offset-y: Theme.elevation-high-y;
+
+        animate y {
+            duration: Theme.motion-normal;
+            easing: cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        TouchArea { }
+
+        VerticalLayout {
+            padding: Theme.space-5;
+            spacing: Theme.space-4;
+
+            UiText {
+                text: "Вернуть исходные настройки?";
+                variant: TextVariant.title;
+            }
+
+            VerticalLayout {
+                spacing: Theme.space-3;
+                vertical-stretch: 1;
+
+                UiText {
+                    text: "Ваши изменения будут заменены настройками, с которыми плеер устанавливается впервые:";
+                    wrap: word-wrap;
+                    color: Theme.text-secondary;
+                }
+
+                VerticalLayout {
+                    spacing: Theme.space-2;
+
+                    UiText { text: "• оформление, громкость и скорость"; variant: TextVariant.label; }
+                    UiText { text: "• поведение списка и обработка видео"; variant: TextVariant.label; }
+                    UiText { text: "• горячие клавиши"; variant: TextVariant.label; }
+                }
+
+                Rectangle {
+                    height: 60px;
+                    border-radius: Theme.radius-medium;
+                    background: Theme.accent-subtle;
+                    border-width: 1px;
+                    border-color: Theme.accent;
+
+                    UiText {
+                        x: Theme.space-3;
+                        width: parent.width - Theme.space-6;
+                        height: parent.height;
+                        text: "История и медиафайлы останутся. Размер и положение окна изменятся после перезапуска.";
+                        wrap: word-wrap;
+                        variant: TextVariant.caption;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Divider { }
+
+            HorizontalLayout {
+                height: Theme.space-10;
+                spacing: Theme.space-2;
+
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+
+                Button {
+                    width: 112px;
+                    text: "Отмена";
+                    clicked => root.cancel();
+                }
+
+                Button {
+                    width: 184px;
+                    text: "Сбросить настройки";
+                    primary: true;
+                    clicked => root.confirm();
+                }
+            }
+        }
+    }
+}

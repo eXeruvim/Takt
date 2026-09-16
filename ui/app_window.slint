@@ -7,6 +7,7 @@ import { ConversionHistoryEntry, ConversionPresetEntry, ConverterOverlay } from 
 import { AudioTrackEntry, ChapterEntry, EqualizerBandEntry, MediaInspector, RecentFileEntry, SubtitleTrackEntry } from "components/media_inspector.slint";
 import { ResumePrompt } from "components/resume_prompt.slint";
 import { ClearPlaybackDataPrompt } from "components/clear_playback_data_prompt.slint";
+import { ResetSettingsPrompt } from "components/reset_settings_prompt.slint";
 import { MediaListItem, Toast } from "design_system/composites.slint";
 import { CaptionButton, EmptyState, FocusTouchArea, Icon, IconButton, Spinner, UiText, TextVariant } from "design_system/primitives.slint";
 
@@ -151,6 +152,7 @@ export component AppWindow inherits Window {
     in-out property <string> conversion_status: "";
     in-out property <bool> resume_prompt_visible: false;
     in-out property <bool> clear_playback_data_prompt_visible: false;
+    in-out property <bool> reset_settings_prompt_visible: false;
     in-out property <string> resume_position_label: "00:00";
     in-out property <bool> controls_visible: true;
     in-out property <bool> controls_pointer_over: false;
@@ -165,6 +167,7 @@ export component AppWindow inherits Window {
         && !command_palette_visible && !converter_visible
         && !resume_prompt_visible
         && !clear_playback_data_prompt_visible
+        && !reset_settings_prompt_visible
         && !error_visible && !drop_target_visible;
     out property <length> controls_top_zone: Theme.top-bar-height + Theme.space-2;
     out property <length> controls_bottom_zone: media_presented
@@ -185,6 +188,7 @@ export component AppWindow inherits Window {
     in-out property <bool> notice_visible: false;
     in-out property <string> notice_message: "";
     in-out property <bool> playback_data_cleared: false;
+    in-out property <bool> settings_reset_done: false;
     in-out property <bool> drop_target_visible: false;
     in property <[string]> playlist_items;
     in-out property <int> playlist_current_index: -1;
@@ -199,7 +203,8 @@ export component AppWindow inherits Window {
             ? 416px
             : edge_to_edge ? 0px : Theme.space-4;
     out property <bool> modal_overlay_active: command-palette.visible || converter-overlay.visible
-        || resume-prompt.visible || clear-data-prompt.visible || drop-overlay.visible;
+        || resume-prompt.visible || clear-data-prompt.visible
+        || reset-settings-prompt.visible || drop-overlay.visible;
 
     callback open_file();
     callback open_folder();
@@ -258,6 +263,7 @@ export component AppWindow inherits Window {
     callback resume_saved_playback();
     callback restart_saved_playback();
     callback clear_playback_data();
+    callback reset_settings();
     callback drag_window();
 
     animate player_controls_slide_offset {
@@ -832,6 +838,7 @@ export component AppWindow inherits Window {
                 items: root.playlist_items;
                 recent-files: root.recent_files;
                 playback-data-cleared: root.playback_data_cleared;
+                settings-reset-done: root.settings_reset_done;
                 current-index: root.playlist_current_index;
                 playlist-focus-revision: root.playlist_focus_revision;
                 file-name: root.file_name;
@@ -906,6 +913,9 @@ export component AppWindow inherits Window {
                 toggle-shuffle => root.toggle_shuffle();
                 request-clear-playback-data => {
                     root.clear_playback_data_prompt_visible = true;
+                }
+                request-reset-settings => {
+                    root.reset_settings_prompt_visible = true;
                 }
             }
 
@@ -999,6 +1009,15 @@ export component AppWindow inherits Window {
                 confirm => {
                     root.clear_playback_data_prompt_visible = false;
                     root.clear_playback_data();
+                }
+            }
+
+            reset-settings-prompt := ResetSettingsPrompt {
+                open: root.reset_settings_prompt_visible;
+                cancel => { root.reset_settings_prompt_visible = false; }
+                confirm => {
+                    root.reset_settings_prompt_visible = false;
+                    root.reset_settings();
                 }
             }
 

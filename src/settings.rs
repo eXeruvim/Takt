@@ -183,6 +183,7 @@ pub struct AppSettings {
     shortcut_overrides: Vec<ShortcutPreference>,
     persistence: Persistence,
     dirty: bool,
+    forget_previous_pending: bool,
 }
 
 impl Default for AppSettings {
@@ -198,6 +199,7 @@ impl Default for AppSettings {
             shortcut_overrides: Vec::new(),
             persistence: Persistence::default(),
             dirty: false,
+            forget_previous_pending: false,
         }
     }
 }
@@ -313,6 +315,35 @@ impl AppSettings {
         }
     }
 
+    /// Restore every persistent preference while retaining the configured
+    /// storage handle. Playback history is owned by `SessionStore` and is
+    /// intentionally outside this reset.
+    pub fn reset_to_defaults(&mut self) {
+        let defaults = Self::default();
+        let changed = self.theme != defaults.theme
+            || self.accent != defaults.accent
+            || self.default_volume != defaults.default_volume
+            || self.default_speed != defaults.default_speed
+            || self.completion_behavior != defaults.completion_behavior
+            || self.hardware_decoding_enabled != defaults.hardware_decoding_enabled
+            || self.window_placement.is_some()
+            || !self.shortcut_overrides.is_empty();
+        self.theme = defaults.theme;
+        self.accent = defaults.accent;
+        self.default_volume = defaults.default_volume;
+        self.default_speed = defaults.default_speed;
+        self.completion_behavior = defaults.completion_behavior;
+        self.hardware_decoding_enabled = defaults.hardware_decoding_enabled;
+        self.window_placement = None;
+        self.shortcut_overrides.clear();
+        if changed {
+            self.dirty = true;
+            // The first save keeps the previous settings in `.bak`; a second
+            // commit makes reset durable even if primary recovery is needed.
+            self.forget_previous_pending = true;
+        }
+    }
+
     pub fn save_if_dirty(&mut self) -> std::io::Result<()> {
         if !self.dirty {
             return Ok(());
@@ -339,6 +370,10 @@ impl AppSettings {
             ));
         }
         self.persistence.save(&content)?;
+        if self.forget_previous_pending {
+            self.persistence.save(&content)?;
+            self.forget_previous_pending = false;
+        }
         self.dirty = false;
         Ok(())
     }
@@ -502,8 +537,9 @@ mod tests {
     use crate::storage::tests::TestDirectory;
 
     use super::{
-        AccentPreference, AppSettings, CompletionBehavior, DEFAULT_SPEED, MAX_SHORTCUT_KEY_BYTES,
-        MAX_SHORTCUT_OVERRIDES, ShortcutPreference, ThemePreference, WindowPlacementPreference,
+        AccentPreference, AppSettings, CompletionBehavior, DEFAULT_SPEED, DEFAULT_VOLUME,
+        MAX_SHORTCUT_KEY_BYTES, MAX_SHORTCUT_OVERRIDES, ShortcutPreference, ThemePreference,
+        WindowPlacementPreference,
     };
 
     #[test]
@@ -706,5 +742,45 @@ mod tests {
         ]);
         assert_eq!(settings.shortcut_overrides().len(), 1);
         assert_eq!(settings.shortcut_overrides()[0].key_code, "\"KeyB\"");
+    }
+
+    #[test]
+    fn resetting_settings_restores_every_persistent_default_and_recovery_copy() {
+        let files = TestDirectory::new();
+        let path = files.path("settings.txt");
+        let mut settings = AppSettings::load_from(&path).unwrap();
+        settings.set_theme(ThemePreference::Light);
+        settings.set_accent(AccentPreference::Blue);
+        settings.set_default_volume(0.2);
+        settings.set_default_speed(1.75);
+        settings.set_completion_behavior(CompletionBehavior::RepeatPlaylist);
+        settings.set_hardware_decoding_enabled(true);
+        settings.set_window_placement(WindowPlacementPreference::new(100, 200, 900, 600).unwrap());
+        settings.set_shortcut_overrides(vec![ShortcutPreference {
+            action_id: 5,
+            key_code: "null".into(),
+            modifiers: 0,
+        }]);
+        settings.save_if_dirty().unwrap();
+
+        settings.reset_to_defaults();
+        settings.save_if_dirty().unwrap();
+
+        let assert_defaults = |loaded: &AppSettings| {
+            assert_eq!(loaded.theme(), ThemePreference::System);
+            assert_eq!(loaded.accent(), AccentPreference::Copper);
+            assert_eq!(loaded.default_volume(), DEFAULT_VOLUME);
+            assert_eq!(loaded.default_speed(), DEFAULT_SPEED);
+            assert_eq!(loaded.completion_behavior(), CompletionBehavior::Stop);
+            assert!(!loaded.hardware_decoding_enabled());
+            assert_eq!(loaded.window_placement(), None);
+            assert!(loaded.shortcut_overrides().is_empty());
+        };
+        assert_defaults(&AppSettings::load_from(&path).unwrap());
+
+        std::fs::write(&path, b"broken").unwrap();
+        let mut recovered = AppSettings::load_from(&path).unwrap();
+        assert_defaults(&recovered);
+        assert!(recovered.take_storage_notice().is_some());
     }
 }

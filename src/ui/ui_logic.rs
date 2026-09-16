@@ -2179,6 +2179,14 @@ pub fn run(
                         return EventResult::Propagate;
                     }
 
+                    if app.get_reset_settings_prompt_visible() {
+                        if code == KeyCode::Escape {
+                            app.set_reset_settings_prompt_visible(false);
+                            return EventResult::PreventDefault;
+                        }
+                        return EventResult::Propagate;
+                    }
+
                     if app.get_converter_visible() {
                         if code == KeyCode::Escape {
                             app.set_converter_visible(false);
@@ -3140,6 +3148,84 @@ pub fn run(
                 app.set_shortcut_capture_action(-1);
                 app.set_shortcut_capture_error("".into());
             }
+        });
+    }
+
+    {
+        let tx = tx.clone();
+        let app_weak = app.as_weak();
+        let shortcut_registry = shortcut_registry.clone();
+        let shortcut_edit = shortcut_edit.clone();
+        let settings = settings.clone();
+        let command_items = command_items.clone();
+
+        app.on_reset_settings(move || {
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
+            let defaults = AppSettings::default();
+
+            let Ok(mut shortcuts) = shortcut_registry.lock() else {
+                app.set_error_message("Не удалось получить доступ к горячим клавишам".into());
+                app.set_error_visible(true);
+                return;
+            };
+            let Ok(mut stored_settings) = settings.lock() else {
+                app.set_error_message("Не удалось получить доступ к настройкам".into());
+                app.set_error_visible(true);
+                return;
+            };
+            stored_settings.reset_to_defaults();
+            if let Err(error) = stored_settings.save_if_dirty() {
+                app.set_error_message(format!("Не удалось сбросить настройки: {error}").into());
+                app.set_error_visible(true);
+                return;
+            }
+            shortcuts.reset();
+            set_command_palette_items(&command_items, app.get_command_query().as_str(), &shortcuts);
+            drop(shortcuts);
+            drop(stored_settings);
+
+            if let Ok(mut edit) = shortcut_edit.lock() {
+                edit.pending = None;
+            }
+            app.set_shortcut_capture_action(-1);
+            app.set_shortcut_capture_recording(false);
+            app.set_shortcut_capture_focused(false);
+            app.set_shortcut_capture_valid(false);
+            app.set_shortcut_capture_preview("".into());
+            app.set_shortcut_capture_error("".into());
+
+            app.set_theme_mode(defaults.theme().ui_index());
+            app.set_accent_mode(defaults.accent().ui_index());
+            app.set_volume(defaults.default_volume());
+            app.set_speed(defaults.default_speed());
+            app.set_folder_loop_enabled(defaults.completion_behavior().repeats_playlist());
+            app.set_hardware_decoding_enabled(defaults.hardware_decoding_enabled());
+            app.set_settings_reset_done(true);
+            app.set_reset_settings_prompt_visible(false);
+            app.set_notice_message("Настройки восстановлены".into());
+            app.set_notice_visible(true);
+
+            let _ = tx.send(Command::SetDarkTheme(app.get_dark_theme()));
+            let _ = tx.send(Command::SetVolume(
+                f64::from(defaults.default_volume()) * 100.0,
+            ));
+            let _ = tx.send(Command::SetSpeed(f64::from(defaults.default_speed())));
+            let _ = tx.send(Command::SetFolderLoop(
+                defaults.completion_behavior().repeats_playlist(),
+            ));
+            let _ = tx.send(Command::SetHardwareDecoding(
+                defaults.hardware_decoding_enabled(),
+            ));
+            app.window().request_redraw();
+
+            let notice_app = app.as_weak();
+            slint::Timer::single_shot(std::time::Duration::from_millis(2600), move || {
+                if let Some(app) = notice_app.upgrade() {
+                    app.set_notice_visible(false);
+                }
+            });
         });
     }
 
