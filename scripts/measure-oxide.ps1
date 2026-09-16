@@ -29,6 +29,13 @@ param(
     [ValidateLength(0, 1000)]
     [string]$Notes = '',
 
+    [ValidateRange(0, 300)]
+    [int]$WarmupSeconds = 0,
+
+    [switch]$AutomaticIdle,
+
+    [switch]$CloseAfterMeasurement,
+
     [switch]$ValidateOnly
 )
 
@@ -84,6 +91,28 @@ function Invoke-TextCommand {
     catch {
         return "unavailable: $($_.Exception.Message)"
     }
+}
+
+function Close-BenchmarkProcess {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Diagnostics.Process]$Process
+    )
+
+    $Process.Refresh()
+    if ($Process.HasExited) {
+        return
+    }
+
+    if (-not $Process.CloseMainWindow()) {
+        throw "Не удалось запросить обычное закрытие Oxide PID $($Process.Id). Серия остановлена; закройте только это окно вручную."
+    }
+
+    if (-not $Process.WaitForExit(10000)) {
+        throw "Oxide PID $($Process.Id) не завершился за 10 секунд. Серия остановлена, процесс принудительно не завершён."
+    }
+
+    Write-Host "Oxide PID $($Process.Id) корректно закрыт."
 }
 
 function Get-WindowSnapshot {
@@ -194,6 +223,9 @@ $videoScenario = $Scenario -eq 'video-1080p' -or $Scenario -eq 'video-4k'
 if ($videoScenario -and ($DecoderMode -eq 'not-recorded' -or $RendererBackend -eq 'not-recorded')) {
     throw 'Для video-сценария явно укажите -DecoderMode и -RendererBackend.'
 }
+if ($AutomaticIdle -and $Scenario -ne 'idle') {
+    throw '-AutomaticIdle разрешён только для сценария idle: медиа-сценарии требуют ручной проверки состояния перед замером.'
+}
 $mediaDescriptor = if ([string]::IsNullOrWhiteSpace($MediaPath)) {
     $null
 }
@@ -239,7 +271,13 @@ $instructions = switch ($Scenario) {
 $process = Start-Process -FilePath $executablePath -WorkingDirectory $repository -WindowStyle Normal -PassThru
 Write-Host "Oxide запущен с PID $($process.Id)."
 Write-Host $instructions
-Read-Host 'Настройте сценарий, дождитесь стабилизации и нажмите Enter для начала замера'
+if (-not $AutomaticIdle) {
+    Read-Host 'Настройте сценарий, дождитесь стабилизации и нажмите Enter для начала замера'
+}
+if ($WarmupSeconds -gt 0) {
+    Write-Host "Прогрев перед замером: $WarmupSeconds с."
+    Start-Sleep -Seconds $WarmupSeconds
+}
 $process.Refresh()
 if ($process.HasExited) {
     throw "Oxide завершился до начала замера с кодом $($process.ExitCode)"
@@ -334,7 +372,7 @@ $powerLineStatus = try {
 catch {
     "unavailable: $($_.Exception.Message)"
 }
-$workingTree = Invoke-TextCommand -FilePath 'git' -Arguments @('-C', $repository, 'status', '--porcelain')
+$workingTree = Invoke-TextCommand -FilePath 'git' -Arguments @('-C', $repository, 'status', '--porcelain', '--untracked-files=no')
 $firstSample = if ($samples.Count -gt 0) { $samples[0] } else { $null }
 $lastSample = if ($samples.Count -gt 0) { $samples[$samples.Count - 1] } else { $null }
 $summary = [ordered]@{
@@ -407,5 +445,10 @@ else {
     Write-Warning "Параметры окна не зафиксированы: $($windowSnapshot.reason)"
 }
 if (-not $process.HasExited) {
-    Write-Host 'Oxide оставлен открытым — закройте его вручную после нужных проверок.'
+    if ($CloseAfterMeasurement) {
+        Close-BenchmarkProcess -Process $process
+    }
+    else {
+        Write-Host 'Oxide оставлен открытым — закройте его вручную после нужных проверок.'
+    }
 }
