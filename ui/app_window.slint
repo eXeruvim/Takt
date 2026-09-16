@@ -108,6 +108,7 @@ export component AppWindow inherits Window {
     in-out property <bool> fullscreen_mode: false;
     in-out property <bool> picture_in_picture: false;
     in-out property <bool> window_active: true;
+    in-out property <float> window_scale_factor: 1.0;
     out property <bool> window_maximized: self.maximized;
     out property <bool> edge_to_edge: self.maximized || self.fullscreen_mode;
     in-out property <int> shortcut_capture_action: -1;
@@ -125,6 +126,7 @@ export component AppWindow inherits Window {
     finish_shortcut_close => command-palette.finish-close();
     in-out property <bool> shortcut_capture_valid: false;
     in-out property <string> shortcut_capture_preview: "";
+    in-out property <int> shortcut_saved_action: -1;
     in-out property <bool> command_palette_visible: false;
     in-out property <string> command_query: "";
     in property <[CommandEntry]> command_items;
@@ -171,7 +173,7 @@ export component AppWindow inherits Window {
         && !error_visible && !drop_target_visible;
     out property <length> controls_top_zone: Theme.top-bar-height + Theme.space-2;
     out property <length> controls_bottom_zone: media_presented
-        ? Theme.player-controls-height
+        ? Theme.player-controls-height + (self.width < 1080px ? Theme.space-6 : 0px)
         : 0px;
     out property <length> video_top_inset: media_presented && !integrated_video_renderer
         ? Theme.top-bar-height : 0px;
@@ -921,11 +923,13 @@ export component AppWindow inherits Window {
 
             command-palette := CommandPaletteOverlay {
                 open: root.command_palette_visible;
+                scale-factor: root.window_scale_factor;
                 query <=> root.command_query;
                 commands: root.command_items;
                 media-loaded: root.media_loaded;
                 audio-media: root.audio_media;
                 capture-action: root.shortcut_capture_action;
+                saved-action: root.shortcut_saved_action;
                 window-active: root.window_active;
                 error-message: root.shortcut_capture_error;
                 recording <=> root.shortcut_capture_recording;

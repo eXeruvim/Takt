@@ -27,7 +27,7 @@ component PaletteHint inherits HorizontalLayout {
         border-color: Theme.border-default;
         UiText {
             text: root.key;
-            font-size: Theme.text-xs;
+            font-size: Theme.text-small;
             color: Theme.text-secondary;
             horizontal-alignment: center;
             vertical-alignment: center;
@@ -48,6 +48,7 @@ component CommandRow inherits Rectangle {
     in property <bool> can-execute;
     in property <bool> active;
     in property <bool> editing;
+    in property <bool> saved;
     in property <bool> blocked;
     in property <bool> recording;
     in property <bool> can-save;
@@ -82,10 +83,11 @@ component CommandRow inherits Rectangle {
         height: 56px;
         // Only the outer card clips corners while its editor is expanded.
         border-radius: editor.height > 0px ? 0px : Theme.radius-medium;
-        background: root.selected ? Theme.accent-subtle
+        background: root.saved ? Theme.success-subtle
+            : root.selected ? Theme.accent-subtle
             : hit.pressed ? Theme.surface-pressed
             : hit.has-hover ? Theme.surface-hover : transparent;
-        animate background { duration: Theme.motion-fast; }
+        animate background { duration: Theme.motion-normal; }
     }
     hit := TouchArea {
         x: 0px;
@@ -101,7 +103,9 @@ component CommandRow inherits Rectangle {
         y: Theme.space-2;
         width: 3px;
         height: 56px - Theme.space-4;
-        background: Theme.surface-selected;
+        background: root.saved ? Theme.success : Theme.surface-selected;
+
+        animate background { duration: Theme.motion-normal; }
     }
     HorizontalLayout {
         // A fixed-height layout otherwise centers itself in the expanded row.
@@ -123,6 +127,7 @@ component CommandRow inherits Rectangle {
             UiText {
                 text: root.entry.description;
                 variant: TextVariant.caption;
+                font-size: 13px;
                 color: Theme.text-secondary;
                 overflow: elide;
             }
@@ -135,6 +140,7 @@ component CommandRow inherits Rectangle {
             enabled: (root.enabled || root.editing) && !root.blocked;
             active: root.active;
             editing: root.editing;
+            saved: root.saved;
             can-restore: root.can-restore;
             default-shortcut: root.entry.default-shortcut;
             edit => { if (root.editing) { root.activate(); } else { root.edit(); } }
@@ -169,12 +175,14 @@ component CommandRow inherits Rectangle {
 
 export component CommandPaletteOverlay inherits Rectangle {
     in property <bool> open;
+    in property <float> scale-factor: 1.0;
     in property <bool> window-active: true;
     in-out property <string> query;
     in property <[CommandEntry]> commands;
     in property <bool> media-loaded;
     in property <bool> audio-media;
     in property <int> capture-action: -1;
+    in property <int> saved-action: -1;
     in property <string> error-message;
     in-out property <bool> recording;
     in-out property <bool> close-pending: false;
@@ -245,10 +253,17 @@ export component CommandPaletteOverlay inherits Rectangle {
         }
     }
     panel := Rectangle {
-        width: min(parent.width - Theme.space-12, root.confirming-reset ? 520px : 680px);
-        height: min(parent.height - Theme.space-12, root.confirming-reset ? 260px : 560px);
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
+        property <float> safe-scale: max(0.1, root.scale-factor);
+        property <length> target-width: min(parent.width - Theme.space-12,
+            root.confirming-reset ? 520px : 680px);
+        property <length> target-height: min(parent.height - Theme.space-12,
+            root.confirming-reset ? 260px : 560px);
+        width: Math.floor(target-width / 1px * safe-scale) / safe-scale * 1px;
+        height: Math.floor(target-height / 1px * safe-scale) / safe-scale * 1px;
+        x: Math.floor((parent.width - self.width) / 2 / 1px * safe-scale)
+            / safe-scale * 1px;
+        y: Math.floor((parent.height - self.height) / 2 / 1px * safe-scale)
+            / safe-scale * 1px;
         border-radius: Theme.radius-xlarge;
         background: Theme.surface-modal;
         border-width: 1px;
@@ -313,6 +328,7 @@ export component CommandPaletteOverlay inherits Rectangle {
                                 blocked: root.close-pending;
                                 active: root.open && root.window-active && !root.close-pending;
                                 editing: root.editing && command.action == root.capture-action;
+                                saved: command.action == root.saved-action;
                                 recording: root.recording;
                                 can-save: root.can-save && root.has-unsaved-edit;
                                 candidate-valid: root.can-save;
@@ -374,6 +390,7 @@ export component CommandPaletteOverlay inherits Rectangle {
                                         : "Выполнение доступно только для видео. Сочетание можно изменить.")
                                     : "Клик по строке — выбрать, повторный — выполнить. По сочетанию — изменить.";
                                 variant: TextVariant.caption;
+                                font-size: 13px;
                                 color: Theme.text-secondary;
                                 horizontal-alignment: center;
                                 wrap: word-wrap;
@@ -413,10 +430,14 @@ export component CommandPaletteOverlay inherits Rectangle {
                 Rectangle { background: Theme.surface-modal; opacity: 0.45; }
                 TouchArea { }
                 Rectangle {
-                    width: min(parent.width - 48px, 420px);
+                    property <length> target-width: min(parent.width - 48px, 420px);
+                    width: Math.floor(target-width / 1px * panel.safe-scale)
+                        / panel.safe-scale * 1px;
                     height: 208px;
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
+                    x: Math.floor((parent.width - self.width) / 2 / 1px * panel.safe-scale)
+                        / panel.safe-scale * 1px;
+                    y: Math.floor((parent.height - self.height) / 2 / 1px * panel.safe-scale)
+                        / panel.safe-scale * 1px;
                     border-radius: Theme.radius-medium;
                     background: Theme.surface-modal;
                     border-width: 1px;

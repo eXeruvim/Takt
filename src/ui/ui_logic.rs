@@ -48,7 +48,7 @@ use slint::winit_030::{
         window::Theme as WinitTheme,
     },
 };
-use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
+use slint::{Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::{
     Foundation::{ERROR_SUCCESS, HWND, POINT},
@@ -975,7 +975,23 @@ fn set_command_palette_items(
     query: &str,
     shortcuts: &ShortcutRegistry,
 ) {
-    model.set_vec(command_palette_items_with_registry(query, shortcuts));
+    let items = command_palette_items_with_registry(query, shortcuts);
+    let can_update_in_place = model.row_count() == items.len()
+        && items.iter().enumerate().all(|(index, item)| {
+            model
+                .row_data(index)
+                .is_some_and(|current| current.action == item.action)
+        });
+
+    if can_update_in_place {
+        // Preserve repeater instances so an expanded shortcut row can finish
+        // its close animation after the saved label changes.
+        for (index, item) in items.into_iter().enumerate() {
+            model.set_row_data(index, item);
+        }
+    } else {
+        model.set_vec(items);
+    }
 }
 
 fn conversion_preset_entries(audio_media: bool, audio_codec: &str) -> Vec<ConversionPresetEntry> {
@@ -1892,6 +1908,7 @@ pub fn run(
     )?;
     crate::ui::shortcut_close::install(&app);
     app.set_app_version(format!("v{}", env!("CARGO_PKG_VERSION")).into());
+    app.set_window_scale_factor(app.window().scale_factor());
     let settings = Arc::new(Mutex::new(AppSettings::load_default()));
     #[cfg(target_os = "windows")]
     app.set_system_dark_theme(windows_prefers_dark_apps().unwrap_or(false));
@@ -2073,7 +2090,8 @@ pub fn run(
                     }
                     window.request_redraw();
                 }
-                WindowEvent::ScaleFactorChanged { .. } => {
+                WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                    app.set_window_scale_factor(*scale_factor as f32);
                     #[cfg(target_os = "windows")]
                     {
                         sync_native_window_resizable(window, app.get_fullscreen_mode());
@@ -3238,6 +3256,7 @@ pub fn run(
                 && let Ok(mut edit) = shortcut_edit.lock()
             {
                 edit.pending = None;
+                app.set_shortcut_saved_action(-1);
                 app.set_shortcut_capture_valid(false);
                 app.set_shortcut_capture_preview("".into());
                 app.set_shortcut_capture_error("".into());
@@ -3297,6 +3316,16 @@ pub fn run(
                 persist_shortcuts(&app, &settings, &shortcuts);
                 app.set_shortcut_capture_action(-1);
                 app.set_shortcut_capture_error("".into());
+                app.set_shortcut_saved_action(action as i32);
+
+                let feedback_app = app.as_weak();
+                slint::Timer::single_shot(std::time::Duration::from_millis(1600), move || {
+                    if let Some(app) = feedback_app.upgrade()
+                        && app.get_shortcut_saved_action() == action as i32
+                    {
+                        app.set_shortcut_saved_action(-1);
+                    }
+                });
             }
         });
     }

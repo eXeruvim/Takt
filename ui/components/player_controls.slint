@@ -24,6 +24,9 @@ export component PlayerControls inherits Rectangle {
     in property <string> next_file;
     private property <bool> show_remaining_time: true;
     out property <bool> show-volume-slider: self.width >= 1080px;
+    out property <bool> compact-volume-visible: !show-volume-slider
+        && (volume-button.has-hover || compact-volume-hover.has-hover
+            || compact-volume-slider.has-hover || compact-volume-slider.is-dragging);
     out property <bool> show-secondary-actions: self.width >= 900px;
     out property <length> group-spacing: self.width >= 1800px
         ? Theme.space-5
@@ -412,6 +415,47 @@ export component PlayerControls inherits Rectangle {
                             animate opacity {
                                 duration: Theme.motion-normal;
                                 easing: cubic-bezier(0.2, 0, 0, 1);
+                            }
+                        }
+
+                        compact-volume-popover := Rectangle {
+                            x: (parent.width - self.width) / 2;
+                            y: root.compact-volume-visible ? -self.height : -self.height + 4px;
+                            width: 168px;
+                            height: 56px;
+                            visible: root.compact-volume-visible || self.opacity > 0.01;
+                            opacity: root.compact-volume-visible ? 1 : 0;
+                            background: transparent;
+
+                            compact-volume-hover := TouchArea {
+                                width: parent.width;
+                                height: parent.height;
+                            }
+
+                            Rectangle {
+                                width: parent.width;
+                                height: 48px;
+                                border-radius: Theme.radius-large;
+                                background: Theme.surface-popover;
+                                border-width: 1px;
+                                border-color: Theme.border-default;
+                                drop-shadow-color: Theme.shadow-high;
+                                drop-shadow-blur: Theme.elevation-low-blur;
+                                drop-shadow-offset-y: Theme.elevation-low-y;
+                            }
+
+                            compact-volume-slider := Slider {
+                                x: Theme.space-4;
+                                y: Theme.space-3;
+                                width: parent.width - Theme.space-8;
+                                value <=> root.volume;
+                                expand-on-hover: true;
+                                changed(value) => root.set_volume(value);
+                            }
+
+                            animate opacity, y {
+                                duration: Theme.motion-normal;
+                                easing: cubic-bezier(0.16, 1, 0.3, 1);
                             }
                         }
                     }
