@@ -20,7 +20,29 @@ use ui::event_delivery::{CONVERTER_EVENT_CAPACITY, PLAYER_EVENT_CAPACITY};
 
 mod shutdown;
 
+fn print_build_info_if_requested() -> bool {
+    if std::env::args_os().nth(1).as_deref() != Some(std::ffi::OsStr::new("--build-info")) {
+        return false;
+    }
+
+    println!(
+        "{}",
+        serde_json::json!({
+            "schema": 1,
+            "package_version": env!("CARGO_PKG_VERSION"),
+            "git_commit": env!("OXIDE_BUILD_GIT_COMMIT"),
+            "tracked_clean": env!("OXIDE_BUILD_TRACKED_CLEAN") == "true",
+            "tracked_state": env!("OXIDE_BUILD_TRACKED_CLEAN"),
+        })
+    );
+    true
+}
+
 fn main() -> anyhow::Result<()> {
+    if print_build_info_if_requested() {
+        return Ok(());
+    }
+
     let (ui_tx, player_rx, command_errors) = player::commands::channel();
     let (player_tx, ui_rx) = bounded::<ipc::Event>(PLAYER_EVENT_CAPACITY);
     let (converter_tx, converter_rx) =

@@ -36,6 +36,8 @@ param(
 
     [switch]$CloseAfterMeasurement,
 
+    [switch]$AllowUnverifiedBuild,
+
     [switch]$ValidateOnly
 )
 
@@ -90,6 +92,60 @@ function Invoke-TextCommand {
     }
     catch {
         return "unavailable: $($_.Exception.Message)"
+    }
+}
+
+function Get-OxideBuildDescriptor {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [Parameter(Mandatory = $true)]
+        [string]$WorkingDirectory
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.ArgumentList.Add('--build-info')
+
+    $probe = [System.Diagnostics.Process]::new()
+    $probe.StartInfo = $startInfo
+    try {
+        if (-not $probe.Start()) {
+            throw 'процесс проверки не запущен'
+        }
+        $stdout = $probe.StandardOutput.ReadToEndAsync()
+        $stderr = $probe.StandardError.ReadToEndAsync()
+        if (-not $probe.WaitForExit(5000)) {
+            $probe.Kill($true)
+            $probe.WaitForExit()
+            throw 'проверка версии не завершилась за 5 секунд; возможно, executable собран без поддержки --build-info'
+        }
+        $output = $stdout.Result.Trim()
+        $errorOutput = $stderr.Result.Trim()
+        if ($probe.ExitCode -ne 0) {
+            throw "код $($probe.ExitCode): $errorOutput"
+        }
+        try {
+            $descriptor = $output | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            throw "некорректный JSON build-info: $output"
+        }
+        if ($descriptor.schema -ne 1 -or [string]::IsNullOrWhiteSpace([string]$descriptor.git_commit)) {
+            throw 'неподдерживаемая схема build-info'
+        }
+        return $descriptor
+    }
+    catch {
+        throw "Не удалось проверить происхождение Oxide: $($_.Exception.Message)"
+    }
+    finally {
+        $probe.Dispose()
     }
 }
 
@@ -243,6 +299,16 @@ if (-not (Test-Path -LiteralPath $runtimePath -PathType Leaf)) {
     }
     [System.IO.File]::Copy($runtimeSource, $runtimePath, $false)
     Write-Host "Runtime подготовлен: $runtimePath"
+}
+$gitCommit = Invoke-TextCommand -FilePath 'git' -Arguments @('-C', $repository, 'rev-parse', 'HEAD')
+$buildDescriptor = Get-OxideBuildDescriptor -FilePath $executablePath -WorkingDirectory $repository
+if (-not $ValidateOnly -and -not $AllowUnverifiedBuild) {
+    if ([string]$buildDescriptor.git_commit -ne $gitCommit) {
+        throw "Profiling-сборка относится к commit $($buildDescriptor.git_commit), а рабочее дерево — к $gitCommit. Пересоберите после commit."
+    }
+    if ([string]$buildDescriptor.tracked_state -ne 'true') {
+        throw "Profiling-сборка создана из состояния '$($buildDescriptor.tracked_state)', а не из чистого commit. Пересоберите чистое дерево."
+    }
 }
 if ($ValidateOnly) {
     $probe = Get-Stats -Values @(1.0, 2.0, 3.0, 4.0)
@@ -422,7 +488,8 @@ $summary = [ordered]@{
         active_power_plan = $powerPlan
         power_line_status = $powerLineStatus
         oxide_window = $windowSnapshot
-        git_commit = Invoke-TextCommand -FilePath 'git' -Arguments @('-C', $repository, 'rev-parse', 'HEAD')
+        git_commit = $gitCommit
+        build_provenance = $buildDescriptor
         working_tree_clean = [string]::IsNullOrWhiteSpace($workingTree)
         working_tree_changes = $workingTree
         rustc = Invoke-TextCommand -FilePath 'rustc' -Arguments @('-Vv')

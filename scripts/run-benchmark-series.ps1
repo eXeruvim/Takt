@@ -83,6 +83,9 @@ if ($LASTEXITCODE -ne 0) {
 if (-not [string]::IsNullOrWhiteSpace($trackedChanges) -and -not $AllowDirty) {
     throw 'Для сопоставимой серии нужны закоммиченные отслеживаемые файлы. Завершите commit либо используйте -AllowDirty только для чернового прогона.'
 }
+if ($AllowDirty) {
+    $measureArguments.AllowUnverifiedBuild = $true
+}
 
 $automaticIdle = $Scenario -eq 'idle'
 Write-Host "Серия ${Scenario}: $Runs прогонов по $DurationSeconds с, прогрев $WarmupSeconds с."
