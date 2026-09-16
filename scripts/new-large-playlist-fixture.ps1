@@ -4,7 +4,9 @@ param(
     [int]$FileCount = 5100,
 
     [ValidateRange(10, 600)]
-    [int]$DurationSeconds = 30
+    [int]$DurationSeconds = 30,
+
+    [switch]$ValidateOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,15 +17,6 @@ $fixtureRoot = [System.IO.Path]::GetFullPath((Join-Path $repository '.tmp\benchm
 if (-not $fixtureRoot.StartsWith($repository + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Каталог fixture оказался вне репозитория: $fixtureRoot"
 }
-New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
-
-$timestamp = [DateTimeOffset]::Now.ToString('yyyyMMdd-HHmmss')
-$outputDirectory = Join-Path $fixtureRoot "large-playlist-$timestamp"
-if (Test-Path -LiteralPath $outputDirectory) {
-    throw "Каталог уже существует и не будет перезаписан: $outputDirectory"
-}
-New-Item -ItemType Directory -Path $outputDirectory | Out-Null
-
 $sampleRate = 44100
 $channels = 1
 $bitsPerSample = 16
@@ -32,6 +25,24 @@ $dataLength = [int64]$sampleRate * $channels * $bytesPerSample * $DurationSecond
 if ($dataLength -gt [int]::MaxValue) {
     throw 'WAV fixture превышает размер, поддерживаемый этим генератором'
 }
+
+$linksPerPhysicalFile = 800
+$physicalCopies = [Math]::Ceiling($FileCount / $linksPerPhysicalFile)
+if ($ValidateOnly) {
+    if ($physicalCopies -lt 1 -or $dataLength -le 0) {
+        throw 'Самопроверка параметров fixture завершилась ошибкой'
+    }
+    Write-Host 'Параметры, лимиты WAV и схема шардирования: OK'
+    return
+}
+
+New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
+$timestamp = [DateTimeOffset]::Now.ToString('yyyyMMdd-HHmmss')
+$outputDirectory = Join-Path $fixtureRoot "large-playlist-$timestamp"
+if (Test-Path -LiteralPath $outputDirectory) {
+    throw "Каталог уже существует и не будет перезаписан: $outputDirectory"
+}
+New-Item -ItemType Directory -Path $outputDirectory | Out-Null
 
 $padding = 'x' * 112
 $templateName = "benchmark-track-00000-$padding.wav"
@@ -70,7 +81,6 @@ finally {
     $stream.Dispose()
 }
 
-$linksPerPhysicalFile = 800
 $linkSource = $templatePath
 for ($index = 1; $index -lt $FileCount; $index++) {
     $name = "benchmark-track-{0:D5}-$padding.wav" -f $index
@@ -91,8 +101,34 @@ for ($index = 1; $index -lt $FileCount; $index++) {
 }
 Write-Progress -Activity 'Создание большой очереди' -Completed
 
-$physicalCopies = [Math]::Ceiling($FileCount / $linksPerPhysicalFile)
+$manifestPath = Join-Path $outputDirectory 'fixture.json'
+$manifest = [ordered]@{
+    schema = 1
+    kind = 'oxide-large-playlist'
+    file_count = $FileCount
+    duration_seconds = $DurationSeconds
+    audio = [ordered]@{
+        container = 'wav'
+        codec = 'pcm_s16le'
+        sample_rate_hz = $sampleRate
+        channels = $channels
+        bits_per_sample = $bitsPerSample
+    }
+    naming = [ordered]@{
+        pattern = 'benchmark-track-{index:D5}-{112 x characters}.wav'
+        unicode = $false
+    }
+    storage = [ordered]@{
+        hard_links_per_physical_file = $linksPerPhysicalFile
+        physical_copies = $physicalCopies
+    }
+}
+$manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+$manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash
+
 Write-Host "Готово: $outputDirectory"
+Write-Host "Паспорт: $manifestPath"
+Write-Host "SHA-256 паспорта: $manifestHash"
 Write-Host "Файлов: $FileCount; физических WAV-шардов: $physicalCopies"
 Write-Host "Физические данные: примерно $([Math]::Round($physicalCopies * (44 + $dataLength) / 1MB, 2)) МиБ"
 Write-Host 'Каталог не удаляется автоматически. После теста его можно удалить через Проводник.'

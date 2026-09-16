@@ -111,6 +111,7 @@ function Get-RunSignature {
         window_mode = $Run.run_configuration.window_mode
         theme = $Run.run_configuration.theme
         media_sha256 = Get-NestedValue -Object $Run -Path 'run_configuration.media.sha256'
+        workload_sha256 = Get-NestedValue -Object $Run -Path 'run_configuration.workload.sha256'
         os_version = $Run.environment.os_version
         os_build = $Run.environment.os_build
         processor = $Run.environment.processor

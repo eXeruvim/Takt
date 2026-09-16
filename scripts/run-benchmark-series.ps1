@@ -35,6 +35,8 @@ param(
 
     [string]$MediaPath = '',
 
+    [string]$WorkloadManifest = '',
+
     [ValidateLength(0, 1000)]
     [string]$Notes = '',
 
@@ -65,6 +67,7 @@ $measureArguments = @{
     WindowMode = $WindowMode
     Theme = $Theme
     MediaPath = $MediaPath
+    WorkloadManifest = $WorkloadManifest
     Notes = $Notes
     WarmupSeconds = $WarmupSeconds
 }

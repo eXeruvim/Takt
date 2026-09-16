@@ -26,6 +26,8 @@ param(
 
     [string]$MediaPath = '',
 
+    [string]$WorkloadManifest = '',
+
     [ValidateLength(0, 1000)]
     [string]$Notes = '',
 
@@ -266,6 +268,38 @@ function Get-MediaDescriptor {
     }
 }
 
+function Get-WorkloadDescriptor {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $resolved = [System.IO.Path]::GetFullPath($Path)
+    if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+        throw "Паспорт тестовой нагрузки не найден: $resolved"
+    }
+    try {
+        $manifest = Get-Content -LiteralPath $resolved -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "Не удалось прочитать паспорт тестовой нагрузки: $($_.Exception.Message)"
+    }
+    if ($manifest.schema -ne 1 -or $manifest.kind -ne 'oxide-large-playlist' -or $manifest.file_count -lt 1) {
+        throw 'Неподдерживаемый паспорт тестовой нагрузки'
+    }
+    $fixtureDirectory = Split-Path -Parent $resolved
+    $actualFileCount = @(Get-ChildItem -LiteralPath $fixtureDirectory -Filter '*.wav' -File -ErrorAction Stop).Count
+    if ($actualFileCount -ne [int]$manifest.file_count) {
+        throw "Паспорт ожидает $($manifest.file_count) WAV-файлов, найдено $actualFileCount. Fixture изменён или выбран не тот паспорт."
+    }
+    return [ordered]@{
+        kind = [string]$manifest.kind
+        file_count = [int]$manifest.file_count
+        duration_seconds = [int]$manifest.duration_seconds
+        sha256 = (Get-FileHash -LiteralPath $resolved -Algorithm SHA256).Hash
+    }
+}
+
 $repository = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $executablePath = [System.IO.Path]::GetFullPath($Executable)
 $expectedExecutable = [System.IO.Path]::GetFullPath((Join-Path $repository 'target\profiling\oxide.exe'))
@@ -282,11 +316,21 @@ if ($videoScenario -and ($DecoderMode -eq 'not-recorded' -or $RendererBackend -e
 if ($AutomaticIdle -and $Scenario -ne 'idle') {
     throw '-AutomaticIdle разрешён только для сценария idle: медиа-сценарии требуют ручной проверки состояния перед замером.'
 }
+$largePlaylistScenario = $Scenario -eq 'large-playlist'
+if ($largePlaylistScenario -and -not $ValidateOnly -and [string]::IsNullOrWhiteSpace($WorkloadManifest)) {
+    throw 'Для large-playlist укажите -WorkloadManifest из каталога созданного fixture.'
+}
 $mediaDescriptor = if ([string]::IsNullOrWhiteSpace($MediaPath)) {
     $null
 }
 else {
     Get-MediaDescriptor -Path $MediaPath
+}
+$workloadDescriptor = if ([string]::IsNullOrWhiteSpace($WorkloadManifest)) {
+    $null
+}
+else {
+    Get-WorkloadDescriptor -Path $WorkloadManifest
 }
 $runtimePath = Join-Path (Split-Path -Parent $executablePath) 'libmpv-2.dll'
 if (-not (Test-Path -LiteralPath $runtimePath -PathType Leaf)) {
@@ -455,6 +499,7 @@ $summary = [ordered]@{
         window_mode = $WindowMode
         theme = $Theme
         media = $mediaDescriptor
+        workload = $workloadDescriptor
         notes = $Notes
     }
     cpu_percent_total_capacity = Get-Stats -Values @($samples | ForEach-Object { [double]$_.cpu_percent })
