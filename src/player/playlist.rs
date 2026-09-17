@@ -212,13 +212,7 @@ impl DirectoryPlaylist {
     }
 
     pub fn items(&self) -> Vec<String> {
-        self.files
-            .iter()
-            .filter_map(|path| {
-                path.file_name()
-                    .map(|name| bounded_text(&name.to_string_lossy(), UI_TEXT_BYTES))
-            })
-            .collect()
+        playlist_labels(&self.files)
     }
 
     pub fn limit_notice(&self) -> Option<String> {
@@ -305,6 +299,10 @@ impl PlaylistAccumulator {
 }
 
 fn read_media_files(directory: &Path, priority: Option<&Path>) -> Result<PlaylistFiles> {
+    Ok(scan_media_files(directory, priority)?.finish())
+}
+
+fn scan_media_files(directory: &Path, priority: Option<&Path>) -> Result<PlaylistAccumulator> {
     let mut files = PlaylistAccumulator::new(PLAYLIST_LIMITS);
     if let Some(priority) = priority
         && !files.push(priority.to_path_buf())
@@ -325,7 +323,17 @@ fn read_media_files(directory: &Path, priority: Option<&Path>) -> Result<Playlis
         }
     }
 
-    Ok(files.finish())
+    Ok(files)
+}
+
+fn playlist_labels(files: &[PathBuf]) -> Vec<String> {
+    files
+        .iter()
+        .filter_map(|path| {
+            path.file_name()
+                .map(|name| bounded_text(&name.to_string_lossy(), UI_TEXT_BYTES))
+        })
+        .collect()
 }
 
 fn sort_paths_naturally(files: &mut [PathBuf]) {
@@ -334,6 +342,25 @@ fn sort_paths_naturally(files: &mut [PathBuf]) {
         let right = right.file_name().unwrap_or_default().to_string_lossy();
         natural_cmp(&left, &right)
     });
+}
+
+#[cfg(feature = "benchmark-tools")]
+#[allow(dead_code)]
+pub(crate) fn benchmark_scan_media_files(directory: &Path) -> Result<(Vec<PathBuf>, usize)> {
+    let files = scan_media_files(directory, None)?;
+    Ok((files.files, files.omitted_count))
+}
+
+#[cfg(feature = "benchmark-tools")]
+#[allow(dead_code)]
+pub(crate) fn benchmark_sort_paths(files: &mut [PathBuf]) {
+    sort_paths_naturally(files);
+}
+
+#[cfg(feature = "benchmark-tools")]
+#[allow(dead_code)]
+pub(crate) fn benchmark_playlist_labels(files: &[PathBuf]) -> Vec<String> {
+    playlist_labels(files)
 }
 
 fn random_seed() -> u64 {

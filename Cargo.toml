@@ -1,8 +1,17 @@
 [package]
 name = "oxide"
-version = "0.9.0-alpha.7"
+version = "0.9.0-alpha.8"
 edition = "2024"
 build = "build.rs"
+
+[features]
+default = []
+benchmark-tools = []
+
+[[bin]]
+name = "oxide-playlist-bench"
+path = "src/playlist_bench.rs"
+required-features = ["benchmark-tools"]
 
 [dependencies]
 slint = { version = "1.17.1", default-features = false, features = [
