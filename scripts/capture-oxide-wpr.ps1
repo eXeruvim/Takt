@@ -28,6 +28,9 @@ function Invoke-CheckedWpr {
 
     $output = (& wpr.exe @Arguments 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
+        if ($output -match '(?i)0xc5585011|profile system performance') {
+            throw 'Windows не разрешила системное профилирование. Запустите PowerShell от имени администратора либо выдайте учётной записи право «Profile system performance». WPR-сессия не начата.'
+        }
         throw "WPR завершился с кодом $LASTEXITCODE`: $output"
     }
     return $output
