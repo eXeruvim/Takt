@@ -22,7 +22,7 @@ use output::{WorkingOutput, publish_output};
 use process::ManagedChild;
 use queue::PendingJobs;
 
-const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const ACTIVE_WORK_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_ERROR_LOG_BYTES: usize = 32 * 1024;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const PROBE_OUTPUT_LIMIT: usize = 64 * 1024;
@@ -362,7 +362,21 @@ pub fn run(
             active_job = spawn_job(installation, job, &tx, control.cancel.clone());
         }
 
-        match rx.recv_timeout(WORKER_POLL_INTERVAL) {
+        // With no conversion running there is nothing to poll: sleep until a
+        // real request arrives. During an active job the dispatcher still
+        // wakes periodically to join it and start the next queued request.
+        let command = if active_job.is_some() {
+            rx.recv_timeout(ACTIVE_WORK_POLL_INTERVAL)
+        } else {
+            rx.recv()
+                .map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected)
+        };
+        // Shutdown can race with a command that wakes the idle receiver. Do not
+        // start new filesystem or FFmpeg work after the UI has begun exiting.
+        if shutdown.load(Ordering::Acquire) {
+            break;
+        }
+        match command {
             Ok(ConverterCommand::RefreshAvailability) => {
                 if active_job.is_none() {
                     installation = discover_ffmpeg(&shutdown);
@@ -562,7 +576,7 @@ fn probe_ffmpeg(
                     Error::new(ErrorKind::InvalidData, "FFmpeg version header missing")
                 });
         }
-        thread::sleep(WORKER_POLL_INTERVAL);
+        thread::sleep(ACTIVE_WORK_POLL_INTERVAL);
     }
 }
 
@@ -657,7 +671,7 @@ fn run_job_with(
         output: output.to_path_buf(),
     };
     loop {
-        match tx.send_timeout(started, WORKER_POLL_INTERVAL) {
+        match tx.send_timeout(started, ACTIVE_WORK_POLL_INTERVAL) {
             Ok(()) => break,
             Err(crossbeam_channel::SendTimeoutError::Disconnected(_)) => return,
             Err(crossbeam_channel::SendTimeoutError::Timeout(event)) => {
@@ -971,7 +985,7 @@ fn monitor_child_result(child: &mut ManagedChild, monitor: &JobMonitor<'_>) -> R
                 });
                 return Ok(());
             }
-            None => thread::sleep(WORKER_POLL_INTERVAL),
+            None => thread::sleep(ACTIVE_WORK_POLL_INTERVAL),
         }
     }
 }
