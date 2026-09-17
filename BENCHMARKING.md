@@ -246,3 +246,18 @@ Windows Performance Analyzer из Windows Performance Toolkit. Наличие WP
 ```powershell
 .\scripts\capture-oxide-wpr.ps1 -Scenario idle -Profile CPU -ValidateOnly
 ```
+
+После записи CPU-трассы экспортировать срезы Oxide по модулю, функции, sampled
+потоку и точным context switches можно без ручной настройки таблиц WPA. Скрипт
+по умолчанию выбирает самый свежий паспорт в `benchmark-results/wpr`, берёт из
+него точный PID процесса и сохраняет производные CSV рядом в игнорируемом
+каталоге `analysis`. Там же создаётся `oxide-cpu-summary.json` с агрегатами по
+модулям, функциям, потокам и источникам пробуждения самого активного потока:
+
+```powershell
+.\scripts\export-oxide-wpa.ps1
+```
+
+`-Symbols` включает разрешение имён только через PDB текущей сборки из
+`target/profiling`; публичные symbol servers скрипт намеренно не подключает.
+Без флага используются лишь уже созданные symcache. Исходная ETL не изменяется.
