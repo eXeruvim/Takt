@@ -218,8 +218,9 @@ impl DirectoryPlaylist {
     pub fn limit_notice(&self) -> Option<String> {
         (self.omitted_count > 0).then(|| {
             format!(
-                "Очередь ограничена {} файлами и бюджетом памяти: ещё {} не добавлено",
-                MAX_PLAYLIST_FILES, self.omitted_count
+                "Файлов в очереди: {}. Ещё {} не добавлено, чтобы плеер работал быстро.",
+                self.files.len(),
+                self.omitted_count
             )
         })
     }
@@ -646,5 +647,19 @@ mod tests {
         assert_eq!(files.files.len(), 3);
         assert_eq!(files.omitted_count, 2);
         assert!(files.files.contains(&PathBuf::from("selected.mp4")));
+    }
+
+    #[test]
+    fn playlist_limit_notice_explains_the_result_in_plain_language() {
+        let playlist = DirectoryPlaylist {
+            files: ["one.mp4", "two.mp4"].map(PathBuf::from).to_vec(),
+            current_index: 0,
+            omitted_count: 3,
+        };
+
+        assert_eq!(
+            playlist.limit_notice().as_deref(),
+            Some("Файлов в очереди: 2. Ещё 3 не добавлено, чтобы плеер работал быстро.")
+        );
     }
 }
