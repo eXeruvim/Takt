@@ -1959,7 +1959,7 @@ pub fn run(
     #[cfg(target_os = "windows")]
     let picture_in_picture_state = Arc::new(Mutex::new(PictureInPictureState::default()));
     #[cfg(target_os = "windows")]
-    let video_resize_timer = slint::Timer::default();
+    let video_resize_timer = Rc::new(slint::Timer::default());
     #[cfg(target_os = "windows")]
     let window_drag_state = Arc::new(Mutex::new(WindowDragState::default()));
 
@@ -3389,10 +3389,44 @@ pub fn run(
 
     #[cfg(target_os = "windows")]
     {
+        // The native child HWND is only used when integrated OpenGL rendering
+        // is unavailable. Register its event bridge once, but keep it dormant
+        // for the normal integrated path so idle windows do not wake every 50ms.
+        let timer_app = app.as_weak();
+        let timer_native_fullscreen = native_fullscreen.clone();
+        video_resize_timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(50),
+            move || {
+                let Some(app) = timer_app.upgrade() else {
+                    return;
+                };
+                if VideoHost::take_fullscreen_request() {
+                    toggle_native_fullscreen(&app, &timer_native_fullscreen);
+                }
+                if VideoHost::take_pointer_activity() {
+                    app.invoke_reveal_controls();
+                }
+                if VideoHost::take_primary_click() {
+                    if app.get_info_drawer_visible() {
+                        app.invoke_toggle_info();
+                    }
+                    if app.get_playlist_drawer_visible() {
+                        app.invoke_toggle_playlist();
+                    }
+                    if app.get_settings_drawer_visible() {
+                        app.invoke_toggle_settings();
+                    }
+                }
+            },
+        );
+        video_resize_timer.stop();
+
         let app_weak = app.as_weak();
         let tx_handle = tx.clone();
         let notifier_video_host = video_host.clone();
         let notifier_render_source = render_source.clone();
+        let notifier_video_timer = Rc::clone(&video_resize_timer);
         let mut gl_renderer = None::<MpvOpenGlRenderer>;
         let mut render_api_failed = false;
 
@@ -3460,6 +3494,7 @@ pub fn run(
 
                                 match renderer {
                                     Ok(renderer) => {
+                                        notifier_video_timer.stop();
                                         gl_renderer = Some(renderer);
                                         app.set_integrated_video_renderer(true);
                                         let _ = tx_handle.send(Command::RenderApiReady);
@@ -3476,6 +3511,8 @@ pub fn run(
                                         ) {
                                             app.set_error_message(error.to_string().into());
                                             app.set_error_visible(true);
+                                        } else {
+                                            notifier_video_timer.restart();
                                         }
                                     }
                                 }
@@ -3513,6 +3550,7 @@ pub fn run(
                         }
                     }
                     slint::RenderingState::RenderingTeardown => {
+                        notifier_video_timer.stop();
                         gl_renderer = None;
                         *video_host = None;
                     }
@@ -3520,35 +3558,6 @@ pub fn run(
                 }
             })
             .ok();
-
-        let timer_app = app.as_weak();
-        let timer_native_fullscreen = native_fullscreen.clone();
-        video_resize_timer.start(
-            slint::TimerMode::Repeated,
-            Duration::from_millis(50),
-            move || {
-                let Some(app) = timer_app.upgrade() else {
-                    return;
-                };
-                if VideoHost::take_fullscreen_request() {
-                    toggle_native_fullscreen(&app, &timer_native_fullscreen);
-                }
-                if VideoHost::take_pointer_activity() {
-                    app.invoke_reveal_controls();
-                }
-                if VideoHost::take_primary_click() {
-                    if app.get_info_drawer_visible() {
-                        app.invoke_toggle_info();
-                    }
-                    if app.get_playlist_drawer_visible() {
-                        app.invoke_toggle_playlist();
-                    }
-                    if app.get_settings_drawer_visible() {
-                        app.invoke_toggle_settings();
-                    }
-                }
-            },
-        );
     }
 
     let weak = app.as_weak();
