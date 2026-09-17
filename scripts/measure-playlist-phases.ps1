@@ -102,6 +102,7 @@ $report = Get-Content -LiteralPath $outputPath -Raw -Encoding utf8 | ConvertFrom
 if ($report.schema -ne 1 -or $report.kind -ne 'oxide-playlist-phases' -or $report.workload.sha256 -ne $workloadHash) {
     throw 'Фазовый benchmark записал некорректный отчёт'
 }
-Write-Host ("Фазы p50: scan {0:N3} мс · sort {1:N3} мс · labels {2:N3} мс · total {3:N3} мс" -f `
+Write-Host ("Фазы p50: scan {0:N3} мс · sort {1:N3} мс · labels {2:N3} мс · shared {3:N3} мс · model {4:N4} мс · total {5:N3} мс" -f `
     $report.metrics_ms.directory_scan.p50, $report.metrics_ms.natural_sort.p50, `
-    $report.metrics_ms.ui_labels.p50, $report.metrics_ms.total.p50)
+    $report.metrics_ms.ui_labels.p50, $report.metrics_ms.shared_strings.p50, `
+    $report.metrics_ms.slint_vec_model.p50, $report.metrics_ms.total.p50)

@@ -18,6 +18,7 @@ use player::playlist::{
     benchmark_playlist_labels, benchmark_scan_media_files, benchmark_sort_paths,
 };
 use serde_json::json;
+use slint::{ModelRc, SharedString, VecModel};
 
 struct Arguments {
     directory: PathBuf,
@@ -33,7 +34,20 @@ struct Samples {
     scan_ms: Vec<f64>,
     sort_ms: Vec<f64>,
     labels_ms: Vec<f64>,
+    shared_strings_ms: Vec<f64>,
+    model_ms: Vec<f64>,
     total_ms: Vec<f64>,
+}
+
+struct Sample {
+    scan_ms: f64,
+    sort_ms: f64,
+    labels_ms: f64,
+    shared_strings_ms: f64,
+    model_ms: f64,
+    total_ms: f64,
+    kept_files: usize,
+    omitted_files: usize,
 }
 
 fn build_info() -> serde_json::Value {
@@ -150,7 +164,7 @@ fn statistics(values: &[f64]) -> serde_json::Value {
     })
 }
 
-fn run_sample(directory: &Path) -> Result<(f64, f64, f64, f64, usize, usize)> {
+fn run_sample(directory: &Path) -> Result<Sample> {
     let total_started = Instant::now();
 
     let scan_started = Instant::now();
@@ -163,17 +177,30 @@ fn run_sample(directory: &Path) -> Result<(f64, f64, f64, f64, usize, usize)> {
 
     let labels_started = Instant::now();
     let labels = benchmark_playlist_labels(black_box(&files));
-    black_box(&labels);
     let labels_ms = elapsed_ms(labels_started);
 
-    Ok((
+    let shared_strings_started = Instant::now();
+    let shared_strings = labels
+        .into_iter()
+        .map(SharedString::from)
+        .collect::<Vec<_>>();
+    let shared_strings_ms = elapsed_ms(shared_strings_started);
+
+    let model_started = Instant::now();
+    let model: ModelRc<SharedString> = ModelRc::new(VecModel::from(shared_strings));
+    black_box(&model);
+    let model_ms = elapsed_ms(model_started);
+
+    Ok(Sample {
         scan_ms,
         sort_ms,
         labels_ms,
-        elapsed_ms(total_started),
-        files.len(),
-        omitted_count,
-    ))
+        shared_strings_ms,
+        model_ms,
+        total_ms: elapsed_ms(total_started),
+        kept_files: files.len(),
+        omitted_files: omitted_count,
+    })
 }
 
 fn main() -> Result<()> {
@@ -202,13 +229,15 @@ fn main() -> Result<()> {
     let mut kept_files = 0;
     let mut omitted_files = 0;
     for _ in 0..arguments.iterations {
-        let (scan, sort, labels, total, kept, omitted) = run_sample(&arguments.directory)?;
-        kept_files = kept;
-        omitted_files = omitted;
-        samples.scan_ms.push(scan);
-        samples.sort_ms.push(sort);
-        samples.labels_ms.push(labels);
-        samples.total_ms.push(total);
+        let sample = run_sample(&arguments.directory)?;
+        kept_files = sample.kept_files;
+        omitted_files = sample.omitted_files;
+        samples.scan_ms.push(sample.scan_ms);
+        samples.sort_ms.push(sample.sort_ms);
+        samples.labels_ms.push(sample.labels_ms);
+        samples.shared_strings_ms.push(sample.shared_strings_ms);
+        samples.model_ms.push(sample.model_ms);
+        samples.total_ms.push(sample.total_ms);
     }
 
     if kept_files.saturating_add(omitted_files) != arguments.expected_files {
@@ -240,6 +269,8 @@ fn main() -> Result<()> {
             "directory_scan": statistics(&samples.scan_ms),
             "natural_sort": statistics(&samples.sort_ms),
             "ui_labels": statistics(&samples.labels_ms),
+            "shared_strings": statistics(&samples.shared_strings_ms),
+            "slint_vec_model": statistics(&samples.model_ms),
             "total": statistics(&samples.total_ms),
         },
     });
