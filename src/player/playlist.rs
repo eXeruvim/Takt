@@ -318,7 +318,13 @@ fn scan_media_files(directory: &Path, priority: Option<&Path>) -> Result<Playlis
         if priority.is_some_and(|priority| candidate == priority) {
             continue;
         }
-        if candidate.is_file() && is_media_file(&candidate) {
+        let is_file = match entry.file_type() {
+            Ok(file_type) if file_type.is_file() => true,
+            Ok(file_type) if file_type.is_symlink() => candidate.is_file(),
+            Ok(_) => false,
+            Err(_) => candidate.is_file(),
+        };
+        if is_file && is_media_file(&candidate) {
             files.push(candidate);
         }
     }
