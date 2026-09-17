@@ -209,3 +209,37 @@ cargo build `
   рост private bytes, handles или threads после одинаковых завершённых циклов.
 - Итоговый baseline 1.0 требует также frame-time/GPU-метрик из внешнего
   профилировщика; этот скрипт их не подменяет.
+
+## Системная трасса CPU, GPU и пробуждений
+
+Обычная выборка раз в 250 мс не показывает короткие функции, context switches и
+причину пробуждения потока. Для этого используется встроенный Windows Performance
+Recorder. Сначала соберите profiling-версию из чистого commit, затем запишите
+отдельную системную ETL-трассу:
+
+```powershell
+.\scripts\capture-oxide-wpr.ps1 -Scenario idle -Profile CPU -DurationSeconds 30
+.\scripts\capture-oxide-wpr.ps1 -Scenario video-1080p -Profile GPU -DurationSeconds 30 -MediaPath C:\media\sample.mp4
+```
+
+Для media-сценария скрипт откроет Oxide и подождёт подтверждения после настройки
+воспроизведения. `idle` выполняется автоматически. Доступны штатные профили `CPU`,
+`GPU`, `Power`, `GeneralProfile`, `Heap` и `Video`. Один прогон отвечает на один
+вопрос; не объединяйте несколько тяжёлых профилей и не сравнивайте разные режимы.
+
+Скрипт отказывается работать с dirty/устаревшей сборкой и не вмешивается, если WPR
+уже занят другой записью. При ошибке он отменяет только начатую им сессию и
+запрашивает обычное закрытие созданного окна — принудительное завершение не
+используется. Трасса и JSON-паспорт сохраняются в `benchmark-results/wpr`.
+
+ETL является системной трассой: она содержит имена процессов и может содержать
+локальные пути. Каталог исключён из Git; не публикуйте файл без проверки.
+Для просмотра стеков, CPU Usage, Context Switches, GPU engines и VRAM нужен
+Windows Performance Analyzer из Windows Performance Toolkit. Наличие WPR без WPA
+позволяет записать данные, но не даёт честно определить горячие функции.
+
+Самопроверка путей и доступности профиля без запуска приложения и записи ETL:
+
+```powershell
+.\scripts\capture-oxide-wpr.ps1 -Scenario idle -Profile CPU -ValidateOnly
+```
