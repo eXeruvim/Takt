@@ -1,5 +1,27 @@
 use super::*;
-use std::time::Instant;
+use std::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Instant,
+};
+
+#[test]
+fn accepted_commands_and_quit_wake_the_player() {
+    let (tx, rx, _) = channel();
+    let wake_count = Arc::new(AtomicUsize::new(0));
+    let callback_count = Arc::clone(&wake_count);
+    rx.install_waker(move || {
+        callback_count.fetch_add(1, Ordering::Relaxed);
+    });
+    wake_count.store(0, Ordering::Relaxed);
+
+    tx.send(Command::SetVolume(40.0)).unwrap();
+    tx.send(Command::Quit).unwrap();
+
+    assert_eq!(wake_count.load(Ordering::Relaxed), 2);
+    drop(rx);
+    assert_eq!(tx.send(Command::TogglePlay), Err(SendError::Disconnected));
+    assert_eq!(wake_count.load(Ordering::Relaxed), 2);
+}
 
 #[test]
 fn stalled_player_keeps_only_latest_adjacent_absolute_value() {

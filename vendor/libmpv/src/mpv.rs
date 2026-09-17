@@ -454,6 +454,17 @@ impl Drop for Mpv {
 }
 
 impl Mpv {
+    /// Interrupt a blocking [`events::EventContext::wait_event`] call.
+    ///
+    /// libmpv explicitly permits this operation from any thread. The interrupted
+    /// wait returns either the next queued event or no event when the wakeup was
+    /// the only reason it resumed.
+    pub fn wakeup(&self) {
+        // SAFETY: `self.ctx` remains valid for the lifetime of `self`, and
+        // libmpv documents mpv_wakeup as thread-safe.
+        unsafe { libmpv_sys::mpv_wakeup(self.ctx.as_ptr()) };
+    }
+
     /// Create a new `Mpv`.
     /// The default settings can be probed by running: `$ mpv --show-profile=libmpv`.
     pub fn new() -> Result<Mpv> {

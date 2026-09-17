@@ -744,6 +744,9 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     let mut events = mpv.create_event_context();
     let mut output_ready = !cfg!(target_os = "windows");
 
+    let wake_mpv = Arc::clone(&mpv);
+    rx.install_waker(move || wake_mpv.wakeup());
+
     let _ = tx.send(Event::RenderSource(MpvRenderSource::new(Arc::clone(&mpv))));
     send_equalizer(options.equalizer, &tx);
     send_recent_files(&tx, &session);
@@ -765,10 +768,12 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     }
 
     loop {
+        let mut dispatched_commands = 0;
         for _ in 0..DISPATCH_BUDGET {
             let Some(command) = rx.try_recv(output_ready) else {
                 break;
             };
+            dispatched_commands += 1;
             if let Command::ResolveResume(continue_saved) = &command {
                 let resolution = (|| -> anyhow::Result<()> {
                     let Some((path, position)) = pending_resume.take() else {
@@ -887,12 +892,27 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
             }
         }
 
-        // A continuous native event stream must not starve commands or Quit.
-        for _ in 0..64 {
+        // With no command to dispatch, block until mpv has work, a producer
+        // calls mpv_wakeup(), or the next periodic session save is due. Further
+        // queued events are drained without blocking so they cannot starve
+        // commands or Quit.
+        let blocking_wait_seconds = if dispatched_commands == 0 {
+            SESSION_SAVE_INTERVAL
+                .saturating_sub(last_session_save.elapsed())
+                .as_secs_f64()
+        } else {
+            0.0
+        };
+        for event_index in 0..64 {
             if rx.quit_requested() {
                 break;
             }
-            let Some(event) = events.wait_event(0.0) else {
+            let timeout = if event_index == 0 {
+                blocking_wait_seconds
+            } else {
+                0.0
+            };
+            let Some(event) = events.wait_event(timeout) else {
                 break;
             };
             match event {
@@ -1007,8 +1027,6 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
             save_session(&tx, &mut session);
             last_session_save = Instant::now();
         }
-
-        std::thread::sleep(Duration::from_millis(5));
     }
 }
 

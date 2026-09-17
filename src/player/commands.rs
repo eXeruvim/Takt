@@ -13,6 +13,8 @@ use std::{
 pub const CAPACITY: usize = 64;
 pub const DISPATCH_BUDGET: usize = 8;
 
+type WakeCallback = Arc<dyn Fn() + Send + Sync + 'static>;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SendError {
     Full,
@@ -41,8 +43,22 @@ struct Queue {
 
 struct Shared {
     queue: Mutex<Queue>,
+    wake: Mutex<Option<WakeCallback>>,
     quit: AtomicBool,
     alive: AtomicBool,
+}
+
+impl Shared {
+    fn wake(&self) {
+        let callback = self
+            .wake
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        if let Some(callback) = callback {
+            callback();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -56,6 +72,7 @@ pub struct CommandReceiver(Arc<Shared>);
 pub fn channel() -> (CommandSender, CommandReceiver, Receiver<SendError>) {
     let shared = Arc::new(Shared {
         queue: Mutex::new(Queue::default()),
+        wake: Mutex::new(None),
         quit: AtomicBool::new(false),
         alive: AtomicBool::new(true),
     });
@@ -89,33 +106,40 @@ impl CommandSender {
         }
         if matches!(command, Command::Quit) {
             self.shared.quit.store(true, Ordering::Release);
+            self.shared.wake();
             return Ok(());
         }
-        let mut queue = self
-            .shared
-            .queue
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if !self.shared.alive.load(Ordering::Acquire) || self.shared.quit.load(Ordering::Acquire) {
-            return Err(SendError::Disconnected);
-        }
-        match command {
-            Command::RenderApiReady => queue.render_ready = true,
-            Command::SetVideoWindow(handle) => queue.video_window = Some(handle),
-            command => {
-                if queue
-                    .commands
-                    .back()
-                    .is_some_and(|previous| replaces(previous, &command))
-                {
-                    *queue.commands.back_mut().expect("nonempty queue") = command;
-                } else if queue.commands.len() < CAPACITY {
-                    queue.commands.push_back(command);
-                } else {
-                    return Err(SendError::Full);
+        {
+            let mut queue = self
+                .shared
+                .queue
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if !self.shared.alive.load(Ordering::Acquire)
+                || self.shared.quit.load(Ordering::Acquire)
+            {
+                return Err(SendError::Disconnected);
+            }
+            match command {
+                Command::RenderApiReady => queue.render_ready = true,
+                Command::SetVideoWindow(handle) => queue.video_window = Some(handle),
+                command => {
+                    if queue
+                        .commands
+                        .back()
+                        .is_some_and(|previous| replaces(previous, &command))
+                    {
+                        *queue.commands.back_mut().expect("nonempty queue") = command;
+                    } else if queue.commands.len() < CAPACITY {
+                        queue.commands.push_back(command);
+                    } else {
+                        return Err(SendError::Full);
+                    }
                 }
             }
         }
+        // Never invoke native wakeups while the bounded queue mutex is held.
+        self.shared.wake();
         Ok(())
     }
 }
@@ -130,6 +154,16 @@ fn payload_is_bounded(command: &Command) -> bool {
 }
 
 impl CommandReceiver {
+    pub fn install_waker(&self, callback: impl Fn() + Send + Sync + 'static) {
+        *self
+            .0
+            .wake
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(Arc::new(callback));
+        // Commands may have arrived before the player initialized libmpv.
+        self.0.wake();
+    }
+
     pub fn quit_requested(&self) -> bool {
         self.0.quit.load(Ordering::Acquire)
     }
@@ -162,6 +196,11 @@ impl CommandReceiver {
 impl Drop for CommandReceiver {
     fn drop(&mut self) {
         self.0.alive.store(false, Ordering::Release);
+        self.0
+            .wake
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
         let mut queue = self
             .0
             .queue

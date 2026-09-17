@@ -408,7 +408,11 @@ export component AppWindow inherits Window {
                 y: root.audio_top_inset;
                 width: max(0px, parent.width - self.x - root.audio_right_panel_inset);
                 height: max(0px, parent.height - self.y - root.audio_bottom_inset);
-                shown: root.media_presented && root.audio_media;
+                // Keep the old media surface alive until mpv presents the next
+                // frame, but never show stale artwork as if it belonged to the
+                // file currently being opened. AudioCanvas owns the fade-out.
+                shown: root.media_presented && root.audio_media
+                    && !root.media_transitioning;
                 expanded: root.maximized || root.fullscreen_mode;
                 file-name: root.audio_display_name;
                 audio-codec: root.audio_codec;
@@ -455,22 +459,28 @@ export component AppWindow inherits Window {
                         secondary-action => root.open_folder();
                     }
 
-                    if root.playback_data_cleared : Rectangle {
-                        width: min(parent.width, 360px);
+                    if root.playback_data_cleared : HorizontalLayout {
+                        width: parent.width;
                         height: Theme.space-12;
-                        border-radius: Theme.radius-medium;
-                        border-width: 1px;
-                        border-color: Theme.accent;
-                        background: Theme.accent-subtle;
+                        alignment: center;
 
-                        UiText {
-                            width: parent.width;
+                        Rectangle {
+                            width: min(parent.width, 360px);
                             height: parent.height;
-                            text: "История и позиции очищены";
-                            variant: TextVariant.label;
-                            color: Theme.text-primary;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
+                            border-radius: Theme.radius-medium;
+                            border-width: 1px;
+                            border-color: Theme.accent;
+                            background: Theme.accent-subtle;
+
+                            UiText {
+                                width: parent.width;
+                                height: parent.height;
+                                text: "История и позиции очищены";
+                                variant: TextVariant.label;
+                                color: Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
                         }
                     }
 
