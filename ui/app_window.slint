@@ -180,8 +180,12 @@ export component AppWindow inherits Window {
         ? Theme.top-bar-height : 0px;
     out property <length> video_bottom_inset: media_presented && !integrated_video_renderer
         ? Theme.player-controls-height : 0px;
-    out property <length> audio_top_inset: video_top_inset;
-    out property <length> audio_bottom_inset: video_bottom_inset;
+    // AudioCanvas is always composed by Slint and can safely remain beneath
+    // both translucent chrome overlays. Tying these insets to the native-video
+    // fallback made audio expose the desktop directly below the controls once
+    // the OpenGL video renderer became lazy.
+    out property <length> audio_top_inset: 0px;
+    out property <length> audio_bottom_inset: 0px;
     out property <length> player_controls_slide_offset: controls_visible
         || volume_feedback_visible
         ? 0px
@@ -379,10 +383,24 @@ export component AppWindow inherits Window {
             focus-on-click: true;
 
             media-backdrop := Rectangle {
-                x: root.video_left_panel_inset;
-                y: root.video_top_inset;
-                width: max(0px, parent.width - self.x - root.video_right_panel_inset);
-                height: max(0px, parent.height - self.y - root.video_bottom_inset);
+                // Audio is rendered by Slint across the complete canvas. Do not
+                // reuse the native-video viewport insets here: doing so stopped
+                // this glass layer above the controls and left a visibly lighter
+                // strip behind the hidden bottom deck.
+                x: root.audio_media
+                    ? root.audio_left_panel_inset
+                    : root.video_left_panel_inset;
+                y: root.audio_media
+                    ? root.audio_top_inset
+                    : root.video_top_inset;
+                width: max(0px, parent.width - self.x
+                    - (root.audio_media
+                        ? root.audio_right_panel_inset
+                        : root.video_right_panel_inset));
+                height: max(0px, parent.height - self.y
+                    - (root.audio_media
+                        ? root.audio_bottom_inset
+                        : root.video_bottom_inset));
                 background: root.media_presented
                     ? root.audio_media
                         ? Theme.surface-media-glass
