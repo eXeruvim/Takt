@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k')]
+    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'paused', 'minimized')]
     [string]$Scenario,
 
     [ValidateSet('CPU', 'GPU', 'Power', 'GeneralProfile', 'Heap', 'Video')]
@@ -157,7 +157,15 @@ try {
         -PassThru
     Write-Host "Oxide запущен с PID $($process.Id)."
     if ($Scenario -ne 'idle') {
-        Read-Host 'Настройте сценарий, дождитесь стабилизации и нажмите Enter'
+        $scenarioInstruction = switch ($Scenario) {
+            'audio' { 'Запустите аудиофайл и дождитесь стабильного воспроизведения.' }
+            'video-1080p' { 'Запустите видео 1080p и дождитесь стабильного воспроизведения.' }
+            'video-4k' { 'Запустите видео 4K и дождитесь стабильного воспроизведения.' }
+            'paused' { 'Запустите медиафайл, поставьте воспроизведение на паузу и не двигайте мышь.' }
+            'minimized' { 'Запустите медиафайл и сверните окно Oxide на панель задач.' }
+        }
+        Write-Host $scenarioInstruction
+        Read-Host 'Когда сценарий готов, вернитесь в терминал и нажмите Enter'
     }
     if ($WarmupSeconds -gt 0) {
         Write-Host "Прогрев: $WarmupSeconds с."
