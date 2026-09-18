@@ -173,6 +173,7 @@ component VinylRecord inherits Rectangle {
 export component AudioCanvas inherits Rectangle {
     in property <bool> shown;
     in property <bool> is-playing;
+    in property <bool> animation-enabled: true;
     in property <bool> expanded;
     in property <string> file-name;
     in property <string> audio-codec;
@@ -224,7 +225,8 @@ export component AudioCanvas inherits Rectangle {
 
     record-timer := Timer {
         interval: 33ms;
-        running: root.shown && (root.is-playing || root.record-speed > 0.001);
+        running: root.shown && root.animation-enabled
+            && (root.is-playing || root.record-speed > 0.001);
         triggered => {
             root.record-speed = root.is-playing
                 ? min(0.42, root.record-speed + 0.012)

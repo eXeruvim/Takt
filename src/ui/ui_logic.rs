@@ -3723,13 +3723,19 @@ pub fn run(
                         }
 
                         Event::TimePos(position) => {
-                            app.set_current_time(format_time(position).into());
-                            let duration = current_duration
-                                .lock()
-                                .map(|duration| *duration)
-                                .unwrap_or_default();
-                            if duration > 0.0 {
-                                app.set_progress((position / duration) as f32);
+                            // Playback and the session store keep advancing while
+                            // minimized, but invisible timeline updates would still
+                            // invalidate Slint and wake the OpenGL renderer. The next
+                            // mpv sample refreshes the UI after the window is restored.
+                            if !app.get_window_minimized() {
+                                app.set_current_time(format_time(position).into());
+                                let duration = current_duration
+                                    .lock()
+                                    .map(|duration| *duration)
+                                    .unwrap_or_default();
+                                if duration > 0.0 {
+                                    app.set_progress((position / duration) as f32);
+                                }
                             }
                         }
 

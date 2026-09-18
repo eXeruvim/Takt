@@ -109,6 +109,7 @@ export component AppWindow inherits Window {
     in-out property <bool> picture_in_picture: false;
     in-out property <bool> window_active: true;
     in-out property <float> window_scale_factor: 1.0;
+    out property <bool> window_minimized: self.minimized;
     out property <bool> window_maximized: self.maximized;
     out property <bool> edge_to_edge: self.maximized || self.fullscreen_mode;
     in-out property <int> shortcut_capture_action: -1;
@@ -413,6 +414,7 @@ export component AppWindow inherits Window {
                 // file currently being opened. AudioCanvas owns the fade-out.
                 shown: root.media_presented && root.audio_media
                     && !root.media_transitioning;
+                animation-enabled: !root.window_minimized;
                 expanded: root.maximized || root.fullscreen_mode;
                 file-name: root.audio_display_name;
                 audio-codec: root.audio_codec;
