@@ -279,6 +279,21 @@ $preciseTable = $tables | Where-Object Name -Like '*_Oxide_Context_Switches_by_T
 $sampledByModule = Measure-SampledTable $moduleTable.FullName 'Module'
 $sampledByFunction = Measure-SampledTable $functionTable.FullName 'Function'
 $sampledByThread = Measure-SampledTable $threadTable.FullName 'Thread ID'
+$sampledCpuMs = [math]::Round(($sampledByModule |
+    Measure-Object -Property cpu_ms -Sum).Sum, 4)
+$durationSeconds = [int]$metadata.requested_duration_seconds
+$logicalProcessorCount = [Environment]::ProcessorCount
+if ($durationSeconds -le 0) {
+    throw 'В паспорте отсутствует корректная длительность трассы.'
+}
+if ($logicalProcessorCount -le 0) {
+    throw 'Не удалось определить число логических процессоров.'
+}
+$singleCorePercent = [math]::Round(
+    $sampledCpuMs / ($durationSeconds * 1000.0) * 100.0,
+    4
+)
+$systemCpuPercent = [math]::Round($singleCorePercent / $logicalProcessorCount, 4)
 
 $preciseHeaders = @(
     'ThreadId', 'ReadyStack', 'ReadyingProcess', 'ReadyingThreadId', 'Count',
@@ -326,13 +341,17 @@ $summary = [ordered]@{
     git_commit = [string]$metadata.git_commit
     package_version = [string]$metadata.package_version
     process_id = [int]$metadata.process_id
-    requested_duration_seconds = [int]$metadata.requested_duration_seconds
-    sampled_cpu_ms = [math]::Round(($sampledByModule |
-        Measure-Object -Property cpu_ms -Sum).Sum, 4)
+    scenario = [string]$metadata.scenario
+    requested_duration_seconds = $durationSeconds
+    logical_processor_count = $logicalProcessorCount
+    sampled_cpu_ms = $sampledCpuMs
+    sampled_cpu_single_core_percent = $singleCorePercent
+    sampled_cpu_system_percent = $systemCpuPercent
     sampled_by_module = $sampledByModule
     sampled_by_function = $sampledByFunction
     sampled_by_thread = $sampledByThread
     context_switches = $preciseRows.Count
+    context_switches_per_second = [math]::Round($preciseRows.Count / $durationSeconds, 2)
     context_switches_by_thread = $contextByThread
     busiest_thread_top_wakers = $topWakers
 }
@@ -341,5 +360,16 @@ $summary | ConvertTo-Json -Depth 8 |
     Set-Content -LiteralPath $summaryPath -Encoding utf8 -ErrorAction Stop
 
 Write-Host "CPU-анализ Oxide: $output"
-Write-Host "Sampled CPU: $($summary.sampled_cpu_ms) мс; context switches: $($summary.context_switches)."
+Write-Host (
+    'Sampled CPU: {0} мс; {1}% одного ядра; {2}% системы ({3} логических процессоров).' -f
+        $summary.sampled_cpu_ms,
+        $summary.sampled_cpu_single_core_percent,
+        $summary.sampled_cpu_system_percent,
+        $summary.logical_processor_count
+)
+Write-Host (
+    'Context switches: {0}; {1}/с.' -f
+        $summary.context_switches,
+        $summary.context_switches_per_second
+)
 $tables | Sort-Object Name | Select-Object Name, Length, LastWriteTime
