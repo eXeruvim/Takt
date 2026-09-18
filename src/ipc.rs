@@ -169,6 +169,7 @@ pub struct RecentFileInfo {
 #[derive(Debug)]
 pub enum Event {
     RenderSource(MpvRenderSource),
+    VideoRendererRequired,
     TimePos(f64),
     Duration(f64),
 

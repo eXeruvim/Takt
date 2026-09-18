@@ -186,16 +186,14 @@ fn save_session(tx: &Sender<Event>, session: &mut SessionStore) {
     }
 }
 
-fn send_media_info(mpv: &Mpv, tx: &Sender<Event>) {
-    let info = MediaInfo::read(mpv);
-
+fn send_media_info(info: &MediaInfo, tx: &Sender<Event>) {
     let _ = tx.send(Event::MediaInfo {
         width: info.width,
         height: info.height,
         fps: info.fps,
-        codec: info.codec,
-        audio_codec: info.audio_codec,
-        container: info.container,
+        codec: info.codec.clone(),
+        audio_codec: info.audio_codec.clone(),
+        container: info.container.clone(),
         file_size_bytes: info.file_size_bytes,
         duration_seconds: info.duration_seconds,
         average_bitrate_bps: info.average_bitrate_bps,
@@ -206,7 +204,11 @@ fn send_media_info(mpv: &Mpv, tx: &Sender<Event>) {
 }
 
 fn send_media_ready(mpv: &Mpv, tx: &Sender<Event>) {
-    send_media_info(mpv, tx);
+    let info = MediaInfo::read(mpv);
+    send_media_info(&info, tx);
+    if info.video_track_count > 0 {
+        let _ = tx.send(Event::VideoRendererRequired);
+    }
     let _ = tx.send(Event::AudioTracks(read_audio_tracks(mpv)));
     let _ = tx.send(Event::SubtitleTracks(read_subtitle_tracks(mpv)));
     let _ = tx.send(Event::Chapters {
@@ -639,6 +641,8 @@ fn handle_command(
                 .context("Не удалось привязать mpv к окну видео")?;
             mpv_error(mpv.set_property("vo", "gpu".to_owned()))
                 .context("Не удалось выбрать видеовывод mpv")?;
+            mpv_error(mpv.set_property("vid", "auto".to_owned()))
+                .context("Не удалось включить видеодорожку")?;
         }
         Command::SeekRelative(offset) => {
             if options.media_available {
@@ -657,10 +661,14 @@ fn handle_command(
             let muted = mpv.get_property::<bool>("mute").unwrap_or(false);
             mpv_error(mpv.set_property("mute", !muted))?;
         }
-        Command::RenderApiReady => {}
+        Command::RenderApiReady => {
+            mpv_error(mpv.set_property("vid", "auto".to_owned()))
+                .context("Не удалось включить видеодорожку")?;
+        }
         Command::RequestMediaInfo => {
             if options.media_available {
-                send_media_info(mpv, tx);
+                let info = MediaInfo::read(mpv);
+                send_media_info(&info, tx);
             }
         }
         Command::ResolveResume(_) => {}
@@ -719,6 +727,10 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
             #[cfg(target_os = "windows")]
             {
                 initializer.set_property("vo", "libmpv".to_owned())?;
+                // Delay the expensive OpenGL/libmpv/NVIDIA context until mpv
+                // has confirmed a real video track. Audio, including a renamed
+                // file with a video extension, stays on the lightweight path.
+                initializer.set_property("vid", "no".to_owned())?;
                 initializer.set_property("background", "color".to_owned())?;
                 initializer
                     .set_property("background-color", video_background_color(true).to_owned())?;
@@ -742,7 +754,10 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     // item starts a fresh history session and lifts this suppression.
     let mut position_recording_suppressed_for: Option<PathBuf> = None;
     let mut events = mpv.create_event_context();
-    let mut output_ready = !cfg!(target_os = "windows");
+    // Windows starts with vid=no, so audio and metadata probing do not require
+    // a render target. A real video track asks the UI for one and RenderApiReady
+    // enables vid=auto afterwards.
+    let mut output_ready = true;
 
     let wake_mpv = Arc::clone(&mpv);
     rx.install_waker(move || wake_mpv.wakeup());

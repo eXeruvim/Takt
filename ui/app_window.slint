@@ -438,14 +438,41 @@ export component AppWindow inherits Window {
                 }
             }
 
-            if root.player_phase == PlayerPhase.empty : Rectangle {
-                x: (parent.width - self.width) / 2;
+            if root.player_phase == PlayerPhase.empty : empty-stage := Rectangle {
+                private property <float> safe-scale: max(0.1, root.window_scale_factor);
+                private property <length> target-width:
+                    min(parent.width - Theme.space-8 * 2, 520px);
+                private property <bool> compact-content:
+                    root.recent_files.length > 0 || root.playback_data_cleared;
+                private property <length> recent-panel-height: Theme.space-12
+                    + min(root.recent_files.length, 3)
+                        * (Theme.space-12 + Theme.space-1)
+                    + Theme.space-4;
+                private property <length> stack-height: compact-content
+                    ? 180px + Theme.space-5
+                        + (root.playback_data_cleared
+                            ? Theme.space-12 : recent-panel-height)
+                    : self.height;
+
+                // Center the complete empty-state stack on physical pixels.
+                // A half-pixel layout origin made the small recent-file text
+                // and its clear action look softer at fractional DPI scales.
+                width: Math.floor(target-width / 1px * safe-scale)
+                    / safe-scale * 1px;
+                x: Math.round((parent.width - self.width) / 2 / 1px * safe-scale)
+                    / safe-scale * 1px;
                 y: Theme.top-bar-height;
-                width: min(parent.width - Theme.space-8 * 2, 520px);
                 height: parent.height - Theme.top-bar-height;
                 background: transparent;
 
                 VerticalLayout {
+                    y: empty-stage.compact-content
+                        ? Math.round((parent.height - empty-stage.stack-height)
+                            / 2 / 1px * empty-stage.safe-scale)
+                            / empty-stage.safe-scale * 1px
+                        : 0px;
+                    width: parent.width;
+                    height: empty-stage.stack-height;
                     alignment: center;
                     spacing: Theme.space-5;
 
@@ -488,10 +515,7 @@ export component AppWindow inherits Window {
 
                     if root.recent_files.length > 0 : Rectangle {
                         width: parent.width;
-                        height: Theme.space-12
-                            + min(root.recent_files.length, 3)
-                                * (Theme.space-12 + Theme.space-1)
-                            + Theme.space-4;
+                        height: empty-stage.recent-panel-height;
                         border-radius: Theme.radius-large;
                         border-width: 1px;
                         border-color: Theme.border-default;

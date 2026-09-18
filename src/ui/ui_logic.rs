@@ -1363,8 +1363,8 @@ fn format_track_summary(video: u32, audio: u32, subtitles: u32) -> String {
     format!("Видео {video}  ·  Аудио {audio}  ·  Субтитры {subtitles}")
 }
 
-fn is_audio_only_media(width: u32, height: u32, video_codec: &str, audio_codec: &str) -> bool {
-    width == 0 && height == 0 && video_codec.is_empty() && !audio_codec.is_empty()
+fn is_audio_only_media(video_track_count: u32, video_codec: &str, audio_codec: &str) -> bool {
+    video_track_count == 0 && video_codec.is_empty() && !audio_codec.is_empty()
 }
 
 fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
@@ -1954,6 +1954,8 @@ pub fn run(
     let video_host = Rc::new(RefCell::new(None::<VideoHost>));
     #[cfg(target_os = "windows")]
     let render_source = Arc::new(Mutex::new(None::<MpvRenderSource>));
+    #[cfg(target_os = "windows")]
+    let video_renderer_requested = Arc::new(AtomicBool::new(false));
     #[cfg(target_os = "windows")]
     let native_fullscreen = Arc::new(Mutex::new(NativeFullscreen::default()));
     #[cfg(target_os = "windows")]
@@ -3426,6 +3428,7 @@ pub fn run(
         let tx_handle = tx.clone();
         let notifier_video_host = video_host.clone();
         let notifier_render_source = render_source.clone();
+        let notifier_renderer_requested = Arc::clone(&video_renderer_requested);
         let notifier_video_timer = Rc::clone(&video_resize_timer);
         let mut gl_renderer = None::<MpvOpenGlRenderer>;
         let mut render_api_failed = false;
@@ -3441,7 +3444,11 @@ pub fn run(
 
                 match state {
                     slint::RenderingState::BeforeRendering => {
-                        if gl_renderer.is_none() && video_host.is_none() && !render_api_failed {
+                        if gl_renderer.is_none()
+                            && video_host.is_none()
+                            && !render_api_failed
+                            && notifier_renderer_requested.load(Ordering::Acquire)
+                        {
                             let source = notifier_render_source
                                 .lock()
                                 .ok()
@@ -3494,6 +3501,7 @@ pub fn run(
 
                                 match renderer {
                                     Ok(renderer) => {
+                                        notifier_renderer_requested.store(false, Ordering::Release);
                                         notifier_video_timer.stop();
                                         gl_renderer = Some(renderer);
                                         app.set_integrated_video_renderer(true);
@@ -3504,6 +3512,7 @@ pub fn run(
                                             "OpenGL video renderer unavailable, using HWND fallback: {error:#}"
                                         );
                                         render_api_failed = true;
+                                        notifier_renderer_requested.store(false, Ordering::Release);
                                         if let Err(error) = activate_hwnd_video_fallback(
                                             &mut video_host,
                                             &app,
@@ -3563,6 +3572,8 @@ pub fn run(
     let weak = app.as_weak();
     #[cfg(target_os = "windows")]
     let event_render_source = render_source.clone();
+    #[cfg(target_os = "windows")]
+    let event_renderer_requested = Arc::clone(&video_renderer_requested);
 
     let player_bridge = super::event_delivery::spawn(
         rx,
@@ -3572,6 +3583,8 @@ pub fn run(
             let current_duration = current_duration.clone();
             #[cfg(target_os = "windows")]
             let render_source = event_render_source.clone();
+            #[cfg(target_os = "windows")]
+            let renderer_requested = Arc::clone(&event_renderer_requested);
 
             slint::invoke_from_event_loop(move || {
                 let _completion = completion;
@@ -3591,6 +3604,14 @@ pub fn run(
 
                         #[cfg(not(target_os = "windows"))]
                         Event::RenderSource(_) => {}
+
+                        Event::VideoRendererRequired => {
+                            #[cfg(target_os = "windows")]
+                            {
+                                renderer_requested.store(true, Ordering::Release);
+                                app.window().request_redraw();
+                            }
+                        }
 
                         Event::LoadStarted(name) => {
                             app.set_resume_prompt_visible(false);
@@ -3830,7 +3851,7 @@ pub fn run(
                             subtitle_track_count,
                         } => {
                             let audio_media =
-                                is_audio_only_media(width, height, &codec, &audio_codec);
+                                is_audio_only_media(video_track_count, &codec, &audio_codec);
                             let wait_for_video = app.get_media_transitioning()
                                 && app.get_audio_media()
                                 && !audio_media;
@@ -4441,9 +4462,10 @@ mod tests {
 
     #[test]
     fn detects_audio_only_media_from_actual_tracks_not_file_extension() {
-        assert!(is_audio_only_media(0, 0, "", "MP3 (MPEG audio layer 3)"));
-        assert!(!is_audio_only_media(1920, 1080, "yuv420p", "AAC"));
-        assert!(!is_audio_only_media(0, 0, "", ""));
+        assert!(is_audio_only_media(0, "", "MP3 (MPEG audio layer 3)"));
+        assert!(!is_audio_only_media(1, "", "AAC"));
+        assert!(!is_audio_only_media(1, "yuv420p", "AAC"));
+        assert!(!is_audio_only_media(0, "", ""));
     }
 
     #[test]

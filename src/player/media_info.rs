@@ -7,7 +7,7 @@ use libmpv::Mpv;
 const MAX_TRACKS: i64 = 256;
 const MAX_CHAPTERS: i64 = 1_000;
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct MediaInfo {
     pub width: u32,
     pub height: u32,
