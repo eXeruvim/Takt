@@ -156,6 +156,7 @@ $startOutput = ''
 $captureBeforeLaunch = $Profile -in @('Heap', 'ReferenceSet', 'VirtualAllocation')
 $startedAt = $null
 $scenarioStartedAt = $null
+$stopRequestedAt = $null
 try {
     Write-Warning 'ETL содержит системные события, имена процессов и может содержать локальные пути. Не публикуйте трассу без проверки.'
     if ($captureBeforeLaunch) {
@@ -199,6 +200,7 @@ try {
     $scenarioStartedAt = [DateTimeOffset]::UtcNow
     Write-Host "WPR $Profile записывает $DurationSeconds с. Не взаимодействуйте с компьютером."
     Start-Sleep -Seconds $DurationSeconds
+    $stopRequestedAt = [DateTimeOffset]::UtcNow
     $stopOutput = Invoke-CheckedWpr -Arguments @(
         '-stop',
         $tracePath,
@@ -214,10 +216,15 @@ try {
         profile = $Profile
         started_utc = $startedAt.ToString('O')
         scenario_started_utc = $scenarioStartedAt.ToString('O')
+        trace_stop_requested_utc = $stopRequestedAt.ToString('O')
         finished_utc = $finishedAt.ToString('O')
         requested_duration_seconds = $DurationSeconds
         actual_trace_duration_seconds = [math]::Round(
-            ($finishedAt - $startedAt).TotalSeconds,
+            ($stopRequestedAt - $startedAt).TotalSeconds,
+            3
+        )
+        export_flush_seconds = [math]::Round(
+            ($finishedAt - $stopRequestedAt).TotalSeconds,
             3
         )
         capture_started_before_process = $captureBeforeLaunch
