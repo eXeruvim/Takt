@@ -152,7 +152,19 @@ if ((Test-Path -LiteralPath $tracePath) -or (Test-Path -LiteralPath $metadataPat
 $process = $null
 $recordingStarted = $false
 $recordingStopped = $false
+$startOutput = ''
+$captureBeforeLaunch = $Profile -in @('Heap', 'ReferenceSet', 'VirtualAllocation')
+$startedAt = $null
+$scenarioStartedAt = $null
 try {
+    Write-Warning 'ETL содержит системные события, имена процессов и может содержать локальные пути. Не публикуйте трассу без проверки.'
+    if ($captureBeforeLaunch) {
+        $startOutput = Invoke-CheckedWpr -Arguments @('-start', $Profile, '-filemode')
+        $recordingStarted = $true
+        $startedAt = [DateTimeOffset]::UtcNow
+        Write-Host "WPR $Profile запущен до Oxide, чтобы увидеть стартовые выделения."
+    }
+
     $process = Start-Process `
         -FilePath $executablePath `
         -WorkingDirectory $repository `
@@ -179,10 +191,12 @@ try {
         throw "Oxide завершился до начала трассы с кодом $($process.ExitCode)"
     }
 
-    Write-Warning 'ETL содержит системные события, имена процессов и может содержать локальные пути. Не публикуйте трассу без проверки.'
-    $startOutput = Invoke-CheckedWpr -Arguments @('-start', $Profile, '-filemode')
-    $recordingStarted = $true
-    $startedAt = [DateTimeOffset]::UtcNow
+    if (-not $captureBeforeLaunch) {
+        $startOutput = Invoke-CheckedWpr -Arguments @('-start', $Profile, '-filemode')
+        $recordingStarted = $true
+        $startedAt = [DateTimeOffset]::UtcNow
+    }
+    $scenarioStartedAt = [DateTimeOffset]::UtcNow
     Write-Host "WPR $Profile записывает $DurationSeconds с. Не взаимодействуйте с компьютером."
     Start-Sleep -Seconds $DurationSeconds
     $stopOutput = Invoke-CheckedWpr -Arguments @(
@@ -199,8 +213,14 @@ try {
         scenario = $Scenario
         profile = $Profile
         started_utc = $startedAt.ToString('O')
+        scenario_started_utc = $scenarioStartedAt.ToString('O')
         finished_utc = $finishedAt.ToString('O')
         requested_duration_seconds = $DurationSeconds
+        actual_trace_duration_seconds = [math]::Round(
+            ($finishedAt - $startedAt).TotalSeconds,
+            3
+        )
+        capture_started_before_process = $captureBeforeLaunch
         git_commit = $gitCommit
         package_version = [string]$build.package_version
         executable_sha256 = (Get-FileHash -LiteralPath $executablePath -Algorithm SHA256).Hash
