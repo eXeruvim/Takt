@@ -4,7 +4,10 @@ param(
     [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'paused', 'minimized')]
     [string]$Scenario,
 
-    [ValidateSet('CPU', 'GPU', 'Power', 'GeneralProfile', 'Heap', 'Video')]
+    [ValidateSet(
+        'CPU', 'GPU', 'Power', 'GeneralProfile', 'Heap', 'Video',
+        'VirtualAllocation', 'ResidentSet', 'ReferenceSet'
+    )]
     [string]$Profile = 'CPU',
 
     [ValidateRange(5, 300)]
