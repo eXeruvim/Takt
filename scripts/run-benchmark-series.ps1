@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'large-playlist', 'large-artwork')]
+    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'paused', 'minimized', 'large-playlist', 'large-artwork')]
     [string]$Scenario,
 
     [ValidateRange(2, 30)]

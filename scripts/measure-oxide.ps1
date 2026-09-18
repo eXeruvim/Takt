@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'large-playlist', 'large-artwork')]
+    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'paused', 'minimized', 'large-playlist', 'large-artwork')]
     [string]$Scenario,
 
     [ValidateRange(10, 3600)]
@@ -79,6 +79,35 @@ function Get-Stats {
         p99 = [Math]::Round((Get-Percentile -Values $Values -Percentile 0.99), 3)
         max = [Math]::Round(($Values | Measure-Object -Maximum).Maximum, 3)
     }
+}
+
+function Get-LinearTrendPerMinute {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Samples,
+        [Parameter(Mandatory = $true)]
+        [string]$Property
+    )
+
+    if ($Samples.Count -lt 2) {
+        return $null
+    }
+    $meanX = ($Samples | Measure-Object -Property elapsed_seconds -Average).Average
+    $values = @($Samples | ForEach-Object {
+        [double]$_.PSObject.Properties[$Property].Value
+    })
+    $meanY = ($values | Measure-Object -Average).Average
+    $numerator = 0.0
+    $denominator = 0.0
+    for ($index = 0; $index -lt $Samples.Count; $index++) {
+        $offsetX = [double]$Samples[$index].elapsed_seconds - $meanX
+        $numerator += $offsetX * ($values[$index] - $meanY)
+        $denominator += $offsetX * $offsetX
+    }
+    if ($denominator -le 0.0) {
+        return $null
+    }
+    return [Math]::Round(($numerator / $denominator) * 60.0, 4)
 }
 
 function Invoke-TextCommand {
@@ -359,6 +388,14 @@ if ($ValidateOnly) {
     if ($probe.min -ne 1.0 -or $probe.p50 -ne 2.0 -or $probe.p95 -ne 4.0 -or $probe.max -ne 4.0) {
         throw 'Самопроверка расчёта статистики завершилась ошибкой'
     }
+    $trendProbe = @(
+        [pscustomobject]@{ elapsed_seconds = 0.0; working_set_mib = 10.0 },
+        [pscustomobject]@{ elapsed_seconds = 30.0; working_set_mib = 11.0 },
+        [pscustomobject]@{ elapsed_seconds = 60.0; working_set_mib = 12.0 }
+    )
+    if ((Get-LinearTrendPerMinute -Samples $trendProbe -Property 'working_set_mib') -ne 2.0) {
+        throw 'Самопроверка тренда памяти завершилась ошибкой'
+    }
     Write-Host 'Синтаксис, пути и расчёт статистики: OK'
     return
 }
@@ -374,6 +411,8 @@ $instructions = switch ($Scenario) {
     'audio' { 'Откройте обычный аудиофайл, запустите воспроизведение и дождитесь появления обложки.' }
     'video-1080p' { 'Откройте 1080p-видео, включите нужный режим декодирования и запустите воспроизведение.' }
     'video-4k' { 'Откройте 4K-видео, включите нужный режим декодирования и запустите воспроизведение.' }
+    'paused' { 'Откройте медиафайл, поставьте воспроизведение на паузу и не двигайте мышью.' }
+    'minimized' { 'Откройте медиафайл, запустите воспроизведение и сверните Oxide на панель задач.' }
     'large-playlist' { 'Откройте подготовленную большую папку и оставьте очередь открытой на время замера.' }
     'large-artwork' { 'Откройте аудиофайл с крупной допустимой обложкой и дождитесь её отображения.' }
 }
@@ -485,6 +524,12 @@ catch {
 $workingTree = Invoke-TextCommand -FilePath 'git' -Arguments @('-C', $repository, 'status', '--porcelain', '--untracked-files=no')
 $firstSample = if ($samples.Count -gt 0) { $samples[0] } else { $null }
 $lastSample = if ($samples.Count -gt 0) { $samples[$samples.Count - 1] } else { $null }
+$secondHalfSamples = if ($samples.Count -gt 1) {
+    @($samples | Select-Object -Skip ([Math]::Floor($samples.Count / 2)))
+}
+else {
+    @()
+}
 $summary = [ordered]@{
     schema = 2
     scenario = $Scenario
@@ -505,6 +550,16 @@ $summary = [ordered]@{
     cpu_percent_total_capacity = Get-Stats -Values @($samples | ForEach-Object { [double]$_.cpu_percent })
     working_set_mib = Get-Stats -Values @($samples | ForEach-Object { [double]$_.working_set_mib })
     private_bytes_mib = Get-Stats -Values @($samples | ForEach-Object { [double]$_.private_bytes_mib })
+    memory_trend_mib_per_minute = [ordered]@{
+        working_set = [ordered]@{
+            overall = Get-LinearTrendPerMinute -Samples @($samples) -Property 'working_set_mib'
+            second_half = Get-LinearTrendPerMinute -Samples $secondHalfSamples -Property 'working_set_mib'
+        }
+        private_bytes = [ordered]@{
+            overall = Get-LinearTrendPerMinute -Samples @($samples) -Property 'private_bytes_mib'
+            second_half = Get-LinearTrendPerMinute -Samples $secondHalfSamples -Property 'private_bytes_mib'
+        }
+    }
     start_to_end = if ($null -ne $firstSample -and $null -ne $lastSample) {
         [ordered]@{
             working_set_mib = [Math]::Round($lastSample.working_set_mib - $firstSample.working_set_mib, 3)

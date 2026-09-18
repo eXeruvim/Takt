@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'large-playlist', 'large-artwork')]
+    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'paused', 'minimized', 'large-playlist', 'large-artwork')]
     [string]$Scenario,
 
     [ValidateRange(2, 30)]
@@ -209,6 +209,8 @@ $metricPaths = [ordered]@{
     private_bytes_p95_mib = 'private_bytes_mib.p95'
     working_set_delta_mib = 'start_to_end.working_set_mib'
     private_bytes_delta_mib = 'start_to_end.private_bytes_mib'
+    working_set_slope_second_half_mib_per_minute = 'memory_trend_mib_per_minute.working_set.second_half'
+    private_bytes_slope_second_half_mib_per_minute = 'memory_trend_mib_per_minute.private_bytes.second_half'
     handles_delta = 'start_to_end.handles'
     threads_delta = 'start_to_end.threads'
     handles_max = 'handles_max'
