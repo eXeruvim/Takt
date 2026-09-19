@@ -272,6 +272,7 @@ export component AppWindow inherits Window {
     callback clear_playback_data();
     callback reset_settings();
     callback drag_window();
+    callback sync_playback_position();
 
     animate player_controls_slide_offset {
         duration: Theme.motion-gentle;
@@ -292,6 +293,12 @@ export component AppWindow inherits Window {
         } else {
             root.reveal-controls();
             controls-hide-timer.stop();
+        }
+    }
+
+    changed controls_visible => {
+        if (root.controls_visible) {
+            root.sync_playback_position();
         }
     }
 

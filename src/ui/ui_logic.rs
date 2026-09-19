@@ -1173,6 +1173,13 @@ fn format_time(seconds: f64) -> String {
     }
 }
 
+fn update_timeline_position(app: &AppWindow, position: f64, duration: f64) {
+    app.set_current_time(format_time(position).into());
+    if duration > 0.0 {
+        app.set_progress((position / duration) as f32);
+    }
+}
+
 fn format_remaining_time(seconds: f64) -> String {
     if !seconds.is_finite() || seconds < 0.0 {
         return "—".to_owned();
@@ -1949,6 +1956,7 @@ pub fn run(
         set_command_palette_items(&command_items, "", &shortcuts);
     }
     let current_duration = Arc::new(Mutex::new(0.0));
+    let current_position = Arc::new(Mutex::new(0.0));
     let dialog_active = Arc::new(AtomicBool::new(false));
     #[cfg(target_os = "windows")]
     let video_host = Rc::new(RefCell::new(None::<VideoHost>));
@@ -2520,6 +2528,27 @@ pub fn run(
                 .unwrap_or_default();
             let seek_to = value as f64 * duration;
             let _ = tx.send(Command::Seek(seek_to));
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+        let current_duration = current_duration.clone();
+        let current_position = current_position.clone();
+
+        app.on_sync_playback_position(move || {
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
+            let position = current_position
+                .lock()
+                .map(|position| *position)
+                .unwrap_or_default();
+            let duration = current_duration
+                .lock()
+                .map(|duration| *duration)
+                .unwrap_or_default();
+            update_timeline_position(&app, position, duration);
         });
     }
 
@@ -3581,6 +3610,7 @@ pub fn run(
         move |batch, completion| {
             let weak = weak.clone();
             let current_duration = current_duration.clone();
+            let current_position = current_position.clone();
             #[cfg(target_os = "windows")]
             let render_source = event_render_source.clone();
             #[cfg(target_os = "windows")]
@@ -3674,6 +3704,9 @@ pub fn run(
                             if let Ok(mut duration) = current_duration.lock() {
                                 *duration = 0.0;
                             }
+                            if let Ok(mut position) = current_position.lock() {
+                                *position = 0.0;
+                            }
                         }
 
                         Event::MediaAvailable(available) => {
@@ -3744,19 +3777,18 @@ pub fn run(
                         }
 
                         Event::TimePos(position) => {
-                            // Playback and the session store keep advancing while
-                            // minimized, but invisible timeline updates would still
-                            // invalidate Slint and wake the OpenGL renderer. The next
-                            // mpv sample refreshes the UI after the window is restored.
-                            if !app.get_window_minimized() {
-                                app.set_current_time(format_time(position).into());
+                            if let Ok(mut current_position) = current_position.lock() {
+                                *current_position = position;
+                            }
+                            // Keep the authoritative value without invalidating a
+                            // hidden timeline. Revealing controls invokes an immediate
+                            // sync, so the first visible frame is still current.
+                            if !app.get_window_minimized() && app.get_controls_visible() {
                                 let duration = current_duration
                                     .lock()
                                     .map(|duration| *duration)
                                     .unwrap_or_default();
-                                if duration > 0.0 {
-                                    app.set_progress((position / duration) as f32);
-                                }
+                                update_timeline_position(&app, position, duration);
                             }
                         }
 
