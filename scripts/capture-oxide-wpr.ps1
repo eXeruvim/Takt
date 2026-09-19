@@ -152,12 +152,28 @@ if ((Test-Path -LiteralPath $tracePath) -or (Test-Path -LiteralPath $metadataPat
 $process = $null
 $recordingStarted = $false
 $recordingStopped = $false
+$heapTracingChanged = $false
 $startOutput = ''
 $captureBeforeLaunch = $Profile -in @('Heap', 'ReferenceSet', 'VirtualAllocation')
 $startedAt = $null
 $scenarioStartedAt = $null
 $stopRequestedAt = $null
 try {
+    if ($Profile -eq 'Heap') {
+        $heapTracingStatus = Invoke-CheckedWpr -Arguments @(
+            '-HeapTracingConfig',
+            'oxide.exe'
+        )
+        if ($heapTracingStatus -notmatch '(?i)heap tracing is enabled') {
+            [void](Invoke-CheckedWpr -Arguments @(
+                '-HeapTracingConfig',
+                'oxide.exe',
+                'enable'
+            ))
+            $heapTracingChanged = $true
+            Write-Host 'Heap tracing для oxide.exe временно включён.'
+        }
+    }
     Write-Warning 'ETL содержит системные события, имена процессов и может содержать локальные пути. Не публикуйте трассу без проверки.'
     if ($captureBeforeLaunch) {
         $startOutput = Invoke-CheckedWpr -Arguments @('-start', $Profile, '-filemode')
@@ -263,6 +279,22 @@ finally {
         }
         catch {
             Write-Warning $_.Exception.Message
+        }
+    }
+    if ($heapTracingChanged) {
+        try {
+            [void](Invoke-CheckedWpr -Arguments @(
+                '-HeapTracingConfig',
+                'oxide.exe',
+                'disable'
+            ))
+            Write-Host 'Временная конфигурация heap tracing отключена.'
+        }
+        catch {
+            Write-Warning (
+                'Не удалось отключить heap tracing для oxide.exe: ' +
+                $_.Exception.Message
+            )
         }
     }
 }
