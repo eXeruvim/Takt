@@ -63,16 +63,65 @@ function Get-FrameSamples {
 }
 
 function Close-OxideProcess {
-    param([Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process)
+    param(
+        [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process,
+        [switch]$RestoreFirst
+    )
 
     $Process.Refresh()
-    if ($Process.HasExited) { return }
+    if ($Process.HasExited) { return 'already-exited' }
+    if ($RestoreFirst -and $Process.MainWindowHandle -ne [IntPtr]::Zero) {
+        if (-not ('OxideRefreshWindow' -as [type])) {
+            Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class OxideRefreshWindow {
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ShowWindowAsync(IntPtr window, int command);
+}
+'@
+        }
+        [void][OxideRefreshWindow]::ShowWindowAsync($Process.MainWindowHandle, 9)
+        Start-Sleep -Milliseconds 300
+        $Process.Refresh()
+    }
     if (-not $Process.CloseMainWindow()) {
-        throw "Oxide PID $($Process.Id) не принял обычный запрос закрытия. Процесс оставлен пользователю."
+        Write-Warning "Oxide PID $($Process.Id) не принял обычный запрос закрытия. Процесс оставлен пользователю."
+        return 'request-rejected'
     }
     if (-not $Process.WaitForExit(10000)) {
-        throw "Oxide PID $($Process.Id) не закрылся за 10 секунд. Процесс оставлен пользователю."
+        Write-Warning "Oxide PID $($Process.Id) не закрылся за 10 секунд. Процесс оставлен пользователю."
+        return 'timeout'
     }
+    return 'closed'
+}
+
+function Get-SharedLogLines {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
+    $stream = [System.IO.File]::Open(
+        $Path,
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read,
+        [System.IO.FileShare]::ReadWrite
+    )
+    try {
+        $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8, $true)
+        try {
+            $text = $reader.ReadToEnd()
+        }
+        finally {
+            $reader.Dispose()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+    if ([string]::IsNullOrEmpty($text)) { return @() }
+    return @($text -split "`r?`n")
 }
 
 if ($ValidateOnly) {
@@ -213,15 +262,12 @@ for ($elapsed = 0; $elapsed -lt $DurationSeconds; $elapsed++) {
 Write-Progress -Activity "Slint refresh_lazy: $Scenario" -Completed
 $finishedAt = [DateTimeOffset]::UtcNow
 
-Close-OxideProcess -Process $process
-$lines = @()
-if (Test-Path -LiteralPath $stdoutPath) {
-    $lines += @(Get-Content -LiteralPath $stdoutPath -Encoding utf8)
-}
-if (Test-Path -LiteralPath $stderrPath) {
-    $lines += @(Get-Content -LiteralPath $stderrPath -Encoding utf8)
-}
+$lines = @(Get-SharedLogLines -Path $stdoutPath)
+$lines += @(Get-SharedLogLines -Path $stderrPath)
 $samples = @(Get-FrameSamples -Lines $lines -Limit $DurationSeconds)
+$closeResult = Close-OxideProcess `
+    -Process $process `
+    -RestoreFirst:($Scenario -eq 'minimized')
 if ($samples.Count -eq 0) {
     throw "Slint не записал refresh_lazy-образцы. Проверьте журнал: $stderrPath"
 }
@@ -234,6 +280,7 @@ $summary = [ordered]@{
     finished_utc = $finishedAt.ToString('O')
     requested_duration_seconds = $DurationSeconds
     samples = $samples.Count
+    close_result = $closeResult
     frames_per_second = Get-Stats -Values @($samples | ForEach-Object { [double]$_ })
     seconds_with_redraw = @($samples | Where-Object { $_ -gt 0 }).Count
     seconds_without_redraw = @($samples | Where-Object { $_ -eq 0 }).Count
