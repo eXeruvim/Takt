@@ -197,16 +197,22 @@ if (-not (Test-Path -LiteralPath $trace -PathType Leaf)) {
     throw "ETL-трасса не найдена: $trace"
 }
 
-$wpaExporter = Get-Command wpaexporter.exe -ErrorAction SilentlyContinue
-if ($null -eq $wpaExporter) {
-    throw 'WPA Exporter не найден. Установите Windows Performance Analyzer.'
-}
 $wpaPackage = Get-AppxPackage -Name Microsoft.WindowsPerformanceAnalyzer `
     -ErrorAction SilentlyContinue |
     Sort-Object Version -Descending |
     Select-Object -First 1
 if ($null -eq $wpaPackage -or [string]::IsNullOrWhiteSpace($wpaPackage.InstallLocation)) {
     throw 'Не удалось определить каталог установленного Windows Performance Analyzer.'
+}
+$wpaExporter = Get-Command wpaexporter.exe -ErrorAction SilentlyContinue
+if ($null -eq $wpaExporter) {
+    $packagedExporter = Join-Path $wpaPackage.InstallLocation 'wpaexporter.exe'
+    if (Test-Path -LiteralPath $packagedExporter -PathType Leaf) {
+        $wpaExporter = Get-Item -LiteralPath $packagedExporter -ErrorAction Stop
+    }
+}
+if ($null -eq $wpaExporter) {
+    throw 'WPA Exporter не найден. Установите Windows Performance Analyzer.'
 }
 $sourceProfile = Join-Path $wpaPackage.InstallLocation `
     'CustomDataSources\Event_Tracing_for_Windows\Catalog\FullBoot.Boot.wpaProfile'
