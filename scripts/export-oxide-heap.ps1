@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param(
     [string]$TracePath,
-    [switch]$Symbols
+    [switch]$Symbols,
+
+    [ValidateRange(3, 64)]
+    [int]$StackDepth = 20
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,10 +49,32 @@ function Get-MetricColumn {
     return $column
 }
 
+function Convert-MetricToMiB {
+    param(
+        [Parameter(Mandatory = $true)][string]$Value,
+        [Parameter(Mandatory = $true)][string]$Column
+    )
+
+    $number = Convert-WpaNumber $Value
+    if ($Column -like '* (B)') {
+        return $number / 1MB
+    }
+    if ($Column -like '* (KB)') {
+        return $number / 1KB
+    }
+    if ($Column -like '* (MB)') {
+        return $number
+    }
+    if ($Column -like '* (GB)') {
+        return $number * 1KB
+    }
+    throw "Неизвестная единица измерения WPA-столбца '$Column'."
+}
+
 function Get-StackFrame {
     param([Parameter(Mandatory = $true)][string]$Stack)
 
-    $separator = $Stack.LastIndexOf('\')
+    $separator = $Stack.LastIndexOfAny([char[]]@('\', '/'))
     if ($separator -lt 0) {
         return $Stack
     }
@@ -59,7 +84,7 @@ function Get-StackFrame {
 function Get-StackDepth {
     param([Parameter(Mandatory = $true)][string]$Stack)
 
-    return $Stack.Split('\').Length - 1
+    return @($Stack -split '[\\/]').Length - 1
 }
 
 function Measure-StackRows {
@@ -74,11 +99,12 @@ function Measure-StackRows {
             name = [string]$_.Stack
             allocation_count = [long](Convert-WpaNumber ([string]$_.Count))
             outstanding_mib = [math]::Round(
-                (Convert-WpaNumber ([string]$_.$ImpactingColumn)) / 1MB,
+                (Convert-MetricToMiB `
+                    ([string]$_.$ImpactingColumn) $ImpactingColumn),
                 4
             )
             total_allocated_mib = [math]::Round(
-                (Convert-WpaNumber ([string]$_.$SizeColumn)) / 1MB,
+                (Convert-MetricToMiB ([string]$_.$SizeColumn) $SizeColumn),
                 4
             )
         }
@@ -110,23 +136,25 @@ function Measure-InclusiveStackLandmarks {
         }
         [pscustomobject]@{
             name = $name
-            outstanding_bytes = Convert-WpaNumber ([string]$row.$ImpactingColumn)
-            total_bytes = Convert-WpaNumber ([string]$row.$SizeColumn)
+            outstanding_mib = Convert-MetricToMiB `
+                ([string]$row.$ImpactingColumn) $ImpactingColumn
+            total_mib = Convert-MetricToMiB `
+                ([string]$row.$SizeColumn) $SizeColumn
         }
     }
 
     return @($landmarks | Group-Object name | ForEach-Object {
         $largest = $_.Group |
-            Sort-Object outstanding_bytes -Descending |
+            Sort-Object outstanding_mib -Descending |
             Select-Object -First 1
         [pscustomobject][ordered]@{
             name = [string]$largest.name
             maximum_inclusive_outstanding_mib = [math]::Round(
-                [double]$largest.outstanding_bytes / 1MB,
+                [double]$largest.outstanding_mib,
                 4
             )
             total_allocated_mib_at_maximum = [math]::Round(
-                [double]$largest.total_bytes / 1MB,
+                [double]$largest.total_mib,
                 4
             )
         }
@@ -233,66 +261,60 @@ Set-AttributeValue $view 'IsVisible' 'true'
 $graph = $view.SelectSingleNode(
     './*[local-name()="FullHeapGraphTreeItem"]'
 )
-$preset = $graph.SelectSingleNode('.//*[local-name()="HdvViewModelPreset"]')
-if ($null -eq $preset) {
-    throw 'Full Heap graph не содержит preset.'
+$presetContainer = $graph.SelectSingleNode(
+    './*[local-name()="FullHeapGraphTreeItem.HdvViewModelPreset"]'
+)
+if ($null -eq $presetContainer) {
+    throw 'Full Heap graph не содержит контейнер preset.'
 }
-
-Set-AttributeValue $preset 'Name' 'Oxide Heap Outstanding by Stack'
-Set-AttributeValue $preset 'GraphColumnCount' '4'
-Set-AttributeValue $preset 'KeyColumnCount' '1'
-Set-AttributeValue $preset 'LeftFrozenColumnCount' '1'
-Set-AttributeValue $preset 'RightFrozenColumnCount' '3'
-Set-AttributeValue $preset 'InitialSelectionQuery' '([Series Name]:="Stack")'
-Set-AttributeValue $preset 'InitialExpansionQuery' '([Series Name]:="Stack")'
+$presetContainer.RemoveAll()
+[xml]$presetDocument = @'
+<HdvViewModelPreset
+    xmlns="clr-namespace:Microsoft.Performance.UI.DataEngine.ViewModelPresets;assembly=Microsoft.Performance.UI.DataEngine"
+    Name="Oxide Heap Totals"
+    GraphChartType="StackedBars"
+    BarGraphIntervalCount="100"
+    GraphColumnCount="5"
+    KeyColumnCount="2"
+    LeftFrozenColumnCount="2"
+    RightFrozenColumnCount="3"
+    InitialFilterQuery=""
+    GraphFilterColumnGuid="642a8591-f858-4345-b7fa-99e8e4567cca">
+  <HdvViewModelPreset.ColumnMetadataEntries />
+  <HdvViewModelPreset.HighlightEntries />
+  <HdvViewModelPreset.ConfigurableColumns>
+    <HdvColumnViewModelPreset Guid="06155709-500b-4182-8944-29665014b5c2" Name="Process" IsVisible="True" SortPriority="1" Width="150" />
+    <HdvColumnViewModelPreset Guid="759dc840-5079-49db-bae0-3c54e553b7fd" Name="Stack" IsVisible="True" SortPriority="2" Width="280">
+      <HdvColumnViewModelPreset.Parameter>
+        <PresetStackOptions xmlns="clr-namespace:Microsoft.Performance.Shell.Stacks;assembly=Microsoft.Performance.Shell" />
+      </HdvColumnViewModelPreset.Parameter>
+    </HdvColumnViewModelPreset>
+    <HdvColumnViewModelPreset Guid="62f5e535-a192-475d-8d4d-a725b8a160bd" Name="Count" AggregationMode="Sum" IsVisible="True" SortPriority="3" Width="80" />
+    <HdvColumnViewModelPreset Guid="642a8591-f858-4345-b7fa-99e8e4567cca" Name="Impacting Size" AggregationMode="Sum" IsVisible="True" SortOrder="Descending" SortPriority="4" Width="120" />
+    <HdvColumnViewModelPreset Guid="29a4dfc2-cd62-4de8-85c3-f580af6a47dd" Name="Size" AggregationMode="Sum" IsVisible="True" SortPriority="5" Width="120" />
+  </HdvViewModelPreset.ConfigurableColumns>
+</HdvViewModelPreset>
+'@
+$preset = $profile.ImportNode($presetDocument.DocumentElement, $true)
+[void]$presetContainer.AppendChild($preset)
 $processLabel = "oxide.exe ($([int]$metadata.process_id))"
 Set-AttributeValue $preset 'InitialFilterQuery' "[Process]:=`"$processLabel`""
 Set-AttributeValue $preset 'InitialFilterShouldKeep' 'true'
-
-$columns = @($preset.SelectNodes(
-    './/*[local-name()="HdvColumnViewModelPreset"]'
-))
-$rawStack = $columns | Where-Object {
-    if ($_.GetAttribute('Name') -ne 'Stack') {
-        return $false
-    }
-    $options = $_.SelectSingleNode('.//*[local-name()="PresetStackOptions"]')
-    return $null -ne $options -and -not $options.HasAttribute('Mode')
-} | Select-Object -First 1
-if ($null -eq $rawStack) {
-    throw 'Full Heap graph не содержит raw Stack-столбец.'
-}
-
-foreach ($column in $columns) {
-    $column.RemoveAttribute('IsVisible')
-    $column.RemoveAttribute('SortOrder')
-}
-Set-AttributeValue $rawStack 'IsVisible' 'true'
-Set-AttributeValue $rawStack 'SortPriority' '1'
-
-$visibleMetrics = @(
-    @{ Name = 'Count'; Priority = '2' },
-    @{ Name = 'Impacting Size'; Priority = '3' },
-    @{ Name = 'Size'; Priority = '4' }
+$stackGraph = $graph.CloneNode($true)
+$stackPreset = $stackGraph.SelectSingleNode(
+    './/*[local-name()="HdvViewModelPreset"]'
 )
-foreach ($metric in $visibleMetrics) {
-    $column = $columns | Where-Object {
-        $_.GetAttribute('Name') -eq $metric.Name
-    } | Select-Object -First 1
-    if ($null -eq $column) {
-        throw "Full Heap graph не содержит столбец '$($metric.Name)'."
-    }
-    Set-AttributeValue $column 'IsVisible' 'true'
-    Set-AttributeValue $column 'SortPriority' $metric.Priority
-    if ($metric.Name -eq 'Impacting Size') {
-        Set-AttributeValue $column 'SortOrder' 'Descending'
-    }
-}
+Set-AttributeValue $stackPreset 'Name' 'Oxide Heap by Stack'
+Set-AttributeValue $stackPreset 'InitialSelectionQuery' `
+    '([Series Name]:="Stack")'
+Set-AttributeValue $stackPreset 'InitialExpansionQuery' `
+    "[Series Name]:=`"Stack`" [Series Depth]:<=$StackDepth"
 
 @($view.ChildNodes) | Where-Object {
     $_ -ne $graph -and
         $_.LocalName -notin @('AnalysisView.Title', 'AnalysisView.UISessionRef')
 } | ForEach-Object { [void]$view.RemoveChild($_) }
+[void]$view.AppendChild($stackGraph)
 $views = $profile.SelectSingleNode('//*[local-name()="WpaProfile.Views"]')
 if ($null -eq $views) {
     throw 'Стандартный WPA-профиль не содержит коллекцию представлений.'
@@ -345,24 +367,52 @@ if ($LASTEXITCODE -ne 0 -or
 
 $tables = @(Get-ChildItem -LiteralPath $output -Filter '*.csv' -File `
     -ErrorAction Stop)
-if ($tables.Count -ne 1) {
-    throw "Ожидалась одна Heap-таблица, получено $($tables.Count)."
+if ($tables.Count -ne 2) {
+    throw "Ожидались две Heap-таблицы, получено $($tables.Count)."
 }
-$rows = @(Import-Csv -LiteralPath $tables[0].FullName -Delimiter ';')
-if ($rows.Count -eq 0) {
-    throw 'WPA Exporter вернул пустую Heap-таблицу.'
+$maximumCsvBytes = 512MB
+$oversizedTable = $tables | Where-Object Length -GT $maximumCsvBytes |
+    Select-Object -First 1
+if ($null -ne $oversizedTable) {
+    throw (
+        'WPA Heap-таблица не была агрегирована и слишком велика для безопасного ' +
+        "импорта: $($oversizedTable.Name), " +
+        "$([math]::Round($oversizedTable.Length / 1MB, 1)) МиБ."
+    )
 }
-if ('Stack' -notin @($rows[0].PSObject.Properties.Name)) {
+$totalsTable = $tables | Where-Object Name -Like '*_Oxide_Heap_Totals.csv' |
+    Select-Object -First 1
+$stackTable = $tables | Where-Object Name -Like '*_Oxide_Heap_by_Stack.csv' |
+    Select-Object -First 1
+if ($null -eq $totalsTable -or $null -eq $stackTable) {
+    throw 'WPA Exporter не вернул ожидаемые Totals/Stack Heap-таблицы.'
+}
+$totalRows = @(Import-Csv -LiteralPath $totalsTable.FullName -Delimiter ';')
+$stackRows = @(Import-Csv -LiteralPath $stackTable.FullName -Delimiter ';')
+if ($totalRows.Count -ne 1 -or $stackRows.Count -eq 0) {
+    throw (
+        "Некорректные Heap-таблицы: totals=$($totalRows.Count), " +
+        "stack=$($stackRows.Count)."
+    )
+}
+if ('Stack' -notin @($stackRows[0].PSObject.Properties.Name)) {
     throw 'WPA Heap-таблица не содержит Stack.'
 }
-$impactingColumn = Get-MetricColumn $rows 'Impacting Size'
-$sizeColumn = Get-MetricColumn $rows 'Size'
-$root = $rows | Where-Object { $_.Stack -eq '[Root]' } | Select-Object -First 1
-if ($null -eq $root) {
-    throw 'WPA Heap-таблица не содержит корневой итог.'
-}
+$impactingColumn = Get-MetricColumn $totalRows 'Impacting Size'
+$sizeColumn = Get-MetricColumn $totalRows 'Size'
+$stackImpactingColumn = Get-MetricColumn $stackRows 'Impacting Size'
+$stackSizeColumn = Get-MetricColumn $stackRows 'Size'
 $shallowStackDepth = 3
-$shallowRows = @($rows | Where-Object {
+$total = $totalRows[0]
+$outstandingMiB = Convert-MetricToMiB `
+    ([string]$total.$impactingColumn) $impactingColumn
+$totalAllocatedMiB = Convert-MetricToMiB `
+    ([string]$total.$sizeColumn) $sizeColumn
+$allocationCount = Convert-WpaNumber ([string]$total.Count)
+$stackDataRows = @($stackRows | Where-Object {
+    -not [string]::IsNullOrWhiteSpace([string]$_.Stack)
+})
+$shallowRows = @($stackDataRows | Where-Object {
     (Get-StackDepth ([string]$_.Stack)) -eq $shallowStackDepth
 })
 
@@ -375,27 +425,24 @@ $summary = [ordered]@{
     process_id = [int]$metadata.process_id
     scenario = [string]$metadata.scenario
     requested_duration_seconds = [int]$metadata.requested_duration_seconds
-    outstanding_mib = [math]::Round(
-        (Convert-WpaNumber ([string]$root.$impactingColumn)) / 1MB,
-        4
-    )
-    total_allocated_mib = [math]::Round(
-        (Convert-WpaNumber ([string]$root.$sizeColumn)) / 1MB,
-        4
-    )
-    allocation_count = [long](Convert-WpaNumber ([string]$root.Count))
-    stack_semantics = 'inclusive; stack rows and landmarks overlap and must not be summed'
-    stack_row_count = $rows.Count
+    outstanding_mib = [math]::Round($outstandingMiB, 4)
+    total_allocated_mib = [math]::Round($totalAllocatedMiB, 4)
+    allocation_count = [long]$allocationCount
+    stack_semantics = 'stack hierarchy is inclusive; parent and child rows overlap and must not be summed'
+    stack_row_count = $stackDataRows.Count
+    exported_stack_depth = $StackDepth
     shallow_stack_depth = $shallowStackDepth
     shallow_stack_branches = @(
-        Measure-StackRows $shallowRows $impactingColumn $sizeColumn
+        Measure-StackRows $shallowRows $stackImpactingColumn $stackSizeColumn
     )
     app_stack_landmarks = @(
-        Measure-InclusiveStackLandmarks $rows $impactingColumn $sizeColumn `
+        Measure-InclusiveStackLandmarks $stackDataRows $stackImpactingColumn `
+            $stackSizeColumn `
             'Frame' 'oxide.exe!oxide::*' | Select-Object -First 30
     )
     module_stack_landmarks = @(
-        Measure-InclusiveStackLandmarks $rows $impactingColumn $sizeColumn `
+        Measure-InclusiveStackLandmarks $stackDataRows $stackImpactingColumn `
+            $stackSizeColumn `
             'Module' | Select-Object -First 30
     )
     symbols_requested = [bool]$Symbols
