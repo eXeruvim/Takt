@@ -5,21 +5,27 @@ use anyhow::{Result, anyhow, ensure};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, SetLastError, WPARAM},
-    Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect},
+    Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect, RDW_INTERNALPAINT,
+        RedrawWindow,
+    },
     System::Threading::GetCurrentThreadId,
     UI::{
         Shell::{DefSubclassProc, GetWindowSubclass, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            GWL_EXSTYLE, GWL_STYLE, GetWindowLongW, GetWindowThreadProcessId, IsZoomed,
+            GWL_EXSTYLE, GWL_STYLE, GetWindowLongW, GetWindowThreadProcessId, IsZoomed, KillTimer,
             NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
-            SWP_NOSIZE, SWP_NOZORDER, SetWindowLongW, SetWindowPos, WM_NCACTIVATE, WM_NCCALCSIZE,
-            WM_NCDESTROY, WM_NCPAINT, WM_STYLECHANGING, WS_CAPTION, WS_EX_CLIENTEDGE,
-            WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE,
+            SWP_NOSIZE, SWP_NOZORDER, SetTimer, SetWindowLongW, SetWindowPos, WM_ENTERSIZEMOVE,
+            WM_EXITSIZEMOVE, WM_NCACTIVATE, WM_NCCALCSIZE, WM_NCDESTROY, WM_NCPAINT,
+            WM_STYLECHANGING, WM_TIMER, WS_CAPTION, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME,
+            WS_EX_STATICEDGE,
         },
     },
 };
 
 const SUBCLASS_ID: usize = 0x4f58_4652;
+const LIVE_RESIZE_TIMER_ID: usize = 0x4f58_5253;
+const LIVE_RESIZE_FRAME_INTERVAL_MS: u32 = 16;
 // Undocumented legacy frame-paint messages also filtered by Chromium's
 // HWNDMessageHandler::OnNCUAHDrawCaption/OnNCUAHDrawFrame. Keep them isolated here.
 const WM_NCUAHDRAWCAPTION: u32 = 0x00ae;
@@ -170,10 +176,52 @@ unsafe extern "system" fn frame_proc(
             // tells DefWindowProc to update activation WITHOUT painting a caption.
             unsafe { DefSubclassProc(hwnd, message, wparam, -1) }
         }
+        WM_ENTERSIZEMOVE => {
+            // Windows runs a nested modal loop while the user holds a resize
+            // border. Once the minimum size is reached, no more WM_SIZE events
+            // arrive and the normal Slint event-loop wake-up can be starved.
+            // A window timer is dispatched inside that nested loop and keeps
+            // mpv's video surface presenting until the border is released.
+            // SAFETY: the timer belongs to this live HWND, has no callback
+            // pointer, and is stopped on both resize exit and destruction.
+            unsafe {
+                SetTimer(
+                    hwnd,
+                    LIVE_RESIZE_TIMER_ID,
+                    LIVE_RESIZE_FRAME_INTERVAL_MS,
+                    None,
+                );
+                DefSubclassProc(hwnd, message, wparam, lparam)
+            }
+        }
+        WM_TIMER if wparam == LIVE_RESIZE_TIMER_ID => {
+            // Match winit's request_redraw implementation. RDW_INTERNALPAINT
+            // coalesces redundant ticks instead of building a frame backlog.
+            // SAFETY: hwnd is live for the duration of the subclass callback;
+            // RedrawWindow does not retain either null region pointer.
+            unsafe {
+                RedrawWindow(
+                    hwnd,
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                    RDW_INTERNALPAINT,
+                );
+            }
+            0
+        }
+        WM_EXITSIZEMOVE => {
+            // SAFETY: removing an absent timer is harmless; forward the message
+            // so winit can clear its own interactive-resize state as usual.
+            unsafe {
+                KillTimer(hwnd, LIVE_RESIZE_TIMER_ID);
+                DefSubclassProc(hwnd, message, wparam, lparam)
+            }
+        }
         WM_NCDESTROY => {
             // SAFETY: remove only our static registration while HWND is live;
             // forward destruction so winit and the remaining chain can clean up.
             unsafe {
+                KillTimer(hwnd, LIVE_RESIZE_TIMER_ID);
                 RemoveWindowSubclass(hwnd, Some(frame_proc), subclass_id);
                 DefSubclassProc(hwnd, message, wparam, lparam)
             }
