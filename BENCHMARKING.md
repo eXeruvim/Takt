@@ -219,7 +219,7 @@ Recorder. Сначала соберите profiling-версию из чисто
 
 ```powershell
 .\scripts\capture-oxide-wpr.ps1 -Scenario idle -Profile CPU -DurationSeconds 30
-.\scripts\capture-oxide-wpr.ps1 -Scenario video-1080p -Profile GPU -DurationSeconds 30 -MediaPath C:\media\sample.mp4
+.\scripts\capture-oxide-wpr.ps1 -Scenario video-1080p -Profile GPU -DurationSeconds 30 -MediaPath C:\media\sample.mp4 -DecoderMode d3d11va-copy -RendererBackend integrated-opengl -WindowMode windowed -Theme dark
 ```
 
 Для media-сценария скрипт откроет Oxide и подождёт подтверждения после настройки
@@ -227,6 +227,12 @@ Recorder. Сначала соберите profiling-версию из чисто
 `GPU`, `Power`, `GeneralProfile`, `Heap`, `Video`, `ResidentSet`, `ReferenceSet`
 и `VirtualAllocation`. Один прогон отвечает на один вопрос; не объединяйте
 несколько тяжёлых профилей и не сравнивайте разные режимы.
+
+Для `video-1080p` и `video-4k` режим декодирования и renderer обязательны: это
+не позволяет случайно сопоставить software decode с аппаратным или целевой
+композитный OpenGL-путь с диагностическим HWND fallback. `-WindowMode`, `-Theme`
+и необязательный `-Notes` также попадают в JSON-паспорт. Указывайте фактически
+выбранное в интерфейсе состояние, а не желаемую конфигурацию.
 
 Скрипт отказывается работать с dirty/устаревшей сборкой и не вмешивается, если WPR
 уже занят другой записью. При ошибке он отменяет только начатую им сессию и

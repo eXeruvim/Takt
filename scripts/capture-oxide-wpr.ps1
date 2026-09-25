@@ -20,6 +20,21 @@ param(
 
     [string]$MediaPath = '',
 
+    [ValidateSet('not-recorded', 'software', 'd3d11va-copy')]
+    [string]$DecoderMode = 'not-recorded',
+
+    [ValidateSet('not-recorded', 'integrated-opengl', 'native-hwnd-fallback')]
+    [string]$RendererBackend = 'not-recorded',
+
+    [ValidateSet('windowed', 'maximized', 'fullscreen', 'picture-in-picture')]
+    [string]$WindowMode = 'windowed',
+
+    [ValidateSet('system', 'dark', 'light')]
+    [string]$Theme = 'system',
+
+    [ValidateLength(0, 1000)]
+    [string]$Notes = '',
+
     [switch]$ValidateOnly
 )
 
@@ -65,6 +80,10 @@ if (-not $resultRoot.StartsWith(
     [System.StringComparison]::OrdinalIgnoreCase
 )) {
     throw "Каталог WPR-результатов оказался вне репозитория: $resultRoot"
+}
+$videoScenario = $Scenario -eq 'video-1080p' -or $Scenario -eq 'video-4k'
+if ($videoScenario -and ($DecoderMode -eq 'not-recorded' -or $RendererBackend -eq 'not-recorded')) {
+    throw 'Для video-сценария явно укажите -DecoderMode и -RendererBackend.'
 }
 
 $wpr = Get-Command wpr.exe -ErrorAction Stop
@@ -249,6 +268,11 @@ try {
         executable_sha256 = (Get-FileHash -LiteralPath $executablePath -Algorithm SHA256).Hash
         mpv_sha256 = (Get-FileHash -LiteralPath $runtimePath -Algorithm SHA256).Hash
         media = $media
+        decoder_mode = $DecoderMode
+        renderer_backend = $RendererBackend
+        window_mode = $WindowMode
+        theme = $Theme
+        notes = $Notes
         process_id = $process.Id
         wpr_profile = $Profile
         trace_file = Split-Path -Leaf $tracePath
