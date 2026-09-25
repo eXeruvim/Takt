@@ -3,7 +3,7 @@
 #[cfg(target_os = "windows")]
 use std::cell::RefCell;
 #[cfg(target_os = "windows")]
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{
     path::{Path, PathBuf},
     rc::Rc,
@@ -63,7 +63,7 @@ use windows_sys::Win32::{
 slint::include_modules!();
 
 #[cfg(target_os = "windows")]
-const DRAWER_CLOSE_DELAY: Duration = Duration::from_millis(280);
+const DRAWER_CLOSE_DELAY: Duration = Duration::from_millis(380);
 
 #[cfg(target_os = "windows")]
 fn windows_light_theme_flag(value_name: &str) -> Option<bool> {
@@ -1618,7 +1618,10 @@ fn current_window_placement(
 
     app.window()
         .with_winit_window(|window| {
-            if window.is_maximized() || window.is_minimized().unwrap_or(false) {
+            if window.fullscreen().is_some()
+                || window.is_maximized()
+                || window.is_minimized().unwrap_or(false)
+            {
                 return None;
             }
             // During a winit callback, querying the window can still return
@@ -1747,13 +1750,6 @@ fn finish_manual_window_drag(state: &Arc<Mutex<WindowDragState>>) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn sync_native_window_resizable(window: &slint::Window, fullscreen: bool) {
-    window.with_winit_window(|window| {
-        window.set_resizable(!fullscreen);
-    });
-}
-
-#[cfg(target_os = "windows")]
 fn activate_hwnd_video_fallback(
     slot: &mut Option<VideoHost>,
     app: &AppWindow,
@@ -1770,9 +1766,6 @@ fn activate_hwnd_video_fallback(
 #[cfg(target_os = "windows")]
 fn toggle_native_fullscreen(app: &AppWindow, native_fullscreen: &Arc<Mutex<NativeFullscreen>>) {
     let fullscreen = !app.get_fullscreen_mode();
-    if fullscreen {
-        app.set_fullscreen_mode(true);
-    }
 
     let result = native_fullscreen
         .lock()
@@ -1780,15 +1773,12 @@ fn toggle_native_fullscreen(app: &AppWindow, native_fullscreen: &Arc<Mutex<Nativ
         .and_then(|mut native_fullscreen| native_fullscreen.set(app.window(), fullscreen));
 
     if let Err(error) = result {
-        if fullscreen {
-            app.set_fullscreen_mode(false);
-        }
         app.set_error_message(error.to_string().into());
         app.set_error_visible(true);
-    } else if !fullscreen {
-        app.set_fullscreen_mode(false);
+    } else {
+        app.set_fullscreen_mode(fullscreen);
+        app.invoke_reveal_controls();
     }
-    sync_native_window_resizable(app.window(), app.get_fullscreen_mode());
 }
 
 #[cfg(target_os = "windows")]
@@ -2009,6 +1999,8 @@ pub fn run(
         let mut last_cursor_position = None::<(f64, f64)>;
         let mut drawer_swipe = None::<(DrawerSwipeTarget, f64)>;
         let mut theme_initialized = false;
+        #[cfg(target_os = "windows")]
+        let mut fullscreen_escape_blocked_until = None::<Instant>;
 
         app.window().on_winit_window_event(move |window, event| {
             let Some(app) = app_weak.upgrade() else {
@@ -2068,6 +2060,15 @@ pub fn run(
                     app.set_controls_pointer_over(false);
                 }
                 WindowEvent::Focused(focused) => {
+                    #[cfg(target_os = "windows")]
+                    if *focused && !app.get_window_active() && app.get_fullscreen_mode() {
+                        // Windows overlays (for example Snipping Tool) may return
+                        // focus and forward the Escape that dismissed them to the
+                        // underlying window. Do not treat that same key press as a
+                        // request to leave fullscreen.
+                        fullscreen_escape_blocked_until =
+                            Some(Instant::now() + Duration::from_millis(450));
+                    }
                     app.set_window_active(*focused);
                     #[cfg(target_os = "windows")]
                     if !focused {
@@ -2087,17 +2088,12 @@ pub fn run(
                     // The AfterRendering notifier commits both dimensions together.
                     #[cfg(target_os = "windows")]
                     {
-                        sync_native_window_resizable(window, app.get_fullscreen_mode());
                         remember_window_placement(&app, &event_settings, None, Some(*size));
                     }
                     window.request_redraw();
                 }
                 WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                     app.set_window_scale_factor(*scale_factor as f32);
-                    #[cfg(target_os = "windows")]
-                    {
-                        sync_native_window_resizable(window, app.get_fullscreen_mode());
-                    }
                     window.request_redraw();
                 }
                 WindowEvent::Moved(position) => {
@@ -2282,6 +2278,17 @@ pub fn run(
                         } else if app.get_settings_drawer_visible() {
                             app.invoke_toggle_settings();
                         }
+                        return EventResult::PreventDefault;
+                    }
+
+                    if code == KeyCode::Escape && app.get_fullscreen_mode() {
+                        #[cfg(target_os = "windows")]
+                        if fullscreen_escape_blocked_until
+                            .is_some_and(|deadline| Instant::now() < deadline)
+                        {
+                            return EventResult::PreventDefault;
+                        }
+                        app.invoke_toggle_fullscreen();
                         return EventResult::PreventDefault;
                     }
 
@@ -3390,6 +3397,8 @@ pub fn run(
     }
 
     #[cfg(target_os = "windows")]
+    let (native_init_error_tx, native_init_error_rx) = crossbeam_channel::bounded(1);
+    #[cfg(target_os = "windows")]
     {
         // The native child HWND is only used when integrated OpenGL rendering
         // is unavailable. Register its event bridge once, but keep it dormant
@@ -3438,6 +3447,22 @@ pub fn run(
                 let Some(app) = app_weak.upgrade() else {
                     return;
                 };
+                if matches!(state, slint::RenderingState::RenderingSetup) {
+                    // Slint 1.17/winit pre-renders the first frame before
+                    // set_visible(true). The HWND exists here, but has not yet
+                    // been shown. A queued event-loop callback is too late.
+                    // Run independently of video initialization and repeat if
+                    // Slint recreates the rendering surface/window.
+                    if let Err(error) =
+                        super::native_frame::prepare(app.window(), app.window().is_fullscreen())
+                    {
+                        // Preserve the first failure without blocking if setup
+                        // is repeated before the event loop finishes exiting.
+                        let _ = native_init_error_tx.try_send(error);
+                        let _ = slint::quit_event_loop();
+                    }
+                    return;
+                }
                 let Ok(mut video_host) = notifier_video_host.try_borrow_mut() else {
                     return;
                 };
@@ -3566,7 +3591,7 @@ pub fn run(
                     _ => {}
                 }
             })
-            .ok();
+            .map_err(|error| anyhow::anyhow!("Не удалось подключить подготовку окна: {error}"))?;
     }
 
     let weak = app.as_weak();
@@ -4274,8 +4299,7 @@ pub fn run(
         let app = app.as_weak();
         slint::invoke_from_event_loop(move || {
             if let Some(app) = app.upgrade() {
-                // The native window now exists, so a disappeared monitor can
-                // be detected and the already-applied position clamped once.
+                // Clamp the saved position after the native frame is ready.
                 restore_window_placement(app.window(), placement);
             }
         })?;
@@ -4296,6 +4320,10 @@ pub fn run(
     }
     run_result?;
     hide_result?;
+    #[cfg(target_os = "windows")]
+    if let Ok(error) = native_init_error_rx.try_recv() {
+        return Err(error.context("Не удалось настроить рамку созданного окна"));
+    }
 
     Ok(())
 }

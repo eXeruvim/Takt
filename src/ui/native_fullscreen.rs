@@ -1,262 +1,50 @@
-#![deny(clippy::undocumented_unsafe_blocks)]
+use anyhow::Result;
+use slint::winit_030::{WinitWindowAccessor, winit::window::Fullscreen};
 
-use std::{ffi::c_void, mem};
-
-use anyhow::{Result, anyhow};
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use slint::winit_030::WinitWindowAccessor;
-use windows_sys::{
-    Win32::{
-        Foundation::HWND,
-        Graphics::Gdi::{
-            GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
-        },
-        System::Com::{
-            CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
-        },
-        UI::WindowsAndMessaging::{
-            GetWindowPlacement, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE,
-            SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowPlacement, SetWindowPos,
-            WINDOWPLACEMENT,
-        },
-    },
-    core::{BOOL, GUID, HRESULT, IUnknown_Vtbl},
-};
-
-#[repr(C)]
-struct TaskbarListVtable {
-    parent: IUnknown_Vtbl,
-    hr_init: unsafe extern "system" fn(*mut TaskbarList) -> HRESULT,
-    add_tab: unsafe extern "system" fn(*mut TaskbarList, HWND) -> HRESULT,
-    delete_tab: unsafe extern "system" fn(*mut TaskbarList, HWND) -> HRESULT,
-    activate_tab: unsafe extern "system" fn(*mut TaskbarList, HWND) -> HRESULT,
-    set_active_alt: unsafe extern "system" fn(*mut TaskbarList, HWND) -> HRESULT,
-}
-
-#[repr(C)]
-struct TaskbarList {
-    vtable: *const TaskbarListVtable,
-}
-
-#[repr(C)]
-struct TaskbarList2Vtable {
-    parent: TaskbarListVtable,
-    mark_fullscreen_window: unsafe extern "system" fn(*mut TaskbarList2, HWND, BOOL) -> HRESULT,
-}
-
-#[repr(C)]
-struct TaskbarList2 {
-    vtable: *const TaskbarList2Vtable,
-}
-
-const CLSID_TASKBAR_LIST: GUID = GUID::from_u128(0x56fdf344_fd6d_11d0_958a_006097c9a090);
-const IID_TASKBAR_LIST_2: GUID = GUID::from_u128(0x602d4995_b13a_429b_a66e_1935e44f4317);
-
-/// Keeps fullscreen transitions frameless on Windows.
+/// Keeps the UI's fullscreen state in sync with winit's native borderless
+/// fullscreen implementation.
 ///
-/// Winit implements a frameless resizable window by retaining the standard caption styles and
-/// removing the non-client area in `WM_NCCALCSIZE`. Its borderless-fullscreen exit briefly
-/// restores those styles before that message is handled, allowing DWM to present one frame with
-/// the standard Windows title bar. Moving the existing frameless window to the monitor bounds
-/// avoids changing its styles altogether.
+/// Winit owns the Windows transition and restores the previous maximized or
+/// windowed placement on exit. Keeping that transition in one layer avoids the
+/// conflicting restore/resize/topmost sequence that can briefly detach the
+/// OpenGL surface or expose a black frame.
 #[derive(Default)]
 pub struct NativeFullscreen {
-    saved_placement: Option<WINDOWPLACEMENT>,
+    active: bool,
 }
 
 impl NativeFullscreen {
     pub fn set(&mut self, window: &slint::Window, fullscreen: bool) -> Result<()> {
-        let hwnd = window_handle(window)?;
-
-        if fullscreen {
-            self.enter(hwnd)?;
-        } else {
-            self.exit(hwnd)?;
-        }
-
-        window.with_winit_window(|window| window.request_redraw());
-        Ok(())
-    }
-
-    fn enter(&mut self, hwnd: HWND) -> Result<()> {
-        if self.saved_placement.is_some() {
+        if self.active == fullscreen && window.is_fullscreen() == fullscreen {
             return Ok(());
         }
 
-        let mut placement = WINDOWPLACEMENT {
-            length: mem::size_of::<WINDOWPLACEMENT>() as u32,
-            ..Default::default()
-        };
-        // SAFETY: hwnd belongs to the live Slint window and placement has the
-        // required length plus writable storage for the call.
-        if unsafe { GetWindowPlacement(hwnd, &mut placement) } == 0 {
-            return Err(anyhow!("Не удалось сохранить положение окна"));
-        }
+        // Keep custom non-client geometry/painting in force throughout the
+        // transition and all later deferred Slint property updates.
+        super::native_frame::prepare(window, fullscreen)?;
 
-        // SAFETY: hwnd is a live top-level window; no Rust pointers are passed.
-        let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
-        if monitor.is_null() {
-            return Err(anyhow!(
-                "Не удалось определить монитор для полноэкранного режима"
-            ));
-        }
+        // Run on the UI thread, before Slint's deferred property update.
+        // Slint 1.17.1 enables decorations while native fullscreen is active.
+        // On exit its update_window_properties() sets decorations using that
+        // OLD native state, then leaves fullscreen, exposing a system caption.
+        // Disable decorations while still fullscreen and let winit restore the
+        // placement only afterwards. On entry the same ordering keeps the
+        // window frameless before winit changes its styles and monitor bounds.
+        window
+            .with_winit_window(|native| {
+                native.set_decorations(false);
+                native.set_fullscreen(fullscreen.then_some(Fullscreen::Borderless(None)));
+            })
+            .ok_or_else(|| anyhow::anyhow!("Недоступно окно для полноэкранного режима"))?;
 
-        let mut monitor_info = MONITORINFO {
-            cbSize: mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        // SAFETY: monitor was checked for null and monitor_info carries the
-        // documented structure size and writable storage.
-        if unsafe { GetMonitorInfoW(monitor, &mut monitor_info) } == 0 {
-            return Err(anyhow!("Не удалось получить размеры монитора"));
-        }
-
-        let bounds = monitor_info.rcMonitor;
-        taskbar_mark_fullscreen(hwnd, true);
-        // SAFETY: hwnd and monitor bounds are valid for this synchronous call;
-        // SetWindowPos retains no Rust memory.
-        let updated = unsafe {
-            SetWindowPos(
-                hwnd,
-                HWND_TOPMOST,
-                bounds.left,
-                bounds.top,
-                bounds.right - bounds.left,
-                bounds.bottom - bounds.top,
-                SWP_NOOWNERZORDER | SWP_SHOWWINDOW,
-            )
-        };
-        if updated == 0 {
-            taskbar_mark_fullscreen(hwnd, false);
-            return Err(anyhow!("Не удалось включить полноэкранный режим"));
-        }
-
-        self.saved_placement = Some(placement);
+        // Synchronize Slint too: on its next property update the native state
+        // already matches the request. In particular, exit now evaluates the
+        // no-frame property with native fullscreen OFF. native_frame filters
+        // caption/edge styles in WM_STYLECHANGING; winit owns placement and
+        // the operational flags (including WS_THICKFRAME for resize).
+        window.set_fullscreen(fullscreen);
+        self.active = fullscreen;
+        window.request_redraw();
         Ok(())
-    }
-
-    fn exit(&mut self, hwnd: HWND) -> Result<()> {
-        let Some(placement) = self.saved_placement.take() else {
-            return Ok(());
-        };
-
-        taskbar_mark_fullscreen(hwnd, false);
-        // SAFETY: hwnd remains live while the Slint window exists. The flags
-        // explicitly ignore the placeholder position and size values.
-        let restored_z_order = unsafe {
-            SetWindowPos(
-                hwnd,
-                HWND_NOTOPMOST,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_NOACTIVATE,
-            )
-        };
-        if restored_z_order == 0 {
-            taskbar_mark_fullscreen(hwnd, true);
-            self.saved_placement = Some(placement);
-            return Err(anyhow!("Не удалось восстановить порядок окна"));
-        }
-        // SAFETY: placement was filled by GetWindowPlacement for this HWND and
-        // retained unchanged while fullscreen was active.
-        let restored = unsafe { SetWindowPlacement(hwnd, &placement) };
-        if restored == 0 {
-            // Restore the topmost/fullscreen contract if restoring normal
-            // placement failed; the next exit attempt can retry safely.
-            // SAFETY: hwnd is still live and the flags ignore position/size.
-            unsafe {
-                SetWindowPos(
-                    hwnd,
-                    HWND_TOPMOST,
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_NOACTIVATE,
-                );
-            }
-            taskbar_mark_fullscreen(hwnd, true);
-            self.saved_placement = Some(placement);
-            return Err(anyhow!("Не удалось восстановить положение окна"));
-        }
-
-        Ok(())
-    }
-}
-
-fn taskbar_mark_fullscreen(hwnd: HWND, fullscreen: bool) {
-    // SAFETY: The manually declared COM structs are repr(C), begin with the
-    // exact inherited IUnknown/ITaskbarList vtables, and use system-call ABI.
-    // A successful CoCreateInstance returns one owned reference, released once
-    // below. CoUninitialize is paired only with successful initialization on
-    // this same thread (including S_FALSE).
-    unsafe {
-        let initialize_result = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
-        let should_uninitialize = initialize_result >= 0;
-        let mut taskbar = std::ptr::null_mut::<TaskbarList2>();
-        let create_result = CoCreateInstance(
-            &CLSID_TASKBAR_LIST,
-            std::ptr::null_mut(),
-            CLSCTX_ALL,
-            &IID_TASKBAR_LIST_2,
-            &mut taskbar as *mut _ as *mut _,
-        );
-
-        if create_result >= 0 && !taskbar.is_null() {
-            let vtable = &*(*taskbar).vtable;
-            if (vtable.parent.hr_init)(taskbar.cast()) >= 0 {
-                (vtable.mark_fullscreen_window)(taskbar, hwnd, fullscreen.into());
-            }
-            (vtable.parent.parent.Release)(taskbar.cast());
-        }
-
-        if should_uninitialize {
-            CoUninitialize();
-        }
-    }
-}
-
-fn window_handle(window: &slint::Window) -> Result<HWND> {
-    let window_handle = window.window_handle();
-    let raw_handle = window_handle
-        .window_handle()
-        .map_err(|error| anyhow!("Не удалось получить дескриптор окна: {error:?}"))?;
-    let RawWindowHandle::Win32(handle) = raw_handle.as_raw() else {
-        return Err(anyhow!("Ожидался Win32-дескриптор окна"));
-    };
-
-    Ok(handle.hwnd.get() as *mut c_void)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::mem::{offset_of, size_of};
-
-    use windows_sys::core::IUnknown_Vtbl;
-
-    use super::{TaskbarList, TaskbarList2, TaskbarList2Vtable, TaskbarListVtable};
-
-    #[test]
-    fn taskbar_com_layout_matches_inherited_vtables() {
-        let pointer = size_of::<usize>();
-
-        assert_eq!(size_of::<TaskbarList>(), pointer);
-        assert_eq!(size_of::<TaskbarList2>(), pointer);
-        assert_eq!(offset_of!(TaskbarListVtable, parent), 0);
-        assert_eq!(
-            size_of::<TaskbarListVtable>(),
-            size_of::<IUnknown_Vtbl>() + 5 * pointer
-        );
-        assert_eq!(offset_of!(TaskbarList2Vtable, parent), 0);
-        assert_eq!(
-            offset_of!(TaskbarList2Vtable, mark_fullscreen_window),
-            size_of::<TaskbarListVtable>()
-        );
-        assert_eq!(
-            size_of::<TaskbarList2Vtable>(),
-            size_of::<TaskbarListVtable>() + pointer
-        );
     }
 }

@@ -9,6 +9,19 @@ fn git_output(arguments: &[&str]) -> Option<String> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+    {
+        // GetWindowSubclass is a named export of Common Controls v6. Without
+        // an embedded activation manifest, Windows loads the legacy system DLL
+        // and terminates the process before main with STATUS_ENTRYPOINT_NOT_FOUND.
+        // Both link.exe and lld-link support these flags; apply them to tests too.
+        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        println!(
+            "cargo:rustc-link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'"
+        );
+    }
+
     println!("cargo:rerun-if-changed=ui");
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=Cargo.toml");

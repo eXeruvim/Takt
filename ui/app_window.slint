@@ -200,14 +200,15 @@ export component AppWindow inherits Window {
     in property <[string]> playlist_items;
     in-out property <int> playlist_current_index: -1;
     in-out property <int> playlist_focus_revision: 0;
+    out property <length> inspector_media_inset: self.width >= 1100px ? 464px : 416px;
     out property <length> video_left_panel_inset: !integrated_video_renderer
-        && inspector_reserved && inspector_left_aligned ? 416px : 0px;
+        && inspector_reserved && inspector_left_aligned ? inspector_media_inset : 0px;
     out property <length> video_right_panel_inset: integrated_video_renderer ? 0px
-        : inspector_reserved && !inspector_left_aligned ? 416px : 0px;
+        : inspector_reserved && !inspector_left_aligned ? inspector_media_inset : 0px;
     out property <length> audio_left_panel_inset: inspector_reserved && inspector_left_aligned
-        ? 416px : edge_to_edge ? 0px : Theme.space-4;
+        ? inspector_media_inset : edge_to_edge ? 0px : Theme.space-4;
     out property <length> audio_right_panel_inset: inspector_reserved && !inspector_left_aligned
-            ? 416px
+            ? inspector_media_inset
             : edge_to_edge ? 0px : Theme.space-4;
     out property <bool> modal_overlay_active: command-palette.visible || converter-overlay.visible
         || resume-prompt.visible || clear-data-prompt.visible
@@ -452,7 +453,8 @@ export component AppWindow inherits Window {
                 }
             }
 
-            if root.player_phase == PlayerPhase.empty : empty-stage := Rectangle {
+            if root.player_phase == PlayerPhase.empty
+                || root.player_phase == PlayerPhase.finished : empty-stage := Rectangle {
                 private property <float> safe-scale: max(0.1, root.window_scale_factor);
                 private property <length> target-width:
                     min(parent.width - Theme.space-8 * 2, 520px);
@@ -494,8 +496,11 @@ export component AppWindow inherits Window {
                         width: parent.width;
                         height: root.recent_files.length > 0 || root.playback_data_cleared
                             ? 180px : parent.height;
-                        title: "Откройте медиафайл";
-                        description: "Перетащите видео, аудио или папку в окно либо выберите их вручную";
+                        title: root.player_phase == PlayerPhase.finished
+                            ? "Воспроизведение завершено" : "Откройте медиафайл";
+                        description: root.player_phase == PlayerPhase.finished
+                            ? "Выберите другой файл, папку или недавнее медиа"
+                            : "Перетащите видео, аудио или папку в окно либо выберите их вручную";
                         action-text: "Открыть файл";
                         secondary-action-text: "Открыть папку";
                         action => root.open_file();
@@ -674,17 +679,6 @@ export component AppWindow inherits Window {
                 }
             }
 
-            if root.player_phase == PlayerPhase.finished : EmptyState {
-                x: (parent.width - self.width) / 2;
-                y: Theme.top-bar-height;
-                width: min(parent.width - Theme.space-8 * 2, 440px);
-                height: parent.height - Theme.top-bar-height;
-                title: "Воспроизведение завершено";
-                description: "Выберите медиафайл в плейлисте или откройте новый";
-                action-text: "Открыть файл";
-                action => root.open_file();
-            }
-
             if root.player_phase == PlayerPhase.error : EmptyState {
                 x: (parent.width - self.width) / 2;
                 y: Theme.top-bar-height;
@@ -700,14 +694,14 @@ export component AppWindow inherits Window {
                 property <bool> show-converter: !root.media_presented && !root.picture_in_picture;
                 property <length> converter-space: show-converter ? Theme.space-12 : 0px;
                 x: 0px;
-                y: (!root.fullscreen_mode && !root.picture_in_picture)
-                    || root.controls_visible ? 0px : -Theme.space-2;
+                y: root.fullscreen_mode ? -self.height
+                    : !root.picture_in_picture || root.controls_visible
+                        ? 0px : -Theme.space-2;
                 width: parent.width;
                 height: Theme.top-bar-height;
-                opacity: (!root.fullscreen_mode && !root.picture_in_picture)
-                    || root.controls_visible ? 1 : 0;
-                visible: (!root.fullscreen_mode && !root.picture_in_picture)
-                    || root.controls_visible || self.opacity > 0.01;
+                opacity: root.fullscreen_mode ? 0
+                    : !root.picture_in_picture || root.controls_visible ? 1 : 0;
+                visible: !root.fullscreen_mode || self.opacity > 0.01;
                 border-top-left-radius: root.edge_to_edge
                     ? 0px
                     : Theme.is-dark ? Theme.radius-large : Theme.radius-medium;
@@ -821,7 +815,8 @@ export component AppWindow inherits Window {
                 }
 
                 animate y, opacity {
-                    duration: Theme.motion-dismiss;
+                    duration: root.fullscreen_mode
+                        ? Theme.motion-fast : Theme.motion-normal;
                     easing: cubic-bezier(0.16, 1, 0.3, 1);
                 }
             }
@@ -928,6 +923,8 @@ export component AppWindow inherits Window {
                 shuffle-enabled: root.shuffle_enabled;
                 parent-width: parent.width;
                 parent-height: parent.height;
+                fullscreen-active: root.fullscreen_mode;
+                media-presented: root.media_presented;
                 show-playlist => root.toggle_playlist();
                 show-info => root.toggle_info();
                 show-playback => root.toggle_settings();

@@ -52,8 +52,14 @@ cargo fmt --all -- --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-targets --all-features
 cargo test --locked -p libmpv --lib ownership_tests
+cargo run --locked --bin oxide -- --build-info
 cargo audit
 ```
+
+`--build-info` проверяет загрузку настоящего executable и печатает сведения о
+сборке без запуска UI, плеера или конвертера. Эта проверка ловит отсутствующие
+DLL/экспорты, которые могут не использоваться в unit-тестах. На Windows/MSVC
+`build.rs` встраивает зависимость Common Controls v6 в манифест приложения.
 
 `cargo audit` запускается в CI на каждом изменении и по еженедельному расписанию.
 Разобранные RustSec-исключения и отпечатки локального native runtime описаны в

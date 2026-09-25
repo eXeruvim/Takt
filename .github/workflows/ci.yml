@@ -47,6 +47,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             cargo test --locked -p libmpv --lib ownership_tests
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            # Unit tests can discard imports used only by the GUI entry point.
+            # Load the real application without starting its UI or player.
+            cargo run --locked --bin oxide -- --build-info
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } else {
             Write-Warning "Linked tests are deferred until CI provisions the native libmpv runtime."
           }

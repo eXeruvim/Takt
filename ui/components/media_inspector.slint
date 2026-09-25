@@ -373,7 +373,9 @@ component AccentChoice inherits Rectangle {
 
 export component MediaInspector inherits Rectangle {
     private property <bool> prewarming: true;
-    private property <bool> sound-selected: false;
+    private property <int> settings-page: 0;
+    private property <bool> wide-layout: parent-width >= 1100px;
+    private property <bool> video-settings-available: media-loaded && !audio-media;
     in property <bool> open;
     in property <bool> left-aligned: false;
     in property <bool> playlist-open;
@@ -420,17 +422,16 @@ export component MediaInspector inherits Rectangle {
     in-out property <bool> shuffle-enabled;
     in property <length> parent-width;
     in property <length> parent-height;
+    in property <bool> fullscreen-active: false;
+    in property <bool> media-presented: false;
     out property <length> slide-offset: open || prewarming
         ? 0px : self.width + Theme.space-5;
-    private property <length> playback-content-height: 535px
-        + 376px
+    private property <length> playback-content-height: 912px;
+    private property <length> video-content-height: 80px
         + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
-        + (media-loaded && !audio-media ? 116px : 0px)
-        + (media-loaded && !audio-media ? 64px : 0px)
-        + (media-loaded && !audio-media ? 96px : 0px)
-        + (media-loaded && !audio-media
-            ? 168px + subtitle-tracks.length * 48px : 0px)
-        + (!audio-media && subtitle-tracks.length > 0 ? 144px : 0px);
+        + 116px + 64px + 96px
+        + 168px + subtitle-tracks.length * 48px
+        + (subtitle-tracks.length > 0 ? 144px : 0px);
     private property <length> sound-content-height: media-loaded
         ? 372px
             + (audio-tracks.length > 0 ? 88px : 0px)
@@ -470,13 +471,18 @@ export component MediaInspector inherits Rectangle {
     callback request-clear-playback-data();
     callback request-reset-settings();
 
-    width: min(392px, parent-width - Theme.space-8);
-    height: max(0px, parent-height - self.y
-        - Theme.player-controls-height - Theme.space-6);
+    private property <length> top-clearance: fullscreen-active
+        ? Theme.space-4 : Theme.top-bar-height + Theme.space-2;
+    private property <length> bottom-clearance: media-presented
+        ? Theme.player-controls-height + Theme.space-6 : Theme.space-4;
+    private property <length> available-height:
+        max(0px, parent-height - top-clearance - bottom-clearance);
+    width: min(wide-layout ? 440px : 392px, parent-width - Theme.space-8);
+    height: wide-layout ? available-height : min(available-height, 820px);
     x: left-aligned
         ? Theme.space-4 - slide-offset
         : parent-width - self.width - Theme.space-4 + slide-offset;
-    y: Theme.top-bar-height + Theme.space-2;
+    y: top-clearance + (wide-layout ? 0px : max(0px, (available-height - self.height) / 2));
     opacity: open ? 1 : prewarming ? 0.001 : 0;
     border-radius: Theme.radius-large;
     background: Theme.surface-inspector;
@@ -487,13 +493,19 @@ export component MediaInspector inherits Rectangle {
     drop-shadow-offset-y: Theme.elevation-low-y;
     clip: true;
 
+    changed video-settings-available => {
+        if (!root.video-settings-available && root.settings-page == 2) {
+            root.settings-page = 0;
+        }
+    }
+
     animate opacity {
-        duration: Theme.motion-slow;
+        duration: root.open ? Theme.motion-slow : Theme.motion-gentle;
         easing: cubic-bezier(0.2, 0, 0, 1);
     }
 
     animate slide-offset {
-        duration: Theme.motion-slow;
+        duration: root.open ? Theme.motion-slow : Theme.motion-gentle;
         easing: cubic-bezier(0.16, 1, 0.3, 1);
     }
 
@@ -565,9 +577,9 @@ export component MediaInspector inherits Rectangle {
                 horizontal-stretch: 1;
                 min-width: 0px;
                 text: "Плеер";
-                selected: root.playback-open && !root.sound-selected;
+                selected: root.playback-open && root.settings-page == 0;
                 clicked => {
-                    root.sound-selected = false;
+                    root.settings-page = 0;
                     if (!root.playback-open) { root.show-playback(); }
                 }
             }
@@ -575,9 +587,19 @@ export component MediaInspector inherits Rectangle {
                 horizontal-stretch: 1;
                 min-width: 0px;
                 text: "Звук";
-                selected: root.playback-open && root.sound-selected;
+                selected: root.playback-open && root.settings-page == 1;
                 clicked => {
-                    root.sound-selected = true;
+                    root.settings-page = 1;
+                    if (!root.playback-open) { root.show-playback(); }
+                }
+            }
+            if root.video-settings-available : Button {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                text: "Видео";
+                selected: root.playback-open && root.settings-page == 2;
+                clicked => {
+                    root.settings-page = 2;
                     if (!root.playback-open) { root.show-playback(); }
                 }
             }
@@ -597,70 +619,85 @@ export component MediaInspector inherits Rectangle {
                 height: parent.height;
                 spacing: Theme.space-3;
 
-            UiText {
-                text: root.items.length == 0
-                    ? "Очередь пока пуста"
-                    : root.items.length + (root.items.length == 1
-                        ? " файл" : " файлов в очереди");
-                variant: TextVariant.caption;
-                color: Theme.text-secondary;
-            }
-
-            if root.items.length == 0 : UiText {
-                text: "Откройте файл или папку, чтобы сформировать очередь";
-                color: Theme.text-muted;
-                wrap: word-wrap;
-            }
-
-            if root.items.length > 0 : PlaylistQueue {
-                vertical-stretch: 1;
-                items: root.items;
-                current-index: root.current-index;
-                focus-revision: root.playlist-focus-revision;
-                play-index(index) => root.play-index(index);
-                remove-index(index) => root.remove-index(index);
-            }
-
-            Rectangle {
-                vertical-stretch: root.items.length == 0 ? 1 : 0;
-                background: transparent;
-            }
-
-            if root.recent-files.length > 0 : Divider { }
-
-            if root.recent-files.length > 0 : UiText {
-                text: "Недавние";
-                variant: TextVariant.caption;
-                color: Theme.text-secondary;
-            }
-
-            if root.recent-files.length > 0 : ListView {
-                height: min(root.recent-files.length, 3)
-                    * (Theme.space-12 + Theme.space-1);
-
-                for entry in root.recent-files : Rectangle {
-                    width: parent.width;
-                    height: Theme.space-12 + Theme.space-1;
+                queue-pane := Rectangle {
+                    vertical-stretch: 1;
                     background: transparent;
 
-                    MediaListItem {
-                        width: parent.width;
-                        title: entry.name;
-                        subtitle: entry.location;
-                        activated => root.open-recent(entry.path);
+                    VerticalLayout {
+                        spacing: Theme.space-2;
+
+                        UiText {
+                            text: root.items.length == 0
+                                ? "Очередь пока пуста"
+                                : root.items.length + (root.items.length == 1
+                                    ? " файл" : " файлов в очереди");
+                            variant: TextVariant.caption;
+                            color: Theme.text-secondary;
+                        }
+
+                        if root.items.length == 0 : UiText {
+                            text: "Откройте файл или папку, чтобы сформировать очередь";
+                            color: Theme.text-muted;
+                            wrap: word-wrap;
+                        }
+
+                        if root.items.length == 0 : Rectangle {
+                            vertical-stretch: 1;
+                            background: transparent;
+                        }
+
+                        if root.items.length > 0 : PlaylistQueue {
+                            vertical-stretch: 1;
+                            items: root.items;
+                            current-index: root.current-index;
+                            focus-revision: root.playlist-focus-revision;
+                            play-index(index) => root.play-index(index);
+                            remove-index(index) => root.remove-index(index);
+                        }
+                    }
+                }
+
+                if root.recent-files.length > 0 : Divider { }
+
+                if root.recent-files.length > 0 : recent-pane := Rectangle {
+                    vertical-stretch: 1;
+                    background: transparent;
+
+                    VerticalLayout {
+                        spacing: Theme.space-2;
+
+                        UiText {
+                            text: "Недавние";
+                            variant: TextVariant.caption;
+                            color: Theme.text-secondary;
+                        }
+
+                        ListView {
+                            vertical-stretch: 1;
+
+                            for entry in root.recent-files : Rectangle {
+                                width: parent.width;
+                                height: Theme.space-12 + Theme.space-1;
+                                background: transparent;
+
+                                MediaListItem {
+                                    width: parent.width;
+                                    title: entry.name;
+                                    subtitle: entry.location;
+                                    activated => root.open-recent(entry.path);
+                                }
+                            }
+                        }
+
+                        UiText {
+                            text: "История и позиции хранятся только на этом устройстве";
+                            variant: TextVariant.caption;
+                            color: Theme.text-muted;
+                            wrap: word-wrap;
+                        }
                     }
                 }
             }
-
-            UiText {
-                text: root.recent-files.length > 0
-                    ? "История и позиции хранятся только на этом устройстве"
-                    : "Выберите файл, чтобы перейти к нему";
-                variant: TextVariant.caption;
-                color: Theme.text-muted;
-                wrap: word-wrap;
-            }
-        }
 
             info-scroll := ScrollView {
                 visible: root.info-open || root.prewarming;
@@ -673,7 +710,8 @@ export component MediaInspector inherits Rectangle {
                 info-viewport := Rectangle {
                     width: max(0px, info-scroll.visible-width
                         - Theme.space-8 - Theme.space-1);
-                    height: root.info-content-height;
+                    height: max(root.info-content-height, info-scroll.visible-height);
+                    y: 0px;
                     background: transparent;
                     clip: true;
 
@@ -681,6 +719,7 @@ export component MediaInspector inherits Rectangle {
                         width: parent.width;
                         height: parent.height;
                         spacing: Theme.space-3;
+                        alignment: start;
 
                         UiText {
                             text: root.file-name;
@@ -730,6 +769,7 @@ export component MediaInspector inherits Rectangle {
                         }
 
                         Rectangle { vertical-stretch: 1; background: transparent; }
+
                         UiText {
                             text: "Oxide " + root.app-version
                                 + "  ·  I — открыть или закрыть Inspector";
@@ -741,7 +781,7 @@ export component MediaInspector inherits Rectangle {
             }
 
             playback-scroll := ScrollView {
-                visible: (root.playback-open && !root.sound-selected) || root.prewarming;
+                visible: (root.playback-open && root.settings-page == 0) || root.prewarming;
                 x: 0px;
                 width: parent.width;
                 height: parent.height;
@@ -865,154 +905,6 @@ export component MediaInspector inherits Rectangle {
                 }
 
                 Divider { }
-
-                if root.chapters.length > 0 : UiText {
-                    text: "Главы";
-                    variant: TextVariant.label;
-                }
-
-                if root.chapters.length > 0 : VerticalLayout {
-                    spacing: Theme.space-2;
-
-                    for chapter in root.chapters : Button {
-                        height: Theme.space-10;
-                        text: chapter.label;
-                        selected: chapter.index == root.current-chapter-index;
-                        clicked => root.select-chapter(chapter.index);
-                    }
-                }
-
-                if root.chapters.length > 0 : Divider { }
-
-                if root.media-loaded && !root.audio-media : UiText {
-                    text: "Соотношение сторон";
-                    variant: TextVariant.label;
-                }
-
-                if root.media-loaded && !root.audio-media : VerticalLayout {
-                    spacing: Theme.space-2;
-
-                    HorizontalLayout {
-                        height: Theme.space-10;
-                        spacing: Theme.space-2;
-
-                        for preset[index] in ["Исходное", "16:9", "4:3"] : Button {
-                            horizontal-stretch: 1;
-                            min-width: 0px;
-                            text: preset;
-                            selected: root.aspect-ratio-index == index;
-                            clicked => root.set-aspect-ratio(index);
-                        }
-                    }
-
-                    HorizontalLayout {
-                        height: Theme.space-10;
-                        spacing: Theme.space-2;
-
-                        for preset[index] in ["1.85:1", "2.39:1"] : Button {
-                            horizontal-stretch: 1;
-                            min-width: 0px;
-                            text: preset;
-                            selected: root.aspect-ratio-index == index + 3;
-                            clicked => root.set-aspect-ratio(index + 3);
-                        }
-                    }
-                }
-
-                if root.media-loaded && !root.audio-media : Divider { }
-
-                if root.media-loaded && !root.audio-media : SettingsRow {
-                    height: Theme.space-12;
-                    title: "Аппаратное декодирование";
-                    description: !root.hardware-decoding-enabled
-                        ? "Программное · " + (root.integrated-video-renderer ? "OpenGL" : "HWND")
-                        : root.hardware-decoder == "" || root.hardware-decoder == "no"
-                            ? "Автовыбор: программное · " + (root.integrated-video-renderer ? "OpenGL" : "HWND")
-                            : root.hardware-decoder + " · " + (root.integrated-video-renderer ? "OpenGL" : "HWND");
-                    Toggle {
-                        checked: root.hardware-decoding-enabled;
-                        toggled(checked) => root.set-hardware-decoding(checked);
-                    }
-                }
-
-                if root.media-loaded && !root.audio-media : Divider { }
-
-                if root.media-loaded && !root.audio-media : UiText {
-                    text: "Покадровая навигация";
-                    variant: TextVariant.label;
-                }
-
-                if root.media-loaded && !root.audio-media : HorizontalLayout {
-                    height: Theme.space-10;
-                    spacing: Theme.space-2;
-
-                    Button {
-                        horizontal-stretch: 1;
-                        min-width: 0px;
-                        shortcut: ",";
-                        text: "Назад";
-                        clicked => root.step-frame(-1);
-                    }
-                    Button {
-                        horizontal-stretch: 1;
-                        min-width: 0px;
-                        shortcut: ".";
-                        text: "Вперёд";
-                        clicked => root.step-frame(1);
-                    }
-                }
-
-                if root.media-loaded && !root.audio-media : Divider { }
-
-                if root.media-loaded && !root.audio-media : UiText {
-                    text: "Субтитры";
-                    variant: TextVariant.label;
-                }
-
-                if root.media-loaded && !root.audio-media : VerticalLayout {
-                    spacing: Theme.space-2;
-
-                    Button {
-                        height: Theme.space-10;
-                        text: "Выключены";
-                        selected: !root.subtitles-enabled;
-                        clicked => root.select-subtitle-track(-1);
-                    }
-
-                    for track in root.subtitle-tracks : Button {
-                        height: Theme.space-10;
-                        text: track.label;
-                        selected: track.selected;
-                        clicked => root.select-subtitle-track(track.id);
-                    }
-
-                    Button {
-                        height: Theme.space-10;
-                        text: "Загрузить внешний файл…";
-                        clicked => root.load-subtitle();
-                    }
-                }
-
-                if root.media-loaded && !root.audio-media : Divider { }
-
-                if !root.audio-media && root.subtitle-tracks.length > 0 : UiText {
-                    text: "Синхронизация субтитров";
-                    variant: TextVariant.label;
-                }
-
-                if !root.audio-media && root.subtitle-tracks.length > 0 : UiText {
-                    text: "− раньше  ·  + позже";
-                    variant: TextVariant.caption;
-                    color: Theme.text-muted;
-                }
-
-                if !root.audio-media && root.subtitle-tracks.length > 0 : DelayControl {
-                    value: root.subtitle-delay;
-                    adjust(delta) => root.adjust-subtitle-delay(delta);
-                    reset => root.reset-subtitle-delay();
-                }
-
-                if !root.audio-media && root.subtitle-tracks.length > 0 : Divider { }
 
                 Rectangle {
                     height: 88px;
@@ -1196,8 +1088,185 @@ export component MediaInspector inherits Rectangle {
             }
             }
 
+            video-scroll := ScrollView {
+                visible: (root.playback-open && root.settings-page == 2) || root.prewarming;
+                x: 0px;
+                width: parent.width;
+                height: parent.height;
+                viewport-width: self.visible-width;
+                viewport-height: max(self.visible-height, root.video-content-height);
+
+                video-viewport := Rectangle {
+                    width: max(0px, video-scroll.visible-width
+                        - Theme.space-8 - Theme.space-1);
+                    height: root.video-content-height;
+                    y: 0px;
+                    background: transparent;
+                    clip: true;
+
+                    VerticalLayout {
+                        width: parent.width;
+                        height: parent.height;
+                        spacing: Theme.space-3;
+                        alignment: start;
+
+                        UiText {
+                            text: "Параметры видео";
+                            variant: TextVariant.caption;
+                            color: Theme.text-muted;
+                        }
+
+                        if root.chapters.length > 0 : UiText {
+                            text: "Главы";
+                            variant: TextVariant.label;
+                        }
+
+                        if root.chapters.length > 0 : VerticalLayout {
+                            spacing: Theme.space-2;
+
+                            for chapter in root.chapters : Button {
+                                height: Theme.space-10;
+                                text: chapter.label;
+                                selected: chapter.index == root.current-chapter-index;
+                                clicked => root.select-chapter(chapter.index);
+                            }
+                        }
+
+                        if root.chapters.length > 0 : Divider { }
+
+                        UiText {
+                            text: "Соотношение сторон";
+                            variant: TextVariant.label;
+                        }
+
+                        VerticalLayout {
+                            spacing: Theme.space-2;
+
+                            HorizontalLayout {
+                                height: Theme.space-10;
+                                spacing: Theme.space-2;
+
+                                for preset[index] in ["Исходное", "16:9", "4:3"] : Button {
+                                    horizontal-stretch: 1;
+                                    min-width: 0px;
+                                    text: preset;
+                                    selected: root.aspect-ratio-index == index;
+                                    clicked => root.set-aspect-ratio(index);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                height: Theme.space-10;
+                                spacing: Theme.space-2;
+
+                                for preset[index] in ["1.85:1", "2.39:1"] : Button {
+                                    horizontal-stretch: 1;
+                                    min-width: 0px;
+                                    text: preset;
+                                    selected: root.aspect-ratio-index == index + 3;
+                                    clicked => root.set-aspect-ratio(index + 3);
+                                }
+                            }
+                        }
+
+                        Divider { }
+
+                        SettingsRow {
+                            height: Theme.space-12;
+                            title: "Аппаратное декодирование";
+                            description: !root.hardware-decoding-enabled
+                                ? "Программное · " + (root.integrated-video-renderer ? "OpenGL" : "HWND")
+                                : root.hardware-decoder == "" || root.hardware-decoder == "no"
+                                    ? "Автовыбор: программное · " + (root.integrated-video-renderer ? "OpenGL" : "HWND")
+                                    : root.hardware-decoder + " · " + (root.integrated-video-renderer ? "OpenGL" : "HWND");
+                            Toggle {
+                                checked: root.hardware-decoding-enabled;
+                                toggled(checked) => root.set-hardware-decoding(checked);
+                            }
+                        }
+
+                        Divider { }
+
+                        UiText {
+                            text: "Покадровая навигация";
+                            variant: TextVariant.label;
+                        }
+
+                        HorizontalLayout {
+                            height: Theme.space-10;
+                            spacing: Theme.space-2;
+
+                            Button {
+                                horizontal-stretch: 1;
+                                min-width: 0px;
+                                shortcut: ",";
+                                text: "Назад";
+                                clicked => root.step-frame(-1);
+                            }
+                            Button {
+                                horizontal-stretch: 1;
+                                min-width: 0px;
+                                shortcut: ".";
+                                text: "Вперёд";
+                                clicked => root.step-frame(1);
+                            }
+                        }
+
+                        Divider { }
+
+                        UiText {
+                            text: "Субтитры";
+                            variant: TextVariant.label;
+                        }
+
+                        VerticalLayout {
+                            spacing: Theme.space-2;
+
+                            Button {
+                                height: Theme.space-10;
+                                text: "Выключены";
+                                selected: !root.subtitles-enabled;
+                                clicked => root.select-subtitle-track(-1);
+                            }
+
+                            for track in root.subtitle-tracks : Button {
+                                height: Theme.space-10;
+                                text: track.label;
+                                selected: track.selected;
+                                clicked => root.select-subtitle-track(track.id);
+                            }
+
+                            Button {
+                                height: Theme.space-10;
+                                text: "Загрузить внешний файл…";
+                                clicked => root.load-subtitle();
+                            }
+                        }
+
+                        if root.subtitle-tracks.length > 0 : Divider { }
+
+                        if root.subtitle-tracks.length > 0 : UiText {
+                            text: "Синхронизация субтитров";
+                            variant: TextVariant.label;
+                        }
+
+                        if root.subtitle-tracks.length > 0 : UiText {
+                            text: "− раньше  ·  + позже";
+                            variant: TextVariant.caption;
+                            color: Theme.text-muted;
+                        }
+
+                        if root.subtitle-tracks.length > 0 : DelayControl {
+                            value: root.subtitle-delay;
+                            adjust(delta) => root.adjust-subtitle-delay(delta);
+                            reset => root.reset-subtitle-delay();
+                        }
+                    }
+                }
+            }
+
             sound-scroll := ScrollView {
-                visible: (root.playback-open && root.sound-selected) || root.prewarming;
+                visible: (root.playback-open && root.settings-page == 1) || root.prewarming;
                 x: 0px;
                 width: parent.width;
                 height: parent.height;
