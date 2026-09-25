@@ -1,6 +1,6 @@
 [package]
 name = "oxide"
-version = "0.9.0-alpha.25"
+version = "0.9.0-alpha.26"
 edition = "2024"
 build = "build.rs"
 
@@ -18,15 +18,20 @@ slint = { version = "1.17.1", default-features = false, features = [
     "raw-window-handle-06",
     "unstable-winit-030",
     "renderer-femtovg",
-    "compat-1-2"
+    "compat-1-2",
 ] }
 libmpv = { path = "vendor/libmpv", default-features = false }
 libmpv-sys = { git = "https://github.com/ParadoxSpiral/libmpv-rs.git", rev = "3e6c389b716f52a595cc5e8e3fa1f96cb76b3de7" }
 crossbeam-channel = { version = "0.5.16", default-features = false }
 anyhow = "1.0.104"
-image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png"] }
-lofty = "0.25.1"
-raw-window-handle = {version = "0.6.2", default-features = false }
+image = { version = "0.25.10", default-features = false, features = [
+    "bmp",
+    "gif",
+    "jpeg",
+    "png",
+] }
+lofty = { version = "0.25.1", default-features = true }
+raw-window-handle = { version = "0.6.2", default-features = false }
 winit = { version = "0.30.13", default-features = false, features = ["serde"] }
 serde_json = "1.0.145"
 rfd = { version = "0.17.2", default-features = false }
@@ -58,3 +63,10 @@ slint-build = { version = "1.17.1" }
 inherits = "release"
 debug = 1
 strip = "none"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
