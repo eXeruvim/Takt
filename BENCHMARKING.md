@@ -295,6 +295,19 @@ fallback, поскольку драйвер может атрибутирова�
 renderer, режим окна, тему и сценарий. Сравнение GPU не заменяет отдельные CPU,
 frame pacing, energy и dedicated/shared GPU-memory измерения.
 
+Лёгкие замеры CPU и памяти из `measure-oxide.ps1` сравниваются отдельно. Передайте
+парные результаты `software` и `d3d11va-copy`; анализатор также проверит commit,
+SHA-256, медиа, длительность, окно, тему, оборудование и питание:
+
+```powershell
+.\scripts\compare-oxide-decoder.ps1 -SoftwareResultPath .\benchmark-results\software.json -HardwareResultPath .\benchmark-results\hardware.json
+```
+
+Выходной `oxide-decoder-comparison.json` содержит абсолютные и относительные
+дельты CPU, Working Set, Private Bytes, трендов памяти, handles и threads. Одна
+пара годится для диагностики направления, но release-бюджет принимается только
+по серии из пяти и более чистых прогонов плюс frame pacing/GPU/VRAM/energy.
+
 ### Физически резидентная память
 
 `Working Set` из быстрого измерителя полезен для тренда, но не показывает состав
