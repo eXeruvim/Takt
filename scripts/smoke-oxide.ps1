@@ -93,6 +93,10 @@ try {
     $startInfo.FileName = $executablePath
     $startInfo.WorkingDirectory = $repository
     $startInfo.UseShellExecute = $false
+    # A smoke launch must not inherit stale handles or report paths from an
+    # earlier profiling session in the caller's terminal.
+    [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_DIAGNOSTICS_PATH')
+    [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_RENDER_GATE')
     if ($null -ne $resolvedMediaPath) {
         [void]$startInfo.ArgumentList.Add($resolvedMediaPath)
     }
