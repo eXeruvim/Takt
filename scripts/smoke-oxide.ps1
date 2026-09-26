@@ -2,6 +2,8 @@
 param(
     [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\oxide.exe'),
 
+    [string]$MediaPath = '',
+
     [ValidateRange(1, 30)]
     [int]$StartupTimeoutSeconds = 10,
 
@@ -22,6 +24,14 @@ $executablePath = [System.IO.Path]::GetFullPath($Executable)
 $expectedExecutable = [System.IO.Path]::GetFullPath(
     (Join-Path $repository 'target\profiling\oxide.exe')
 )
+$resolvedMediaPath = $null
+
+if (-not [string]::IsNullOrWhiteSpace($MediaPath)) {
+    $resolvedMediaPath = [System.IO.Path]::GetFullPath($MediaPath)
+    if (-not (Test-Path -LiteralPath $resolvedMediaPath -PathType Leaf)) {
+        throw "Медиафайл для smoke-теста не найден: $resolvedMediaPath"
+    }
+}
 
 if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
     throw "Сборка Oxide не найдена: $executablePath"
@@ -35,7 +45,12 @@ if (-not (Test-Path -LiteralPath $runtimePath -PathType Leaf) -and
 }
 
 if ($ValidateOnly) {
-    Write-Host 'Пути, параметры и native runtime smoke-теста: OK'
+    if ($null -ne $resolvedMediaPath) {
+        Write-Host "Пути, медиафайл и native runtime smoke-теста: OK"
+    }
+    else {
+        Write-Host 'Пути, параметры и native runtime smoke-теста: OK'
+    }
     return
 }
 
@@ -74,11 +89,17 @@ if (-not (Test-Path -LiteralPath $runtimePath -PathType Leaf)) {
 $process = $null
 $startedAt = [Diagnostics.Stopwatch]::StartNew()
 try {
-    $process = Start-Process `
-        -FilePath $executablePath `
-        -WorkingDirectory $repository `
-        -WindowStyle Normal `
-        -PassThru
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $executablePath
+    $startInfo.WorkingDirectory = $repository
+    $startInfo.UseShellExecute = $false
+    if ($null -ne $resolvedMediaPath) {
+        [void]$startInfo.ArgumentList.Add($resolvedMediaPath)
+    }
+    $process = [Diagnostics.Process]::Start($startInfo)
+    if ($null -eq $process) {
+        throw 'Не удалось запустить процесс Oxide.'
+    }
 
     $startupDeadline = [TimeSpan]::FromSeconds($StartupTimeoutSeconds)
     while ($startedAt.Elapsed -lt $startupDeadline) {
@@ -99,6 +120,9 @@ try {
 
     $startupMilliseconds = [math]::Round($startedAt.Elapsed.TotalMilliseconds, 1)
     Write-Host "Окно Oxide PID $($process.Id) появилось за $startupMilliseconds мс."
+    if ($null -ne $resolvedMediaPath) {
+        Write-Host "Открыт файл: $([System.IO.Path]::GetFileName($resolvedMediaPath))"
+    }
     Start-Sleep -Seconds $VisibleSeconds
 
     $process.Refresh()
@@ -115,7 +139,12 @@ try {
         throw "Oxide завершился с кодом $($process.ExitCode)."
     }
 
-    Write-Host 'Smoke-тест пройден: окно появилось, оставалось отзывчивым и штатно закрылось.'
+    if ($null -ne $resolvedMediaPath) {
+        Write-Host 'Smoke-тест медиа пройден: окно оставалось отзывчивым и штатно закрылось.'
+    }
+    else {
+        Write-Host 'Smoke-тест пройден: окно появилось, оставалось отзывчивым и штатно закрылось.'
+    }
 }
 catch {
     if ($null -ne $process) {

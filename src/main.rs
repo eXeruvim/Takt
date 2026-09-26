@@ -10,6 +10,8 @@ mod ui;
 
 use crossbeam_channel::bounded;
 use std::{
+    ffi::{OsStr, OsString},
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -21,11 +23,45 @@ use ui::event_delivery::{CONVERTER_EVENT_CAPACITY, PLAYER_EVENT_CAPACITY};
 
 mod shutdown;
 
-fn print_build_info_if_requested() -> bool {
-    if std::env::args_os().nth(1).as_deref() != Some(std::ffi::OsStr::new("--build-info")) {
-        return false;
+#[derive(Debug, Eq, PartialEq)]
+enum StartupRequest {
+    Run(Option<PathBuf>),
+    BuildInfo,
+}
+
+fn parse_startup_request(
+    args: impl IntoIterator<Item = OsString>,
+) -> anyhow::Result<StartupRequest> {
+    let mut args = args.into_iter();
+    let Some(first) = args.next() else {
+        return Ok(StartupRequest::Run(None));
+    };
+
+    if first == OsStr::new("--build-info") {
+        if args.next().is_some() {
+            anyhow::bail!("Параметр --build-info нельзя сочетать с путём к медиафайлу");
+        }
+        return Ok(StartupRequest::BuildInfo);
     }
 
+    let path = if first == OsStr::new("--") {
+        args.next()
+            .ok_or_else(|| anyhow::anyhow!("После -- укажите путь к файлу или папке"))?
+    } else {
+        if first.to_string_lossy().starts_with("--") {
+            anyhow::bail!("Неизвестный параметр: {}", first.to_string_lossy());
+        }
+        first
+    };
+
+    if args.next().is_some() {
+        anyhow::bail!("Oxide принимает только один путь при запуске");
+    }
+
+    Ok(StartupRequest::Run(Some(PathBuf::from(path))))
+}
+
+fn print_build_info() {
     println!(
         "{}",
         serde_json::json!({
@@ -36,15 +72,29 @@ fn print_build_info_if_requested() -> bool {
             "tracked_state": env!("OXIDE_BUILD_TRACKED_CLEAN"),
         })
     );
-    true
 }
 
 fn main() -> anyhow::Result<()> {
-    if print_build_info_if_requested() {
-        return Ok(());
-    }
+    let startup_path = match parse_startup_request(std::env::args_os().skip(1))? {
+        StartupRequest::BuildInfo => {
+            print_build_info();
+            return Ok(());
+        }
+        StartupRequest::Run(path) => path,
+    };
 
     let (ui_tx, player_rx, command_errors) = player::commands::channel();
+    if let Some(path) = startup_path {
+        let path_text = path.to_string_lossy().into_owned();
+        let command = if path.is_dir() {
+            ipc::Command::OpenFolder(path_text)
+        } else {
+            ipc::Command::OpenFile(path_text)
+        };
+        ui_tx
+            .send(command)
+            .map_err(|error| anyhow::anyhow!(error.message()))?;
+    }
     let (player_tx, ui_rx) = bounded::<ipc::Event>(PLAYER_EVENT_CAPACITY);
     let (converter_tx, converter_rx) =
         bounded::<converter::ConverterCommand>(converter::COMMAND_CAPACITY);
@@ -97,4 +147,54 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     ui_result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{StartupRequest, parse_startup_request};
+    use std::{ffi::OsString, path::PathBuf};
+
+    fn arguments(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn startup_without_arguments_opens_empty_window() {
+        assert_eq!(
+            parse_startup_request(Vec::<OsString>::new()).unwrap(),
+            StartupRequest::Run(None)
+        );
+    }
+
+    #[test]
+    fn startup_accepts_one_media_path() {
+        assert_eq!(
+            parse_startup_request(arguments(&[r"C:\Музыка\трек.mp3"])).unwrap(),
+            StartupRequest::Run(Some(PathBuf::from(r"C:\Музыка\трек.mp3")))
+        );
+    }
+
+    #[test]
+    fn startup_accepts_path_after_option_separator() {
+        assert_eq!(
+            parse_startup_request(arguments(&["--", "--не-параметр.mp4"])).unwrap(),
+            StartupRequest::Run(Some(PathBuf::from("--не-параметр.mp4")))
+        );
+    }
+
+    #[test]
+    fn build_info_is_a_separate_mode() {
+        assert_eq!(
+            parse_startup_request(arguments(&["--build-info"])).unwrap(),
+            StartupRequest::BuildInfo
+        );
+        assert!(parse_startup_request(arguments(&["--build-info", "video.mp4"])).is_err());
+    }
+
+    #[test]
+    fn startup_rejects_unknown_options_and_extra_paths() {
+        assert!(parse_startup_request(arguments(&["--unknown"])).is_err());
+        assert!(parse_startup_request(arguments(&["one.mp4", "two.mp4"])).is_err());
+        assert!(parse_startup_request(arguments(&["--"])).is_err());
+    }
 }
