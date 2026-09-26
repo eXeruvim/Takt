@@ -203,6 +203,7 @@ function Measure-ProcessPhase {
         [Parameter(Mandatory = $true)]
         [object]$GpuMemorySampler,
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [System.Collections.Generic.List[object]]$Samples,
         [Parameter(Mandatory = $true)]
         [string]$Phase,
@@ -637,6 +638,20 @@ if ($ValidateOnly) {
     )
     if ((Get-LinearTrendPerMinute -Samples $trendProbe -Property 'working_set_mib') -ne 2.0) {
         throw 'Самопроверка тренда памяти завершилась ошибкой'
+    }
+    $emptyPhaseSamples = [System.Collections.Generic.List[object]]::new()
+    $emptyPhaseAccepted = Measure-ProcessPhase `
+        -Process ([Diagnostics.Process]::GetCurrentProcess()) `
+        -GpuMemorySampler ([pscustomobject]@{ available = $false; counters = @() }) `
+        -Samples $emptyPhaseSamples `
+        -Phase 'binding-probe' `
+        -DurationSeconds 0 `
+        -SampleIntervalMs 100 `
+        -LogicalProcessors 1 `
+        -Scenario 'artwork-release' `
+        -TotalStopwatch ([Diagnostics.Stopwatch]::StartNew())
+    if (-not $emptyPhaseAccepted -or $emptyPhaseSamples.Count -ne 0) {
+        throw 'Самопроверка пустой стартовой коллекции фазового замера завершилась ошибкой'
     }
     $phaseProbe = Get-MemoryPhaseSummary -Samples @(
         [pscustomobject]@{
