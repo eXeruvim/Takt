@@ -1,4 +1,6 @@
 use std::{
+    fs::OpenOptions,
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
@@ -26,6 +28,7 @@ use libmpv::{
 const PREVIOUS_RESTART_THRESHOLD_SECONDS: f64 = 3.0;
 const MAX_SYNC_DELAY_SECONDS: f64 = 30.0;
 const SESSION_SAVE_INTERVAL: Duration = Duration::from_secs(10);
+const BENCHMARK_DIAGNOSTICS_ENV: &str = "OXIDE_BENCHMARK_DIAGNOSTICS_PATH";
 
 #[derive(Default)]
 struct PlaybackOptions {
@@ -85,6 +88,59 @@ fn send_hardware_decoding(mpv: &Mpv, tx: &Sender<Event>) {
         enabled: hwdec_is_enabled(&requested),
         decoder: bounded_text(&decoder, UI_TEXT_BYTES),
     });
+}
+
+fn benchmark_diagnostics_path() -> Option<PathBuf> {
+    let path = PathBuf::from(std::env::var_os(BENCHMARK_DIAGNOSTICS_ENV)?);
+    if !path.is_absolute() || path.extension().and_then(|value| value.to_str()) != Some("json") {
+        eprintln!("Путь диагностического отчёта проигнорирован: требуется абсолютный JSON-путь");
+        return None;
+    }
+    Some(path)
+}
+
+fn write_playback_diagnostics(mpv: &Mpv, path: &Path, media_available: bool) -> anyhow::Result<()> {
+    let report = serde_json::json!({
+        "schema": 1,
+        "kind": "oxide-mpv-playback-diagnostics",
+        "scope": "current media since load, including setup and warmup",
+        "media_available": media_available,
+        "decoder": mpv.get_property::<String>("hwdec-current").ok(),
+        "video_sync": mpv.get_property::<String>("video-sync").ok(),
+        "frame_drop_count": mpv.get_property::<i64>("frame-drop-count").ok(),
+        "decoder_frame_drop_count": mpv
+            .get_property::<i64>("decoder-frame-drop-count")
+            .ok(),
+        "mistimed_frame_count": mpv.get_property::<i64>("mistimed-frame-count").ok(),
+        "vo_delayed_frame_count": mpv
+            .get_property::<i64>("vo-delayed-frame-count")
+            .ok(),
+        "container_fps": mpv.get_property::<f64>("container-fps").ok(),
+        "estimated_vf_fps": mpv.get_property::<f64>("estimated-vf-fps").ok(),
+        "display_fps": mpv.get_property::<f64>("display-fps").ok(),
+        "estimated_display_fps": mpv.get_property::<f64>("estimated-display-fps").ok(),
+        "vsync_ratio": mpv.get_property::<f64>("vsync-ratio").ok(),
+        "vsync_jitter": mpv.get_property::<f64>("vsync-jitter").ok(),
+        "avsync_seconds": mpv.get_property::<f64>("avsync").ok(),
+        "total_avsync_change_seconds": mpv.get_property::<f64>("total-avsync-change").ok(),
+        "time_pos_seconds": mpv.get_property::<f64>("time-pos").ok(),
+    });
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .with_context(|| {
+            format!(
+                "Не удалось создать диагностический отчёт: {}",
+                path.display()
+            )
+        })?;
+    let mut writer = BufWriter::new(file);
+    serde_json::to_writer_pretty(&mut writer, &report)
+        .context("Не удалось сериализовать диагностический отчёт")?;
+    writer
+        .flush()
+        .context("Не удалось записать диагностический отчёт на диск")
 }
 
 fn send_equalizer(settings: EqualizerSettings, tx: &Sender<Event>) {
@@ -741,6 +797,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     );
     let mut playlist: Option<DirectoryPlaylist> = None;
     let mut options = PlaybackOptions::default();
+    let benchmark_diagnostics_path = benchmark_diagnostics_path();
     let mut session = SessionStore::load_default();
     if let Some(message) = session.take_storage_notice() {
         eprintln!("{message}");
@@ -892,7 +949,15 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                         output_ready = true;
                     }
                 }
-                Ok(false) => return Ok(()),
+                Ok(false) => {
+                    if let Some(path) = benchmark_diagnostics_path.as_deref()
+                        && let Err(error) =
+                            write_playback_diagnostics(&mpv, path, options.media_available)
+                    {
+                        eprintln!("Не удалось сохранить диагностику воспроизведения: {error:#}");
+                    }
+                    return Ok(());
+                }
                 Err(error) => {
                     eprintln!("Ошибка команды mpv: {error:#}");
                     if changes_media {

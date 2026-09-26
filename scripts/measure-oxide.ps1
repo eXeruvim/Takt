@@ -417,7 +417,32 @@ $instructions = switch ($Scenario) {
     'large-artwork' { 'Откройте аудиофайл с крупной допустимой обложкой и дождитесь её отображения.' }
 }
 
-$process = Start-Process -FilePath $executablePath -WorkingDirectory $repository -WindowStyle Normal -PassThru
+$playbackDiagnosticsPath = if ($videoScenario -and $CloseAfterMeasurement) {
+    Join-Path $resultRoot ".mpv-diagnostics-$([Guid]::NewGuid().ToString('N')).json"
+}
+else {
+    $null
+}
+$diagnosticsVariable = 'OXIDE_BENCHMARK_DIAGNOSTICS_PATH'
+$oldDiagnosticsPath = [Environment]::GetEnvironmentVariable(
+    $diagnosticsVariable,
+    [EnvironmentVariableTarget]::Process
+)
+try {
+    [Environment]::SetEnvironmentVariable(
+        $diagnosticsVariable,
+        $playbackDiagnosticsPath,
+        [EnvironmentVariableTarget]::Process
+    )
+    $process = Start-Process -FilePath $executablePath -WorkingDirectory $repository -WindowStyle Normal -PassThru
+}
+finally {
+    [Environment]::SetEnvironmentVariable(
+        $diagnosticsVariable,
+        $oldDiagnosticsPath,
+        [EnvironmentVariableTarget]::Process
+    )
+}
 Write-Host "Oxide запущен с PID $($process.Id)."
 Write-Host $instructions
 if (-not $AutomaticIdle) {
@@ -573,6 +598,7 @@ $summary = [ordered]@{
     }
     handles_max = if ($samples.Count -gt 0) { ($samples.handles | Measure-Object -Maximum).Maximum } else { $null }
     threads_max = if ($samples.Count -gt 0) { ($samples.threads | Measure-Object -Maximum).Maximum } else { $null }
+    playback_diagnostics = $null
     environment = [ordered]@{
         executable = $executablePath
         executable_sha256 = (Get-FileHash -LiteralPath $executablePath -Algorithm SHA256).Hash
@@ -617,5 +643,35 @@ if (-not $process.HasExited) {
     }
     else {
         Write-Host 'Oxide оставлен открытым — закройте его вручную после нужных проверок.'
+    }
+}
+if ($null -ne $playbackDiagnosticsPath) {
+    if (Test-Path -LiteralPath $playbackDiagnosticsPath -PathType Leaf) {
+        try {
+            $playbackDiagnostics = Get-Content `
+                -LiteralPath $playbackDiagnosticsPath `
+                -Raw `
+                -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+            if ($playbackDiagnostics.schema -ne 1 `
+                -or $playbackDiagnostics.kind -ne 'oxide-mpv-playback-diagnostics') {
+                throw 'неподдерживаемая схема'
+            }
+            $summary.playback_diagnostics = $playbackDiagnostics
+            $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $summaryPath -Encoding utf8
+            Write-Host ("Кадры mpv: VO dropped={0}; decoder dropped={1}; mistimed={2}; delayed={3}." -f `
+                $playbackDiagnostics.frame_drop_count, `
+                $playbackDiagnostics.decoder_frame_drop_count, `
+                $playbackDiagnostics.mistimed_frame_count, `
+                $playbackDiagnostics.vo_delayed_frame_count)
+        }
+        catch {
+            Write-Warning "Не удалось добавить диагностику кадров в сводку: $($_.Exception.Message)"
+        }
+        finally {
+            Remove-Item -LiteralPath $playbackDiagnosticsPath -ErrorAction SilentlyContinue
+        }
+    }
+    else {
+        Write-Warning 'Oxide не создал диагностический отчёт mpv; основная сводка сохранена без него.'
     }
 }
