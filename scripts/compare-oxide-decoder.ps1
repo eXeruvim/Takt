@@ -193,6 +193,20 @@ foreach ($metric in $metricPaths.GetEnumerator()) {
         -Software ([double]$softwareValue) `
         -Hardware ([double]$hardwareValue)
 }
+$optionalMetricPaths = [ordered]@{
+    gpu_dedicated_p50_mib = 'gpu_process_memory.dedicated_usage_mib.p50'
+    gpu_dedicated_p95_mib = 'gpu_process_memory.dedicated_usage_mib.p95'
+    gpu_shared_p50_mib = 'gpu_process_memory.shared_usage_mib.p50'
+    gpu_shared_p95_mib = 'gpu_process_memory.shared_usage_mib.p95'
+    gpu_local_p95_mib = 'gpu_process_memory.local_usage_mib.p95'
+    gpu_non_local_p95_mib = 'gpu_process_memory.non_local_usage_mib.p95'
+    gpu_total_committed_p95_mib = 'gpu_process_memory.total_committed_mib.p95'
+}
+foreach ($metric in $optionalMetricPaths.GetEnumerator()) {
+    $metrics[$metric.Key] = Compare-OptionalMetric `
+        (Get-NestedValue -Object $software.data -Path $metric.Value) `
+        (Get-NestedValue -Object $hardware.data -Path $metric.Value)
+}
 
 $hardwareImprovesCpu = $metrics.cpu_p95_percent.delta -lt 0
 $hardwareImprovesMemory = $metrics.working_set_p95_mib.delta -lt 0
@@ -271,7 +285,7 @@ $comparison = [ordered]@{
     metrics = $metrics
     playback_diagnostics = $frameDiagnostics
     interpretation = $interpretation
-    limitation = 'Одна пара показывает этот файл и запуск, но не заменяет серию из пяти и более прогонов, PresentMon/WPA frame-time, GPU/VRAM и energy-профиль. mpv delayed count является эвристикой.'
+    limitation = 'Одна пара показывает этот файл и запуск, но не заменяет серию из пяти и более прогонов, PresentMon/WPA frame-time и energy-профиль. mpv delayed count является эвристикой; Windows GPU memory counters не раскрывают назначение отдельных текстур.'
 }
 
 $resolvedOutput = if ([string]::IsNullOrWhiteSpace($OutputPath)) {
@@ -290,6 +304,16 @@ Write-Host ("CPU p95: {0}% -> {1}% ({2:+0.###;-0.###;0} п.п.)" -f `
 Write-Host ("Working Set p95: {0} -> {1} МиБ ({2:+0.###;-0.###;0} МиБ)" -f `
     $metrics.working_set_p95_mib.software, $metrics.working_set_p95_mib.hardware, `
     $metrics.working_set_p95_mib.delta)
+if ($metrics.gpu_dedicated_p95_mib.available) {
+    Write-Host ("GPU dedicated p95: {0} -> {1} МиБ ({2:+0.###;-0.###;0} МиБ)" -f `
+        $metrics.gpu_dedicated_p95_mib.software, `
+        $metrics.gpu_dedicated_p95_mib.hardware, `
+        $metrics.gpu_dedicated_p95_mib.delta)
+    Write-Host ("GPU shared p95: {0} -> {1} МиБ ({2:+0.###;-0.###;0} МиБ)" -f `
+        $metrics.gpu_shared_p95_mib.software, `
+        $metrics.gpu_shared_p95_mib.hardware, `
+        $metrics.gpu_shared_p95_mib.delta)
+}
 if ($null -ne $frameDiagnostics) {
     Write-Host ("Декодеры mpv: {0} -> {1}; VO dropped: {2} -> {3}; delayed: {4} -> {5}." -f `
         $frameDiagnostics.software_actual_decoder, `

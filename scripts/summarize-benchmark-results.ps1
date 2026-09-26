@@ -37,6 +37,7 @@ function Get-Percentile {
 function Get-AggregateStats {
     param(
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [double[]]$Values
     )
 
@@ -211,6 +212,12 @@ $metricPaths = [ordered]@{
     private_bytes_delta_mib = 'start_to_end.private_bytes_mib'
     working_set_slope_second_half_mib_per_minute = 'memory_trend_mib_per_minute.working_set.second_half'
     private_bytes_slope_second_half_mib_per_minute = 'memory_trend_mib_per_minute.private_bytes.second_half'
+    gpu_dedicated_p50_mib = 'gpu_process_memory.dedicated_usage_mib.p50'
+    gpu_dedicated_p95_mib = 'gpu_process_memory.dedicated_usage_mib.p95'
+    gpu_shared_p50_mib = 'gpu_process_memory.shared_usage_mib.p50'
+    gpu_shared_p95_mib = 'gpu_process_memory.shared_usage_mib.p95'
+    gpu_dedicated_slope_second_half_mib_per_minute = 'memory_trend_mib_per_minute.gpu_dedicated.second_half'
+    gpu_shared_slope_second_half_mib_per_minute = 'memory_trend_mib_per_minute.gpu_shared.second_half'
     handles_delta = 'start_to_end.handles'
     threads_delta = 'start_to_end.threads'
     handles_max = 'handles_max'
@@ -259,6 +266,10 @@ foreach ($group in $runs | Group-Object -Property signature_hash) {
     Write-Host ("CPU p50 по прогонам: {0}% · CPU p95: {1}% · private bytes p50: {2} МиБ" -f `
         $metrics.cpu_sample_p50_percent.p50, $metrics.cpu_sample_p95_percent.p50, `
         $metrics.private_bytes_p50_mib.p50)
+    if ($null -ne $metrics.gpu_dedicated_p95_mib) {
+        Write-Host ("GPU dedicated/shared p95 по прогонам: {0}/{1} МиБ" -f `
+            $metrics.gpu_dedicated_p95_mib.p50, $metrics.gpu_shared_p95_mib.p50)
+    }
 }
 
 if ($written.Count -eq 0) {

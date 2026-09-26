@@ -81,9 +81,123 @@ function Get-Stats {
     }
 }
 
+function New-GpuMemorySampler {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ProcessId
+    )
+
+    try {
+        Add-Type -AssemblyName System.Diagnostics.PerformanceCounter
+        $category = [System.Diagnostics.PerformanceCounterCategory]::new(
+            'GPU Process Memory'
+        )
+        $prefix = "pid_$($ProcessId)_"
+        $instances = @($category.GetInstanceNames() | Where-Object {
+            $_.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
+        })
+        $counterNames = [ordered]@{
+            dedicated_usage_mib = 'Dedicated Usage'
+            shared_usage_mib = 'Shared Usage'
+            local_usage_mib = 'Local Usage'
+            non_local_usage_mib = 'Non Local Usage'
+            total_committed_mib = 'Total Committed'
+        }
+        $counters = [System.Collections.Generic.List[object]]::new()
+        foreach ($instance in $instances) {
+            foreach ($entry in $counterNames.GetEnumerator()) {
+                $counter = [System.Diagnostics.PerformanceCounter]::new(
+                    'GPU Process Memory',
+                    $entry.Value,
+                    $instance,
+                    $true
+                )
+                $counters.Add([pscustomobject]@{
+                    property = $entry.Key
+                    counter = $counter
+                })
+            }
+        }
+        return [pscustomobject]@{
+            available = $counters.Count -gt 0
+            instances = $instances
+            counters = $counters
+            error = if ($counters.Count -gt 0) {
+                $null
+            }
+            else {
+                "Для PID $ProcessId не найдены счётчики GPU Process Memory."
+            }
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            available = $false
+            instances = @()
+            counters = @()
+            error = $_.Exception.Message
+        }
+    }
+}
+
+function Read-GpuMemorySample {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Sampler
+    )
+
+    $result = [ordered]@{
+        available = $false
+        dedicated_usage_mib = $null
+        shared_usage_mib = $null
+        local_usage_mib = $null
+        non_local_usage_mib = $null
+        total_committed_mib = $null
+    }
+    if (-not $Sampler.available) {
+        return [pscustomobject]$result
+    }
+
+    try {
+        $totals = @{}
+        foreach ($entry in $Sampler.counters) {
+            if (-not $totals.ContainsKey($entry.property)) {
+                $totals[$entry.property] = 0.0
+            }
+            $totals[$entry.property] += [double]$entry.counter.NextValue()
+        }
+        foreach ($property in @(
+            'dedicated_usage_mib',
+            'shared_usage_mib',
+            'local_usage_mib',
+            'non_local_usage_mib',
+            'total_committed_mib'
+        )) {
+            $result[$property] = [Math]::Round($totals[$property] / 1MB, 3)
+        }
+        $result.available = $true
+    }
+    catch {
+        $Sampler.error = $_.Exception.Message
+    }
+    return [pscustomobject]$result
+}
+
+function Close-GpuMemorySampler {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Sampler
+    )
+
+    foreach ($entry in $Sampler.counters) {
+        $entry.counter.Dispose()
+    }
+}
+
 function Get-LinearTrendPerMinute {
     param(
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [object[]]$Samples,
         [Parameter(Mandatory = $true)]
         [string]$Property
@@ -396,6 +510,20 @@ if ($ValidateOnly) {
     if ((Get-LinearTrendPerMinute -Samples $trendProbe -Property 'working_set_mib') -ne 2.0) {
         throw 'Самопроверка тренда памяти завершилась ошибкой'
     }
+    $gpuCounterSet = Get-Counter -ListSet 'GPU Process Memory' -ErrorAction Stop
+    foreach ($counterName in @(
+        'Dedicated Usage',
+        'Shared Usage',
+        'Local Usage',
+        'Non Local Usage',
+        'Total Committed'
+    )) {
+        if (-not @($gpuCounterSet.Counter | Where-Object {
+            $_ -like "*\$counterName"
+        })) {
+            throw "Системный счётчик GPU Process Memory/$counterName не найден"
+        }
+    }
     Write-Host 'Синтаксис, пути и расчёт статистики: OK'
     return
 }
@@ -457,6 +585,10 @@ if ($process.HasExited) {
     throw "Oxide завершился до начала замера с кодом $($process.ExitCode)"
 }
 $windowSnapshot = Get-WindowSnapshot -Process $process
+$gpuMemorySampler = New-GpuMemorySampler -ProcessId $process.Id
+if (-not $gpuMemorySampler.available) {
+    Write-Warning "GPU memory не измеряется: $($gpuMemorySampler.error)"
+}
 
 $logicalProcessors = [Math]::Max(1, [Environment]::ProcessorCount)
 $samples = [System.Collections.Generic.List[object]]::new()
@@ -465,40 +597,52 @@ $deadline = [Diagnostics.Stopwatch]::StartNew()
 $previousWall = $deadline.Elapsed.TotalSeconds
 $previousCpu = $process.TotalProcessorTime.TotalSeconds
 
-while ($deadline.Elapsed.TotalSeconds -lt $DurationSeconds) {
-    Start-Sleep -Milliseconds $SampleIntervalMs
-    $process.Refresh()
-    if ($process.HasExited) {
-        Write-Warning 'Oxide завершился во время замера; сохранены полученные образцы.'
-        break
-    }
+try {
+    while ($deadline.Elapsed.TotalSeconds -lt $DurationSeconds) {
+        Start-Sleep -Milliseconds $SampleIntervalMs
+        $process.Refresh()
+        if ($process.HasExited) {
+            Write-Warning 'Oxide завершился во время замера; сохранены полученные образцы.'
+            break
+        }
 
-    $wall = $deadline.Elapsed.TotalSeconds
-    $cpu = $process.TotalProcessorTime.TotalSeconds
-    $wallDelta = $wall - $previousWall
-    $cpuPercent = if ($wallDelta -gt 0.0) {
-        (($cpu - $previousCpu) / $wallDelta / $logicalProcessors) * 100.0
+        $wall = $deadline.Elapsed.TotalSeconds
+        $cpu = $process.TotalProcessorTime.TotalSeconds
+        $wallDelta = $wall - $previousWall
+        $cpuPercent = if ($wallDelta -gt 0.0) {
+            (($cpu - $previousCpu) / $wallDelta / $logicalProcessors) * 100.0
+        }
+        else {
+            0.0
+        }
+        $gpuMemory = Read-GpuMemorySample -Sampler $gpuMemorySampler
+        $samples.Add([pscustomobject][ordered]@{
+            elapsed_seconds = [Math]::Round($wall, 3)
+            cpu_percent = [Math]::Round($cpuPercent, 3)
+            working_set_mib = [Math]::Round($process.WorkingSet64 / 1MB, 3)
+            private_bytes_mib = [Math]::Round($process.PrivateMemorySize64 / 1MB, 3)
+            gpu_memory_available = $gpuMemory.available
+            gpu_dedicated_usage_mib = $gpuMemory.dedicated_usage_mib
+            gpu_shared_usage_mib = $gpuMemory.shared_usage_mib
+            gpu_local_usage_mib = $gpuMemory.local_usage_mib
+            gpu_non_local_usage_mib = $gpuMemory.non_local_usage_mib
+            gpu_total_committed_mib = $gpuMemory.total_committed_mib
+            handles = $process.HandleCount
+            threads = $process.Threads.Count
+        })
+        $percentComplete = [Math]::Min(100.0, ($wall / $DurationSeconds) * 100.0)
+        Write-Progress `
+            -Activity "Замер Oxide: $Scenario" `
+            -Status ("{0:N1} из {1} секунд" -f $wall, $DurationSeconds) `
+            -PercentComplete $percentComplete
+        $previousWall = $wall
+        $previousCpu = $cpu
     }
-    else {
-        0.0
-    }
-    $samples.Add([pscustomobject][ordered]@{
-        elapsed_seconds = [Math]::Round($wall, 3)
-        cpu_percent = [Math]::Round($cpuPercent, 3)
-        working_set_mib = [Math]::Round($process.WorkingSet64 / 1MB, 3)
-        private_bytes_mib = [Math]::Round($process.PrivateMemorySize64 / 1MB, 3)
-        handles = $process.HandleCount
-        threads = $process.Threads.Count
-    })
-    $percentComplete = [Math]::Min(100.0, ($wall / $DurationSeconds) * 100.0)
-    Write-Progress `
-        -Activity "Замер Oxide: $Scenario" `
-        -Status ("{0:N1} из {1} секунд" -f $wall, $DurationSeconds) `
-        -PercentComplete $percentComplete
-    $previousWall = $wall
-    $previousCpu = $cpu
 }
-Write-Progress -Activity "Замер Oxide: $Scenario" -Completed
+finally {
+    Close-GpuMemorySampler -Sampler $gpuMemorySampler
+    Write-Progress -Activity "Замер Oxide: $Scenario" -Completed
+}
 
 $finishedAt = [DateTimeOffset]::UtcNow
 $timestamp = $startedAt.ToLocalTime().ToString('yyyyMMdd-HHmmss')
@@ -555,6 +699,13 @@ $secondHalfSamples = if ($samples.Count -gt 1) {
 else {
     @()
 }
+$gpuMemorySamples = @($samples | Where-Object { $_.gpu_memory_available })
+$gpuMemorySecondHalfSamples = if ($gpuMemorySamples.Count -gt 1) {
+    @($gpuMemorySamples | Select-Object -Skip ([Math]::Floor($gpuMemorySamples.Count / 2)))
+}
+else {
+    @()
+}
 $summary = [ordered]@{
     schema = 2
     scenario = $Scenario
@@ -575,6 +726,28 @@ $summary = [ordered]@{
     cpu_percent_total_capacity = Get-Stats -Values @($samples | ForEach-Object { [double]$_.cpu_percent })
     working_set_mib = Get-Stats -Values @($samples | ForEach-Object { [double]$_.working_set_mib })
     private_bytes_mib = Get-Stats -Values @($samples | ForEach-Object { [double]$_.private_bytes_mib })
+    gpu_process_memory = [ordered]@{
+        available = $gpuMemorySamples.Count -gt 0
+        sample_count = $gpuMemorySamples.Count
+        instance_count = $gpuMemorySampler.instances.Count
+        dedicated_usage_mib = if ($gpuMemorySamples.Count -gt 0) {
+            Get-Stats -Values @($gpuMemorySamples | ForEach-Object { [double]$_.gpu_dedicated_usage_mib })
+        } else { $null }
+        shared_usage_mib = if ($gpuMemorySamples.Count -gt 0) {
+            Get-Stats -Values @($gpuMemorySamples | ForEach-Object { [double]$_.gpu_shared_usage_mib })
+        } else { $null }
+        local_usage_mib = if ($gpuMemorySamples.Count -gt 0) {
+            Get-Stats -Values @($gpuMemorySamples | ForEach-Object { [double]$_.gpu_local_usage_mib })
+        } else { $null }
+        non_local_usage_mib = if ($gpuMemorySamples.Count -gt 0) {
+            Get-Stats -Values @($gpuMemorySamples | ForEach-Object { [double]$_.gpu_non_local_usage_mib })
+        } else { $null }
+        total_committed_mib = if ($gpuMemorySamples.Count -gt 0) {
+            Get-Stats -Values @($gpuMemorySamples | ForEach-Object { [double]$_.gpu_total_committed_mib })
+        } else { $null }
+        error = $gpuMemorySampler.error
+        metric_note = 'Dedicated/shared and local/non-local are two Windows classifications of the same GPU allocations and must not be added to each other.'
+    }
     memory_trend_mib_per_minute = [ordered]@{
         working_set = [ordered]@{
             overall = Get-LinearTrendPerMinute -Samples @($samples) -Property 'working_set_mib'
@@ -583,6 +756,14 @@ $summary = [ordered]@{
         private_bytes = [ordered]@{
             overall = Get-LinearTrendPerMinute -Samples @($samples) -Property 'private_bytes_mib'
             second_half = Get-LinearTrendPerMinute -Samples $secondHalfSamples -Property 'private_bytes_mib'
+        }
+        gpu_dedicated = [ordered]@{
+            overall = Get-LinearTrendPerMinute -Samples $gpuMemorySamples -Property 'gpu_dedicated_usage_mib'
+            second_half = Get-LinearTrendPerMinute -Samples $gpuMemorySecondHalfSamples -Property 'gpu_dedicated_usage_mib'
+        }
+        gpu_shared = [ordered]@{
+            overall = Get-LinearTrendPerMinute -Samples $gpuMemorySamples -Property 'gpu_shared_usage_mib'
+            second_half = Get-LinearTrendPerMinute -Samples $gpuMemorySecondHalfSamples -Property 'gpu_shared_usage_mib'
         }
     }
     start_to_end = if ($null -ne $firstSample -and $null -ne $lastSample) {
