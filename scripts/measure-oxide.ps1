@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'paused', 'minimized', 'large-playlist', 'large-artwork')]
+    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'paused', 'minimized', 'large-playlist', 'large-artwork', 'artwork-release')]
     [string]$Scenario,
 
     [ValidateRange(10, 3600)]
@@ -25,6 +25,8 @@ param(
     [string]$Theme = 'system',
 
     [string]$MediaPath = '',
+
+    [string]$ComparisonMediaPath = '',
 
     [string]$WorkloadManifest = '',
 
@@ -191,6 +193,115 @@ function Close-GpuMemorySampler {
 
     foreach ($entry in $Sampler.counters) {
         $entry.counter.Dispose()
+    }
+}
+
+function Measure-ProcessPhase {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Diagnostics.Process]$Process,
+        [Parameter(Mandatory = $true)]
+        [object]$GpuMemorySampler,
+        [Parameter(Mandatory = $true)]
+        [System.Collections.Generic.List[object]]$Samples,
+        [Parameter(Mandatory = $true)]
+        [string]$Phase,
+        [Parameter(Mandatory = $true)]
+        [int]$DurationSeconds,
+        [Parameter(Mandatory = $true)]
+        [int]$SampleIntervalMs,
+        [Parameter(Mandatory = $true)]
+        [int]$LogicalProcessors,
+        [Parameter(Mandatory = $true)]
+        [string]$Scenario,
+        [Parameter(Mandatory = $true)]
+        [System.Diagnostics.Stopwatch]$TotalStopwatch
+    )
+
+    $phaseStopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $previousWall = $phaseStopwatch.Elapsed.TotalSeconds
+    $previousCpu = $Process.TotalProcessorTime.TotalSeconds
+    while ($phaseStopwatch.Elapsed.TotalSeconds -lt $DurationSeconds) {
+        Start-Sleep -Milliseconds $SampleIntervalMs
+        $Process.Refresh()
+        if ($Process.HasExited) {
+            Write-Warning 'Oxide завершился во время замера; сохранены полученные образцы.'
+            return $false
+        }
+
+        $wall = $phaseStopwatch.Elapsed.TotalSeconds
+        $cpu = $Process.TotalProcessorTime.TotalSeconds
+        $wallDelta = $wall - $previousWall
+        $cpuPercent = if ($wallDelta -gt 0.0) {
+            (($cpu - $previousCpu) / $wallDelta / $LogicalProcessors) * 100.0
+        }
+        else {
+            0.0
+        }
+        $gpuMemory = Read-GpuMemorySample -Sampler $GpuMemorySampler
+        $Samples.Add([pscustomobject][ordered]@{
+            elapsed_seconds = [Math]::Round($TotalStopwatch.Elapsed.TotalSeconds, 3)
+            phase = $Phase
+            phase_elapsed_seconds = [Math]::Round($wall, 3)
+            cpu_percent = [Math]::Round($cpuPercent, 3)
+            working_set_mib = [Math]::Round($Process.WorkingSet64 / 1MB, 3)
+            private_bytes_mib = [Math]::Round($Process.PrivateMemorySize64 / 1MB, 3)
+            gpu_memory_available = $gpuMemory.available
+            gpu_dedicated_usage_mib = $gpuMemory.dedicated_usage_mib
+            gpu_shared_usage_mib = $gpuMemory.shared_usage_mib
+            gpu_local_usage_mib = $gpuMemory.local_usage_mib
+            gpu_non_local_usage_mib = $gpuMemory.non_local_usage_mib
+            gpu_total_committed_mib = $gpuMemory.total_committed_mib
+            handles = $Process.HandleCount
+            threads = $Process.Threads.Count
+        })
+        $percentComplete = [Math]::Min(100.0, ($wall / $DurationSeconds) * 100.0)
+        Write-Progress `
+            -Activity "Замер Oxide: $Scenario" `
+            -Status ("{0}: {1:N1} из {2} секунд" -f $Phase, $wall, $DurationSeconds) `
+            -PercentComplete $percentComplete
+        $previousWall = $wall
+        $previousCpu = $cpu
+    }
+    return $true
+}
+
+function Get-MemoryPhaseSummary {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]]$Samples
+    )
+
+    if ($Samples.Count -eq 0) {
+        return $null
+    }
+    $gpuSamples = @($Samples | Where-Object { $_.gpu_memory_available })
+    $first = $Samples[0]
+    $last = $Samples[$Samples.Count - 1]
+    return [ordered]@{
+        samples = $Samples.Count
+        working_set_mib = Get-Stats -Values @($Samples | ForEach-Object { [double]$_.working_set_mib })
+        private_bytes_mib = Get-Stats -Values @($Samples | ForEach-Object { [double]$_.private_bytes_mib })
+        gpu_dedicated_mib = if ($gpuSamples.Count -gt 0) {
+            Get-Stats -Values @($gpuSamples | ForEach-Object { [double]$_.gpu_dedicated_usage_mib })
+        } else { $null }
+        gpu_shared_mib = if ($gpuSamples.Count -gt 0) {
+            Get-Stats -Values @($gpuSamples | ForEach-Object { [double]$_.gpu_shared_usage_mib })
+        } else { $null }
+        gpu_total_committed_mib = if ($gpuSamples.Count -gt 0) {
+            Get-Stats -Values @($gpuSamples | ForEach-Object { [double]$_.gpu_total_committed_mib })
+        } else { $null }
+        start_to_end = [ordered]@{
+            working_set_mib = [Math]::Round($last.working_set_mib - $first.working_set_mib, 3)
+            private_bytes_mib = [Math]::Round($last.private_bytes_mib - $first.private_bytes_mib, 3)
+            gpu_dedicated_mib = if ($first.gpu_memory_available -and $last.gpu_memory_available) {
+                [Math]::Round($last.gpu_dedicated_usage_mib - $first.gpu_dedicated_usage_mib, 3)
+            } else { $null }
+            gpu_shared_mib = if ($first.gpu_memory_available -and $last.gpu_memory_available) {
+                [Math]::Round($last.gpu_shared_usage_mib - $first.gpu_shared_usage_mib, 3)
+            } else { $null }
+        }
     }
 }
 
@@ -463,11 +574,28 @@ $largePlaylistScenario = $Scenario -eq 'large-playlist'
 if ($largePlaylistScenario -and -not $ValidateOnly -and [string]::IsNullOrWhiteSpace($WorkloadManifest)) {
     throw 'Для large-playlist укажите -WorkloadManifest из каталога созданного fixture.'
 }
+$artworkReleaseScenario = $Scenario -eq 'artwork-release'
+if ($artworkReleaseScenario -and -not $ValidateOnly) {
+    if ([string]::IsNullOrWhiteSpace($MediaPath) -or
+        [string]::IsNullOrWhiteSpace($ComparisonMediaPath)) {
+        throw 'Для artwork-release укажите -MediaPath файла с обложкой и -ComparisonMediaPath файла без обложки.'
+    }
+}
 $mediaDescriptor = if ([string]::IsNullOrWhiteSpace($MediaPath)) {
     $null
 }
 else {
     Get-MediaDescriptor -Path $MediaPath
+}
+$comparisonMediaDescriptor = if ([string]::IsNullOrWhiteSpace($ComparisonMediaPath)) {
+    $null
+}
+else {
+    Get-MediaDescriptor -Path $ComparisonMediaPath
+}
+if ($artworkReleaseScenario -and -not $ValidateOnly -and
+    $mediaDescriptor.sha256 -eq $comparisonMediaDescriptor.sha256) {
+    throw 'Для artwork-release нужны два разных файла.'
 }
 $workloadDescriptor = if ([string]::IsNullOrWhiteSpace($WorkloadManifest)) {
     $null
@@ -510,6 +638,22 @@ if ($ValidateOnly) {
     if ((Get-LinearTrendPerMinute -Samples $trendProbe -Property 'working_set_mib') -ne 2.0) {
         throw 'Самопроверка тренда памяти завершилась ошибкой'
     }
+    $phaseProbe = Get-MemoryPhaseSummary -Samples @(
+        [pscustomobject]@{
+            working_set_mib = 10.0; private_bytes_mib = 20.0
+            gpu_memory_available = $false; gpu_dedicated_usage_mib = $null
+            gpu_shared_usage_mib = $null
+        },
+        [pscustomobject]@{
+            working_set_mib = 12.0; private_bytes_mib = 24.0
+            gpu_memory_available = $false; gpu_dedicated_usage_mib = $null
+            gpu_shared_usage_mib = $null
+        }
+    )
+    if ($phaseProbe.working_set_mib.p50 -ne 10.0 -or
+        $phaseProbe.start_to_end.private_bytes_mib -ne 4.0) {
+        throw 'Самопроверка фазового замера памяти завершилась ошибкой'
+    }
     $gpuCounterSet = Get-Counter -ListSet 'GPU Process Memory' -ErrorAction Stop
     foreach ($counterName in @(
         'Dedicated Usage',
@@ -543,6 +687,7 @@ $instructions = switch ($Scenario) {
     'minimized' { 'Откройте медиафайл, запустите воспроизведение и сверните Oxide на панель задач.' }
     'large-playlist' { 'Откройте подготовленную большую папку и оставьте очередь открытой на время замера.' }
     'large-artwork' { 'Откройте аудиофайл с крупной допустимой обложкой и дождитесь её отображения.' }
+    'artwork-release' { 'Откройте указанный аудиофайл с обложкой и дождитесь её отображения.' }
 }
 
 $playbackDiagnosticsPath = if ($videoScenario -and $CloseAfterMeasurement) {
@@ -627,50 +772,52 @@ if ($null -ne $renderGate) {
     $renderGate.Set() | Out-Null
 }
 $startedAt = [DateTimeOffset]::UtcNow
-$deadline = [Diagnostics.Stopwatch]::StartNew()
-$previousWall = $deadline.Elapsed.TotalSeconds
-$previousCpu = $process.TotalProcessorTime.TotalSeconds
+$totalStopwatch = [Diagnostics.Stopwatch]::StartNew()
 
 try {
-    while ($deadline.Elapsed.TotalSeconds -lt $DurationSeconds) {
-        Start-Sleep -Milliseconds $SampleIntervalMs
-        $process.Refresh()
-        if ($process.HasExited) {
-            Write-Warning 'Oxide завершился во время замера; сохранены полученные образцы.'
-            break
+    if ($artworkReleaseScenario) {
+        $phaseDurationSeconds = [Math]::Floor($DurationSeconds / 2)
+        $firstPhaseCompleted = Measure-ProcessPhase `
+            -Process $process `
+            -GpuMemorySampler $gpuMemorySampler `
+            -Samples $samples `
+            -Phase 'with-artwork' `
+            -DurationSeconds $phaseDurationSeconds `
+            -SampleIntervalMs $SampleIntervalMs `
+            -LogicalProcessors $logicalProcessors `
+            -Scenario $Scenario `
+            -TotalStopwatch $totalStopwatch
+        if ($firstPhaseCompleted) {
+            Write-Progress -Activity "Замер Oxide: $Scenario" -Completed
+            Write-Host ''
+            Write-Host 'Первая фаза готова. Теперь откройте указанный файл БЕЗ обложки.'
+            Read-Host 'Дождитесь появления заглушки обложки и нажмите Enter для второй фазы'
+            $process.Refresh()
+            if (-not $process.HasExited) {
+                [void](Measure-ProcessPhase `
+                    -Process $process `
+                    -GpuMemorySampler $gpuMemorySampler `
+                    -Samples $samples `
+                    -Phase 'without-artwork' `
+                    -DurationSeconds ($DurationSeconds - $phaseDurationSeconds) `
+                    -SampleIntervalMs $SampleIntervalMs `
+                    -LogicalProcessors $logicalProcessors `
+                    -Scenario $Scenario `
+                    -TotalStopwatch $totalStopwatch)
+            }
         }
-
-        $wall = $deadline.Elapsed.TotalSeconds
-        $cpu = $process.TotalProcessorTime.TotalSeconds
-        $wallDelta = $wall - $previousWall
-        $cpuPercent = if ($wallDelta -gt 0.0) {
-            (($cpu - $previousCpu) / $wallDelta / $logicalProcessors) * 100.0
-        }
-        else {
-            0.0
-        }
-        $gpuMemory = Read-GpuMemorySample -Sampler $gpuMemorySampler
-        $samples.Add([pscustomobject][ordered]@{
-            elapsed_seconds = [Math]::Round($wall, 3)
-            cpu_percent = [Math]::Round($cpuPercent, 3)
-            working_set_mib = [Math]::Round($process.WorkingSet64 / 1MB, 3)
-            private_bytes_mib = [Math]::Round($process.PrivateMemorySize64 / 1MB, 3)
-            gpu_memory_available = $gpuMemory.available
-            gpu_dedicated_usage_mib = $gpuMemory.dedicated_usage_mib
-            gpu_shared_usage_mib = $gpuMemory.shared_usage_mib
-            gpu_local_usage_mib = $gpuMemory.local_usage_mib
-            gpu_non_local_usage_mib = $gpuMemory.non_local_usage_mib
-            gpu_total_committed_mib = $gpuMemory.total_committed_mib
-            handles = $process.HandleCount
-            threads = $process.Threads.Count
-        })
-        $percentComplete = [Math]::Min(100.0, ($wall / $DurationSeconds) * 100.0)
-        Write-Progress `
-            -Activity "Замер Oxide: $Scenario" `
-            -Status ("{0:N1} из {1} секунд" -f $wall, $DurationSeconds) `
-            -PercentComplete $percentComplete
-        $previousWall = $wall
-        $previousCpu = $cpu
+    }
+    else {
+        [void](Measure-ProcessPhase `
+            -Process $process `
+            -GpuMemorySampler $gpuMemorySampler `
+            -Samples $samples `
+            -Phase 'measurement' `
+            -DurationSeconds $DurationSeconds `
+            -SampleIntervalMs $SampleIntervalMs `
+            -LogicalProcessors $logicalProcessors `
+            -Scenario $Scenario `
+            -TotalStopwatch $totalStopwatch)
     }
 }
 finally {
@@ -743,6 +890,20 @@ $gpuMemorySecondHalfSamples = if ($gpuMemorySamples.Count -gt 1) {
 else {
     @()
 }
+$withArtworkSamples = @($samples | Where-Object { $_.phase -eq 'with-artwork' })
+$withoutArtworkSamples = @($samples | Where-Object { $_.phase -eq 'without-artwork' })
+$withArtworkSummary = if ($withArtworkSamples.Count -gt 0) {
+    Get-MemoryPhaseSummary -Samples $withArtworkSamples
+}
+else {
+    $null
+}
+$withoutArtworkSummary = if ($withoutArtworkSamples.Count -gt 0) {
+    Get-MemoryPhaseSummary -Samples $withoutArtworkSamples
+}
+else {
+    $null
+}
 $summary = [ordered]@{
     schema = 2
     scenario = $Scenario
@@ -757,6 +918,7 @@ $summary = [ordered]@{
         window_mode = $WindowMode
         theme = $Theme
         media = $mediaDescriptor
+        comparison_media = $comparisonMediaDescriptor
         workload = $workloadDescriptor
         notes = $Notes
     }
@@ -814,6 +976,58 @@ $summary = [ordered]@{
     else {
         $null
     }
+    phase_results = if ($artworkReleaseScenario) {
+        [ordered]@{
+            with_artwork = $withArtworkSummary
+            without_artwork = $withoutArtworkSummary
+            without_minus_with_p50_mib = if ($null -ne $withArtworkSummary -and
+                $null -ne $withoutArtworkSummary) {
+                [ordered]@{
+                    working_set = [Math]::Round(
+                        $withoutArtworkSummary.working_set_mib.p50 -
+                            $withArtworkSummary.working_set_mib.p50,
+                        3
+                    )
+                    private_bytes = [Math]::Round(
+                        $withoutArtworkSummary.private_bytes_mib.p50 -
+                            $withArtworkSummary.private_bytes_mib.p50,
+                        3
+                    )
+                    gpu_dedicated = if ($null -ne $withArtworkSummary.gpu_dedicated_mib -and
+                        $null -ne $withoutArtworkSummary.gpu_dedicated_mib) {
+                        [Math]::Round(
+                            $withoutArtworkSummary.gpu_dedicated_mib.p50 -
+                                $withArtworkSummary.gpu_dedicated_mib.p50,
+                            3
+                        )
+                    } else { $null }
+                    gpu_shared = if ($null -ne $withArtworkSummary.gpu_shared_mib -and
+                        $null -ne $withoutArtworkSummary.gpu_shared_mib) {
+                        [Math]::Round(
+                            $withoutArtworkSummary.gpu_shared_mib.p50 -
+                                $withArtworkSummary.gpu_shared_mib.p50,
+                            3
+                        )
+                    } else { $null }
+                    gpu_total_committed = if ($null -ne $withArtworkSummary.gpu_total_committed_mib -and
+                        $null -ne $withoutArtworkSummary.gpu_total_committed_mib) {
+                        [Math]::Round(
+                            $withoutArtworkSummary.gpu_total_committed_mib.p50 -
+                                $withArtworkSummary.gpu_total_committed_mib.p50,
+                            3
+                        )
+                    } else { $null }
+                }
+            }
+            else {
+                $null
+            }
+            metric_note = 'Negative without-minus-with values indicate memory released after switching to a file without artwork.'
+        }
+    }
+    else {
+        $null
+    }
     handles_max = if ($samples.Count -gt 0) { ($samples.handles | Measure-Object -Maximum).Maximum } else { $null }
     threads_max = if ($samples.Count -gt 0) { ($samples.threads | Measure-Object -Maximum).Maximum } else { $null }
     playback_diagnostics = $null
@@ -847,6 +1061,11 @@ $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $summaryPath -Enco
 
 Write-Host "Готово: $csvPath"
 Write-Host "Сводка: $summaryPath"
+if ($artworkReleaseScenario -and $null -ne $summary.phase_results.without_minus_with_p50_mib) {
+    $delta = $summary.phase_results.without_minus_with_p50_mib
+    Write-Host ("После снятия обложки, p50 delta: WS {0} МиБ · Private {1} МиБ · GPU total {2} МиБ" -f `
+        $delta.working_set, $delta.private_bytes, $delta.gpu_total_committed)
+}
 if ($windowSnapshot.available) {
     Write-Host ("Окружение: DPI {0}, масштаб {1}%, клиентская область {2}x{3} px." -f `
         $windowSnapshot.dpi, $windowSnapshot.scale_percent, `
