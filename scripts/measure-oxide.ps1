@@ -552,8 +552,29 @@ else {
     $null
 }
 $diagnosticsVariable = 'OXIDE_BENCHMARK_DIAGNOSTICS_PATH'
+$renderGateVariable = 'OXIDE_BENCHMARK_RENDER_GATE'
+$renderGateName = if ($null -ne $playbackDiagnosticsPath) {
+    "Local\OxideBenchmarkRender-$([Guid]::NewGuid().ToString('N'))"
+}
+else {
+    $null
+}
+$renderGate = if ($null -ne $renderGateName) {
+    [System.Threading.EventWaitHandle]::new(
+        $false,
+        [System.Threading.EventResetMode]::ManualReset,
+        $renderGateName
+    )
+}
+else {
+    $null
+}
 $oldDiagnosticsPath = [Environment]::GetEnvironmentVariable(
     $diagnosticsVariable,
+    [EnvironmentVariableTarget]::Process
+)
+$oldRenderGateName = [Environment]::GetEnvironmentVariable(
+    $renderGateVariable,
     [EnvironmentVariableTarget]::Process
 )
 try {
@@ -562,12 +583,22 @@ try {
         $playbackDiagnosticsPath,
         [EnvironmentVariableTarget]::Process
     )
+    [Environment]::SetEnvironmentVariable(
+        $renderGateVariable,
+        $renderGateName,
+        [EnvironmentVariableTarget]::Process
+    )
     $process = Start-Process -FilePath $executablePath -WorkingDirectory $repository -WindowStyle Normal -PassThru
 }
 finally {
     [Environment]::SetEnvironmentVariable(
         $diagnosticsVariable,
         $oldDiagnosticsPath,
+        [EnvironmentVariableTarget]::Process
+    )
+    [Environment]::SetEnvironmentVariable(
+        $renderGateVariable,
+        $oldRenderGateName,
         [EnvironmentVariableTarget]::Process
     )
 }
@@ -592,6 +623,9 @@ if (-not $gpuMemorySampler.available) {
 
 $logicalProcessors = [Math]::Max(1, [Environment]::ProcessorCount)
 $samples = [System.Collections.Generic.List[object]]::new()
+if ($null -ne $renderGate) {
+    $renderGate.Set() | Out-Null
+}
 $startedAt = [DateTimeOffset]::UtcNow
 $deadline = [Diagnostics.Stopwatch]::StartNew()
 $previousWall = $deadline.Elapsed.TotalSeconds
@@ -640,6 +674,9 @@ try {
     }
 }
 finally {
+    if ($null -ne $renderGate) {
+        $renderGate.Reset() | Out-Null
+    }
     Close-GpuMemorySampler -Sampler $gpuMemorySampler
     Write-Progress -Activity "Замер Oxide: $Scenario" -Completed
 }
@@ -855,4 +892,7 @@ if ($null -ne $playbackDiagnosticsPath) {
     else {
         Write-Warning 'Oxide не создал диагностический отчёт mpv; основная сводка сохранена без него.'
     }
+}
+if ($null -ne $renderGate) {
+    $renderGate.Dispose()
 }

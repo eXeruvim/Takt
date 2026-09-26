@@ -189,7 +189,7 @@ fn write_playback_diagnostics(
     let report = serde_json::json!({
         "schema": 1,
         "kind": "oxide-mpv-playback-diagnostics",
-        "scope": "current media since load, including setup and warmup",
+        "scope": "mpv counters cover current media since load; render_timing declares its own scope",
         "media_available": media_available,
         "decoder": diagnostics.decoder,
         "video_sync": diagnostics.video_sync,
