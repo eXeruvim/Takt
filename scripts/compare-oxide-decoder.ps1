@@ -229,6 +229,42 @@ if ($null -ne $softwareDiagnostics -and $null -ne $hardwareDiagnostics) {
         -or $hardwareDiagnostics.kind -ne 'oxide-mpv-playback-diagnostics') {
         throw 'A/B содержит неподдерживаемую схему playback_diagnostics.'
     }
+    $softwareRenderTiming = Get-NestedValue `
+        -Object $softwareDiagnostics `
+        -Path 'render_timing'
+    $hardwareRenderTiming = Get-NestedValue `
+        -Object $hardwareDiagnostics `
+        -Path 'render_timing'
+    $renderTiming = if ($null -ne $softwareRenderTiming -and $null -ne $hardwareRenderTiming) {
+        [ordered]@{
+            available = $true
+            rendered_frames = Compare-OptionalMetric `
+                $softwareRenderTiming.rendered_frames `
+                $hardwareRenderTiming.rendered_frames
+            frame_interval_p50_ms = Compare-OptionalMetric `
+                $softwareRenderTiming.frame_interval_ms.p50 `
+                $hardwareRenderTiming.frame_interval_ms.p50
+            frame_interval_p95_ms = Compare-OptionalMetric `
+                $softwareRenderTiming.frame_interval_ms.p95 `
+                $hardwareRenderTiming.frame_interval_ms.p95
+            frame_interval_p99_ms = Compare-OptionalMetric `
+                $softwareRenderTiming.frame_interval_ms.p99 `
+                $hardwareRenderTiming.frame_interval_ms.p99
+            mpv_render_p50_ms = Compare-OptionalMetric `
+                $softwareRenderTiming.mpv_render_duration_ms.p50 `
+                $hardwareRenderTiming.mpv_render_duration_ms.p50
+            mpv_render_p95_ms = Compare-OptionalMetric `
+                $softwareRenderTiming.mpv_render_duration_ms.p95 `
+                $hardwareRenderTiming.mpv_render_duration_ms.p95
+            mpv_render_p99_ms = Compare-OptionalMetric `
+                $softwareRenderTiming.mpv_render_duration_ms.p99 `
+                $hardwareRenderTiming.mpv_render_duration_ms.p99
+            metric_note = $hardwareRenderTiming.metric_note
+        }
+    }
+    else {
+        [ordered]@{ available = $false }
+    }
     $frameDiagnostics = [ordered]@{
         available = $true
         software_actual_decoder = $softwareDiagnostics.decoder
@@ -264,6 +300,7 @@ if ($null -ne $softwareDiagnostics -and $null -ne $hardwareDiagnostics) {
         total_avsync_change_seconds = Compare-OptionalMetric `
             $softwareDiagnostics.total_avsync_change_seconds `
             $hardwareDiagnostics.total_avsync_change_seconds
+        render_timing = $renderTiming
     }
 }
 
@@ -322,4 +359,11 @@ if ($null -ne $frameDiagnostics) {
         $frameDiagnostics.frame_drop_count.hardware, `
         $frameDiagnostics.vo_delayed_frame_count.software, `
         $frameDiagnostics.vo_delayed_frame_count.hardware)
+    if ($frameDiagnostics.render_timing.available) {
+        Write-Host ("Render interval p95: {0} -> {1} мс; mpv render p95: {2} -> {3} мс." -f `
+            $frameDiagnostics.render_timing.frame_interval_p95_ms.software, `
+            $frameDiagnostics.render_timing.frame_interval_p95_ms.hardware, `
+            $frameDiagnostics.render_timing.mpv_render_p95_ms.software, `
+            $frameDiagnostics.render_timing.mpv_render_p95_ms.hardware)
+    }
 }

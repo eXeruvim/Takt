@@ -1,3 +1,4 @@
+mod benchmark_diagnostics;
 mod converter;
 mod ipc;
 

@@ -3555,11 +3555,14 @@ pub fn run(
 
                         if let Some(renderer) = gl_renderer.as_mut() {
                             let size = app.window().size();
+                            let render_started = crate::benchmark_diagnostics::begin_render();
                             // SAFETY: BeforeRendering guarantees the same
                             // current OpenGL context used to create renderer.
-                            if let Err(error) = unsafe {
+                            let render_result = unsafe {
                                 renderer.render((size.width, size.height))
-                            } {
+                            };
+                            crate::benchmark_diagnostics::finish_render(render_started);
+                            if let Err(error) = render_result {
                                 eprintln!("OpenGL video render failed: {error:#}");
                                 gl_renderer = None;
                                 render_api_failed = true;

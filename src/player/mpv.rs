@@ -206,6 +206,7 @@ fn write_playback_diagnostics(
         "avsync_seconds": diagnostics.avsync_seconds,
         "total_avsync_change_seconds": diagnostics.total_avsync_change_seconds,
         "time_pos_seconds": diagnostics.time_pos_seconds,
+        "render_timing": crate::benchmark_diagnostics::render_timing_summary(),
     });
     let file = OpenOptions::new()
         .write(true)
@@ -1106,6 +1107,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
             match event {
                 Ok(MpvEvent::StartFile) => {
                     playback_diagnostics.reset_for_new_media();
+                    crate::benchmark_diagnostics::reset_render_timing();
                 }
                 Ok(MpvEvent::FileLoaded) if options.media_available => {
                     let mut resume_position = None;
