@@ -269,6 +269,32 @@ Windows Performance Analyzer из Windows Performance Toolkit. Наличие WP
 `target/profiling`; публичные symbol servers скрипт намеренно не подключает.
 Без флага используются лишь уже созданные symcache. Исходная ETL не изменяется.
 
+### GPU engines и парное сравнение декодеров
+
+Для профиля `GPU` используется отдельный экспортёр. Он берёт точный PID и режимы
+из паспорта, создаёт две таблицы — только Oxide и системную — и группирует задачи
+по типу GPU-движка:
+
+```powershell
+.\scripts\export-oxide-gpu.ps1
+```
+
+`one_engine_timeline_percent` — сумма GPU time, делённая на длительность трассы
+одного движка. Это не процент всей видеокарты: параллельные движки складывать
+нельзя. Отсутствие строки `Video Decode` в одиночной трассе не доказывает software
+fallback, поскольку драйвер может атрибутировать работу иначе.
+
+Для проверки аппаратного пути снимите одним commit, бинарником и медиа два прогона
+`software` и `d3d11va-copy`, экспортируйте оба и сравните их:
+
+```powershell
+.\scripts\compare-oxide-gpu.ps1 -SoftwareSummaryPath C:\path\software\oxide-gpu-summary.json -HardwareSummaryPath C:\path\hardware\oxide-gpu-summary.json
+```
+
+Скрипт откажется сравнивать разные SHA-256 бинарника, mpv или медиа, commit,
+renderer, режим окна, тему и сценарий. Сравнение GPU не заменяет отдельные CPU,
+frame pacing, energy и dedicated/shared GPU-memory измерения.
+
 ### Физически резидентная память
 
 `Working Set` из быстрого измерителя полезен для тренда, но не показывает состав
