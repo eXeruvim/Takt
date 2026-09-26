@@ -29,6 +29,8 @@ const PREVIOUS_RESTART_THRESHOLD_SECONDS: f64 = 3.0;
 const MAX_SYNC_DELAY_SECONDS: f64 = 30.0;
 const SESSION_SAVE_INTERVAL: Duration = Duration::from_secs(10);
 const BENCHMARK_DIAGNOSTICS_ENV: &str = "OXIDE_BENCHMARK_DIAGNOSTICS_PATH";
+const LOCAL_DEMUXER_MAX_BYTES: i64 = 64 * 1024 * 1024;
+const LOCAL_DEMUXER_MAX_BACK_BYTES: i64 = 16 * 1024 * 1024;
 
 #[derive(Default)]
 struct PlaybackOptions {
@@ -846,10 +848,19 @@ fn configure_seek_osd(initializer: &libmpv::MpvInitializer) -> Result<(), libmpv
     initializer.set_property("osd-bar", false)
 }
 
+fn configure_local_demuxer(initializer: &libmpv::MpvInitializer) -> Result<(), libmpv::Error> {
+    // Oxide opens filesystem paths, not remote streams. Keep ample headroom for
+    // high-bitrate local media while preventing mpv's generic cache ceilings
+    // from retaining a network-sized packet queue in RAM.
+    initializer.set_property("demuxer-max-bytes", LOCAL_DEMUXER_MAX_BYTES)?;
+    initializer.set_property("demuxer-max-back-bytes", LOCAL_DEMUXER_MAX_BACK_BYTES)
+}
+
 pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     let mpv = Arc::new(
         Mpv::with_initializer(|initializer| {
             configure_seek_osd(&initializer)?;
+            configure_local_demuxer(&initializer)?;
             // Oxide renders embedded artwork inside its own audio scene. Prevent mpv
             // from promoting the attached picture to the native video surface.
             initializer.set_property("audio-display", "no".to_owned())?;
@@ -1227,8 +1238,9 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        adjusted_delay, automatic_hwdec_mode, hwdec_is_enabled, loop_value_is_enabled,
-        quote_mpv_command_arg, should_restart_current, video_background_color,
+        LOCAL_DEMUXER_MAX_BACK_BYTES, LOCAL_DEMUXER_MAX_BYTES, adjusted_delay,
+        automatic_hwdec_mode, hwdec_is_enabled, loop_value_is_enabled, quote_mpv_command_arg,
+        should_restart_current, video_background_color,
     };
     use crate::ipc::AspectRatio;
 
@@ -1247,6 +1259,27 @@ mod tests {
         assert!(!mpv.get_property::<bool>("osd-bar").unwrap());
         assert_eq!(mpv.get_property::<String>("osd-on-seek").unwrap(), "no");
         assert!(mpv.get_property::<bool>("sub-visibility").unwrap());
+    }
+
+    #[test]
+    fn local_playback_has_bounded_demuxer_memory() {
+        let mpv = libmpv::Mpv::with_initializer(|initializer| {
+            initializer.set_property("config", "no")?;
+            initializer.set_property("load-scripts", "no")?;
+            initializer.set_property("terminal", "no")?;
+            initializer.set_property("vo", "null")?;
+            initializer.set_property("ao", "null")?;
+            super::configure_local_demuxer(&initializer)
+        })
+        .expect("headless mpv must accept bounded demuxer options");
+        assert_eq!(
+            mpv.get_property::<i64>("demuxer-max-bytes").unwrap(),
+            LOCAL_DEMUXER_MAX_BYTES
+        );
+        assert_eq!(
+            mpv.get_property::<i64>("demuxer-max-back-bytes").unwrap(),
+            LOCAL_DEMUXER_MAX_BACK_BYTES
+        );
     }
 
     #[test]
