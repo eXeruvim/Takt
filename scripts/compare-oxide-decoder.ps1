@@ -107,6 +107,31 @@ function Compare-Metric {
     }
 }
 
+function Compare-OptionalMetric {
+    param(
+        $Software,
+        $Hardware
+    )
+
+    if ($null -eq $Software -or $null -eq $Hardware) {
+        return [ordered]@{
+            available = $false
+            software = $Software
+            hardware = $Hardware
+            delta = $null
+            delta_percent = $null
+        }
+    }
+    $comparison = Compare-Metric -Software ([double]$Software) -Hardware ([double]$Hardware)
+    return [ordered]@{
+        available = $true
+        software = $comparison.software
+        hardware = $comparison.hardware
+        delta = $comparison.delta
+        delta_percent = $comparison.delta_percent
+    }
+}
+
 $software = Read-Measurement -Path $SoftwareResultPath
 $hardware = Read-Measurement -Path $HardwareResultPath
 if ([string]$software.data.run_configuration.decoder_mode -ne 'software') {
@@ -181,6 +206,53 @@ else {
     'В этом парном прогоне аппаратный режим дал разнонаправленный результат по CPU p95 и Working Set p95.'
 }
 
+$softwareDiagnostics = Get-NestedValue -Object $software.data -Path 'playback_diagnostics'
+$hardwareDiagnostics = Get-NestedValue -Object $hardware.data -Path 'playback_diagnostics'
+$frameDiagnostics = $null
+if ($null -ne $softwareDiagnostics -and $null -ne $hardwareDiagnostics) {
+    if ($softwareDiagnostics.schema -ne 1 -or $hardwareDiagnostics.schema -ne 1 `
+        -or $softwareDiagnostics.kind -ne 'oxide-mpv-playback-diagnostics' `
+        -or $hardwareDiagnostics.kind -ne 'oxide-mpv-playback-diagnostics') {
+        throw 'A/B содержит неподдерживаемую схему playback_diagnostics.'
+    }
+    $frameDiagnostics = [ordered]@{
+        available = $true
+        software_actual_decoder = $softwareDiagnostics.decoder
+        hardware_actual_decoder = $hardwareDiagnostics.decoder
+        hardware_decoder_confirmed = -not [string]::IsNullOrWhiteSpace(
+            [string]$hardwareDiagnostics.decoder
+        ) -and [string]$hardwareDiagnostics.decoder -notin @('no', 'false')
+        video_sync = [ordered]@{
+            software = $softwareDiagnostics.video_sync
+            hardware = $hardwareDiagnostics.video_sync
+        }
+        frame_drop_count = Compare-OptionalMetric `
+            $softwareDiagnostics.frame_drop_count `
+            $hardwareDiagnostics.frame_drop_count
+        decoder_frame_drop_count = Compare-OptionalMetric `
+            $softwareDiagnostics.decoder_frame_drop_count `
+            $hardwareDiagnostics.decoder_frame_drop_count
+        mistimed_frame_count = Compare-OptionalMetric `
+            $softwareDiagnostics.mistimed_frame_count `
+            $hardwareDiagnostics.mistimed_frame_count
+        vo_delayed_frame_count = Compare-OptionalMetric `
+            $softwareDiagnostics.vo_delayed_frame_count `
+            $hardwareDiagnostics.vo_delayed_frame_count
+        container_fps = Compare-OptionalMetric `
+            $softwareDiagnostics.container_fps `
+            $hardwareDiagnostics.container_fps
+        estimated_vf_fps = Compare-OptionalMetric `
+            $softwareDiagnostics.estimated_vf_fps `
+            $hardwareDiagnostics.estimated_vf_fps
+        avsync_seconds = Compare-OptionalMetric `
+            $softwareDiagnostics.avsync_seconds `
+            $hardwareDiagnostics.avsync_seconds
+        total_avsync_change_seconds = Compare-OptionalMetric `
+            $softwareDiagnostics.total_avsync_change_seconds `
+            $hardwareDiagnostics.total_avsync_change_seconds
+    }
+}
+
 $comparison = [ordered]@{
     schema = 1
     kind = 'oxide-decoder-comparison'
@@ -197,8 +269,9 @@ $comparison = [ordered]@{
     window_mode = [string]$hardware.data.run_configuration.window_mode
     theme = [string]$hardware.data.run_configuration.theme
     metrics = $metrics
+    playback_diagnostics = $frameDiagnostics
     interpretation = $interpretation
-    limitation = 'Одна пара показывает этот файл и запуск, но не заменяет серию из пяти и более прогонов, frame pacing, GPU/VRAM и energy-профиль.'
+    limitation = 'Одна пара показывает этот файл и запуск, но не заменяет серию из пяти и более прогонов, PresentMon/WPA frame-time, GPU/VRAM и energy-профиль. mpv delayed count является эвристикой.'
 }
 
 $resolvedOutput = if ([string]::IsNullOrWhiteSpace($OutputPath)) {
@@ -217,3 +290,12 @@ Write-Host ("CPU p95: {0}% -> {1}% ({2:+0.###;-0.###;0} п.п.)" -f `
 Write-Host ("Working Set p95: {0} -> {1} МиБ ({2:+0.###;-0.###;0} МиБ)" -f `
     $metrics.working_set_p95_mib.software, $metrics.working_set_p95_mib.hardware, `
     $metrics.working_set_p95_mib.delta)
+if ($null -ne $frameDiagnostics) {
+    Write-Host ("Декодеры mpv: {0} -> {1}; VO dropped: {2} -> {3}; delayed: {4} -> {5}." -f `
+        $frameDiagnostics.software_actual_decoder, `
+        $frameDiagnostics.hardware_actual_decoder, `
+        $frameDiagnostics.frame_drop_count.software, `
+        $frameDiagnostics.frame_drop_count.hardware, `
+        $frameDiagnostics.vo_delayed_frame_count.software, `
+        $frameDiagnostics.vo_delayed_frame_count.hardware)
+}

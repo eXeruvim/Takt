@@ -304,7 +304,9 @@ SHA-256, медиа, длительность, окно, тему, оборуд�
 ```
 
 Выходной `oxide-decoder-comparison.json` содержит абсолютные и относительные
-дельты CPU, Working Set, Private Bytes, трендов памяти, handles и threads. Одна
+дельты CPU, Working Set, Private Bytes, трендов памяти, handles и threads. Если
+оба запуска содержат `playback_diagnostics`, туда же входят фактический декодер,
+VO/decoder drops, delayed/mistimed, частота и A/V sync. Одна
 пара годится для диагностики направления, но release-бюджет принимается только
 по серии из пяти и более чистых прогонов плюс frame pacing/GPU/VRAM/energy.
 
