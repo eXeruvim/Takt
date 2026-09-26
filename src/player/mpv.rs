@@ -29,8 +29,6 @@ const PREVIOUS_RESTART_THRESHOLD_SECONDS: f64 = 3.0;
 const MAX_SYNC_DELAY_SECONDS: f64 = 30.0;
 const SESSION_SAVE_INTERVAL: Duration = Duration::from_secs(10);
 const BENCHMARK_DIAGNOSTICS_ENV: &str = "OXIDE_BENCHMARK_DIAGNOSTICS_PATH";
-const LOCAL_DEMUXER_MAX_BYTES: i64 = 64 * 1024 * 1024;
-const LOCAL_DEMUXER_MAX_BACK_BYTES: i64 = 16 * 1024 * 1024;
 
 #[derive(Default)]
 struct PlaybackOptions {
@@ -848,19 +846,18 @@ fn configure_seek_osd(initializer: &libmpv::MpvInitializer) -> Result<(), libmpv
     initializer.set_property("osd-bar", false)
 }
 
-fn configure_local_demuxer(initializer: &libmpv::MpvInitializer) -> Result<(), libmpv::Error> {
-    // Oxide opens filesystem paths, not remote streams. Keep ample headroom for
-    // high-bitrate local media while preventing mpv's generic cache ceilings
-    // from retaining a network-sized packet queue in RAM.
-    initializer.set_property("demuxer-max-bytes", LOCAL_DEMUXER_MAX_BYTES)?;
-    initializer.set_property("demuxer-max-back-bytes", LOCAL_DEMUXER_MAX_BACK_BYTES)
+fn set_loaded_media_paused(mpv: &Mpv, paused: bool) -> anyhow::Result<()> {
+    mpv_error(mpv.set_property("pause", paused)).context(if paused {
+        "Не удалось приостановить файл до выбора позиции продолжения"
+    } else {
+        "Не удалось начать воспроизведение загруженного файла"
+    })
 }
 
 pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     let mpv = Arc::new(
         Mpv::with_initializer(|initializer| {
             configure_seek_osd(&initializer)?;
-            configure_local_demuxer(&initializer)?;
             // Oxide renders embedded artwork inside its own audio scene. Prevent mpv
             // from promoting the attached picture to the native video surface.
             initializer.set_property("audio-display", "no".to_owned())?;
@@ -1129,7 +1126,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                         }
                         let duration = mpv.get_property::<f64>("duration").unwrap_or_default();
                         if let Some(position) = session.resume_position(path, duration)
-                            && mpv_error(mpv.set_property("pause", true)).is_ok()
+                            && set_loaded_media_paused(&mpv, true).is_ok()
                         {
                             pending_resume = Some((path.clone(), position));
                             resume_position = Some(position);
@@ -1138,6 +1135,15 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     if resume_position.is_none() {
                         pending_resume_path = None;
                         pending_resume = None;
+                        // pause is a persistent mpv property and can survive a
+                        // stopped, paused, or completed item. A newly selected
+                        // file must autoplay unless Oxide is deliberately
+                        // holding it for the resume-position prompt above.
+                        if let Err(error) = set_loaded_media_paused(&mpv, false) {
+                            let _ = tx.send(Event::Error(format!(
+                                "Не удалось начать воспроизведение: {error:#}"
+                            )));
+                        }
                     }
                     if playlist.as_ref().and_then(DirectoryPlaylist::current_path)
                         != position_recording_suppressed_for.as_ref()
@@ -1238,9 +1244,8 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        LOCAL_DEMUXER_MAX_BACK_BYTES, LOCAL_DEMUXER_MAX_BYTES, adjusted_delay,
-        automatic_hwdec_mode, hwdec_is_enabled, loop_value_is_enabled, quote_mpv_command_arg,
-        should_restart_current, video_background_color,
+        adjusted_delay, automatic_hwdec_mode, hwdec_is_enabled, loop_value_is_enabled,
+        quote_mpv_command_arg, should_restart_current, video_background_color,
     };
     use crate::ipc::AspectRatio;
 
@@ -1262,24 +1267,21 @@ mod tests {
     }
 
     #[test]
-    fn local_playback_has_bounded_demuxer_memory() {
+    fn loaded_media_autoplays_unless_resume_choice_is_pending() {
         let mpv = libmpv::Mpv::with_initializer(|initializer| {
             initializer.set_property("config", "no")?;
             initializer.set_property("load-scripts", "no")?;
             initializer.set_property("terminal", "no")?;
             initializer.set_property("vo", "null")?;
-            initializer.set_property("ao", "null")?;
-            super::configure_local_demuxer(&initializer)
+            initializer.set_property("ao", "null")
         })
-        .expect("headless mpv must accept bounded demuxer options");
-        assert_eq!(
-            mpv.get_property::<i64>("demuxer-max-bytes").unwrap(),
-            LOCAL_DEMUXER_MAX_BYTES
-        );
-        assert_eq!(
-            mpv.get_property::<i64>("demuxer-max-back-bytes").unwrap(),
-            LOCAL_DEMUXER_MAX_BACK_BYTES
-        );
+        .expect("headless mpv must initialize");
+
+        super::set_loaded_media_paused(&mpv, true).unwrap();
+        assert!(mpv.get_property::<bool>("pause").unwrap());
+
+        super::set_loaded_media_paused(&mpv, false).unwrap();
+        assert!(!mpv.get_property::<bool>("pause").unwrap());
     }
 
     #[test]

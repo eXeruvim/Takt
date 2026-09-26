@@ -3602,6 +3602,8 @@ pub fn run(
     let event_render_source = render_source.clone();
     #[cfg(target_os = "windows")]
     let event_renderer_requested = Arc::clone(&video_renderer_requested);
+    #[cfg(target_os = "windows")]
+    let event_player_tx = tx.clone();
 
     let player_bridge = super::event_delivery::spawn(
         rx,
@@ -3613,6 +3615,8 @@ pub fn run(
             let render_source = event_render_source.clone();
             #[cfg(target_os = "windows")]
             let renderer_requested = Arc::clone(&event_renderer_requested);
+            #[cfg(target_os = "windows")]
+            let player_tx = event_player_tx.clone();
 
             slint::invoke_from_event_loop(move || {
                 let _completion = completion;
@@ -3636,8 +3640,16 @@ pub fn run(
                         Event::VideoRendererRequired => {
                             #[cfg(target_os = "windows")]
                             {
-                                renderer_requested.store(true, Ordering::Release);
-                                app.window().request_redraw();
+                                if app.get_integrated_video_renderer() {
+                                    // The OpenGL renderer is kept between
+                                    // playlist items. Re-enable mpv's video
+                                    // track explicitly instead of waiting for
+                                    // renderer creation that already happened.
+                                    let _ = player_tx.send(Command::RenderApiReady);
+                                } else {
+                                    renderer_requested.store(true, Ordering::Release);
+                                    app.window().request_redraw();
+                                }
                             }
                         }
 
