@@ -154,7 +154,7 @@ impl StateFile {
         if read_optional(&self.path)? != self.expected {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
-                "Сохранённые данные изменены другим экземпляром или программой. Перезапустите этот плеер перед новыми изменениями; чужие данные не перезаписаны",
+                "Данные изменены в другом окне или программе. Перезапустите плеер перед повтором — чужие изменения не перезаписаны",
             ));
         }
         // The first save also gets a recovery copy. Later saves keep the prior

@@ -108,7 +108,10 @@ export component Toast inherits Rectangle {
     visible: shown || self.opacity > 0.01;
     opacity: shown ? 1 : 0;
     width: Theme.space-12 * 8;
-    height: Theme.space-12 + Theme.space-6;
+    height: min(
+        Theme.space-12 * 3,
+        max(Theme.space-12 + Theme.space-6, toast-text.preferred-height + Theme.space-8)
+    );
     border-radius: Theme.radius-medium;
     background: danger ? Theme.danger-subtle : Theme.surface-popover;
     border-width: 1px;
@@ -131,7 +134,7 @@ export component Toast inherits Rectangle {
     HorizontalLayout {
         padding: Theme.space-4;
 
-        UiText {
+        toast-text := UiText {
             text: root.message;
             color: Theme.text-primary;
             wrap: word-wrap;

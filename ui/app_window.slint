@@ -384,12 +384,9 @@ export component AppWindow inherits Window {
             focus-on-click: true;
 
             media-backdrop := Rectangle {
-                // Audio is rendered by Slint across the complete canvas. Do not
-                // reuse the native-video viewport insets here: doing so stopped
-                // this glass layer above the controls and left a visibly lighter
-                // strip behind the hidden bottom deck. Its glass background also
-                // spans the horizontal breathing room; only the artwork composition
-                // itself uses audio panel insets.
+                // Audio's translucent gradient already belongs to the outer canvas.
+                // Keep this rectangle full-size for stable transitions, but avoid a
+                // second tint that would make audio darker than the video surround.
                 x: root.audio_media ? 0px : root.video_left_panel_inset;
                 y: root.audio_media ? 0px : root.video_top_inset;
                 width: root.audio_media
@@ -400,7 +397,7 @@ export component AppWindow inherits Window {
                     : max(0px, parent.height - self.y - root.video_bottom_inset);
                 background: root.media_presented
                     ? root.audio_media
-                        ? Theme.surface-media-glass
+                        ? transparent
                         : root.integrated_video_renderer ? transparent : Theme.surface-media
                     : transparent;
 
@@ -1104,21 +1101,23 @@ export component AppWindow inherits Window {
                 }
             }
 
-            Toast {
+            notice-toast := Toast {
                 shown: root.notice_visible;
                 message: root.notice_message;
+                width: min(parent.width - Theme.space-12, Theme.space-12 * 8);
                 x: parent.width - self.width - Theme.space-6;
                 y: Theme.space-12 + Theme.space-8;
                 dismissed => { root.notice_visible = false; }
             }
 
-            Toast {
+            error-toast := Toast {
                 shown: root.error_visible;
                 message: root.error_message;
                 danger: true;
+                width: min(parent.width - Theme.space-12, Theme.space-12 * 8);
                 x: parent.width - self.width - Theme.space-6;
                 y: Theme.space-12 + Theme.space-8
-                    + (root.notice_visible ? self.height + Theme.space-2 : 0px);
+                    + (root.notice_visible ? notice-toast.height + Theme.space-2 : 0px);
                 dismissed => { root.error_visible = false; }
             }
         }

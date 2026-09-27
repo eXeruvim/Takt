@@ -63,7 +63,10 @@ use windows_sys::Win32::{
 slint::include_modules!();
 
 #[cfg(target_os = "windows")]
-const DRAWER_CLOSE_DELAY: Duration = Duration::from_millis(380);
+// Release the media composition while the drawer is still fading out. Keeping
+// this shorter than the visual dismissal avoids a noticeable pause before the
+// artwork returns to its resting position.
+const DRAWER_MEDIA_RELEASE_DELAY: Duration = Duration::from_millis(180);
 
 #[cfg(target_os = "windows")]
 fn windows_light_theme_flag(value_name: &str) -> Option<bool> {
@@ -2848,7 +2851,7 @@ pub fn run(
                 } else {
                     app.set_info_drawer_visible(false);
                     let delayed_app = app.as_weak();
-                    slint::Timer::single_shot(DRAWER_CLOSE_DELAY, move || {
+                    slint::Timer::single_shot(DRAWER_MEDIA_RELEASE_DELAY, move || {
                         if let Some(app) = delayed_app.upgrade()
                             && !app.get_inspector_visible()
                         {
@@ -2900,7 +2903,7 @@ pub fn run(
                 } else {
                     app.set_playlist_drawer_visible(false);
                     let delayed_app = app.as_weak();
-                    slint::Timer::single_shot(DRAWER_CLOSE_DELAY, move || {
+                    slint::Timer::single_shot(DRAWER_MEDIA_RELEASE_DELAY, move || {
                         if let Some(app) = delayed_app.upgrade()
                             && !app.get_inspector_visible()
                         {
@@ -2952,7 +2955,7 @@ pub fn run(
                 } else {
                     app.set_settings_drawer_visible(false);
                     let delayed_app = app.as_weak();
-                    slint::Timer::single_shot(DRAWER_CLOSE_DELAY, move || {
+                    slint::Timer::single_shot(DRAWER_MEDIA_RELEASE_DELAY, move || {
                         if let Some(app) = delayed_app.upgrade()
                             && !app.get_inspector_visible()
                         {

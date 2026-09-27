@@ -374,6 +374,11 @@ component AccentChoice inherits Rectangle {
 export component MediaInspector inherits Rectangle {
     private property <bool> prewarming: true;
     private property <int> settings-page: 0;
+    // Keep the last page composed while the outer panel finishes its closing
+    // transition. Binding content directly to the three open flags blanked the
+    // panel on the first frame and made an otherwise animated close look abrupt.
+    private property <int> visible-section: 0;
+    private property <bool> content-present: open || self.opacity > 0.01 || prewarming;
     private property <bool> wide-layout: parent-width >= 1100px;
     private property <bool> video-settings-available: media-loaded && !audio-media;
     in property <bool> open;
@@ -498,14 +503,23 @@ export component MediaInspector inherits Rectangle {
             root.settings-page = 0;
         }
     }
+    changed playlist-open => {
+        if (root.playlist-open) { root.visible-section = 0; }
+    }
+    changed info-open => {
+        if (root.info-open) { root.visible-section = 1; }
+    }
+    changed playback-open => {
+        if (root.playback-open) { root.visible-section = 2; }
+    }
 
     animate opacity {
-        duration: root.open ? Theme.motion-slow : Theme.motion-gentle;
-        easing: cubic-bezier(0.2, 0, 0, 1);
+        duration: root.open ? Theme.motion-slow : Theme.motion-dismiss;
+        easing: cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     animate slide-offset {
-        duration: root.open ? Theme.motion-slow : Theme.motion-gentle;
+        duration: root.open ? Theme.motion-slow : Theme.motion-dismiss;
         easing: cubic-bezier(0.16, 1, 0.3, 1);
     }
 
@@ -613,7 +627,7 @@ export component MediaInspector inherits Rectangle {
             clip: true;
 
             VerticalLayout {
-                x: root.playlist-open || root.prewarming
+                x: (root.visible-section == 0 && root.content-present) || root.prewarming
                     ? 0px : parent.width + Theme.space-1;
                 width: parent.width;
                 height: parent.height;
@@ -700,7 +714,7 @@ export component MediaInspector inherits Rectangle {
             }
 
             info-scroll := ScrollView {
-                visible: root.info-open || root.prewarming;
+                visible: (root.visible-section == 1 && root.content-present) || root.prewarming;
                 x: 0px;
                 width: parent.width;
                 height: parent.height;
@@ -781,7 +795,8 @@ export component MediaInspector inherits Rectangle {
             }
 
             playback-scroll := ScrollView {
-                visible: (root.playback-open && root.settings-page == 0) || root.prewarming;
+                visible: (root.visible-section == 2 && root.content-present
+                    && root.settings-page == 0) || root.prewarming;
                 x: 0px;
                 width: parent.width;
                 height: parent.height;
@@ -1089,7 +1104,8 @@ export component MediaInspector inherits Rectangle {
             }
 
             video-scroll := ScrollView {
-                visible: (root.playback-open && root.settings-page == 2) || root.prewarming;
+                visible: (root.visible-section == 2 && root.content-present
+                    && root.settings-page == 2) || root.prewarming;
                 x: 0px;
                 width: parent.width;
                 height: parent.height;
@@ -1266,7 +1282,8 @@ export component MediaInspector inherits Rectangle {
             }
 
             sound-scroll := ScrollView {
-                visible: (root.playback-open && root.settings-page == 1) || root.prewarming;
+                visible: (root.visible-section == 2 && root.content-present
+                    && root.settings-page == 1) || root.prewarming;
                 x: 0px;
                 width: parent.width;
                 height: parent.height;

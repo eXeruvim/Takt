@@ -6,19 +6,19 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, SetLastError, WPARAM},
     Graphics::Gdi::{
-        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect, RDW_INTERNALPAINT,
-        RedrawWindow,
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect, MonitorFromWindow,
+        RDW_INTERNALPAINT, RedrawWindow,
     },
     System::Threading::GetCurrentThreadId,
     UI::{
         Shell::{DefSubclassProc, GetWindowSubclass, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
             GWL_EXSTYLE, GWL_STYLE, GetWindowLongW, GetWindowThreadProcessId, IsZoomed, KillTimer,
-            NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
-            SWP_NOSIZE, SWP_NOZORDER, SetTimer, SetWindowLongW, SetWindowPos, WM_ENTERSIZEMOVE,
-            WM_EXITSIZEMOVE, WM_NCACTIVATE, WM_NCCALCSIZE, WM_NCDESTROY, WM_NCPAINT,
-            WM_STYLECHANGING, WM_TIMER, WS_CAPTION, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME,
-            WS_EX_STATICEDGE,
+            MINMAXINFO, NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+            SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetTimer, SetWindowLongW, SetWindowPos,
+            WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_GETMINMAXINFO, WM_NCACTIVATE, WM_NCCALCSIZE,
+            WM_NCDESTROY, WM_NCPAINT, WM_STYLECHANGING, WM_TIMER, WS_CAPTION, WS_EX_CLIENTEDGE,
+            WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE,
         },
     },
 };
@@ -129,6 +129,36 @@ unsafe extern "system" fn frame_proc(
             unsafe {
                 let styles = &mut *(lparam as *mut STYLESTRUCT);
                 styles.styleNew = chrome_style(wparam as i32, styles.styleNew);
+            }
+            0
+        }
+        WM_GETMINMAXINFO if lparam != 0 && fullscreen == 0 => {
+            // Preserve winit's minimum tracking size, then constrain only the
+            // maximized outer rectangle to the monitor work area. Correcting
+            // WM_NCCALCSIZE alone leaves an invisible borderless overhang that
+            // can still sit above taskbar buttons and consume their clicks.
+            unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
+            let mut info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            // SAFETY: hwnd is live for the callback and info is writable for
+            // this synchronous monitor query.
+            let found = unsafe {
+                let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                GetMonitorInfoW(monitor, &mut info) != 0
+            };
+            if found {
+                let (position, size) = maximized_bounds(info.rcMonitor, info.rcWork);
+                // SAFETY: WM_GETMINMAXINFO supplies writable MINMAXINFO storage
+                // for the duration of this call; no pointer escapes.
+                unsafe {
+                    let limits = &mut *(lparam as *mut MINMAXINFO);
+                    limits.ptMaxPosition.x = position.0;
+                    limits.ptMaxPosition.y = position.1;
+                    limits.ptMaxSize.x = size.0;
+                    limits.ptMaxSize.y = size.1;
+                }
             }
             0
         }
@@ -288,6 +318,13 @@ fn client_rect(proposed: RECT, fullscreen: bool, maximized_work_area: Option<REC
     }
 }
 
+fn maximized_bounds(monitor: RECT, work: RECT) -> ((i32, i32), (i32, i32)) {
+    (
+        (work.left - monitor.left, work.top - monitor.top),
+        (work.right - work.left, work.bottom - work.top),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,6 +443,23 @@ mod tests {
             coords(client_rect(proposed, false, Some(work))),
             [-1920, 0, 0, 1040]
         );
+    }
+
+    #[test]
+    fn maximized_outer_bounds_follow_work_area_on_any_taskbar_edge() {
+        let monitor = RECT {
+            left: -1920,
+            top: 0,
+            right: 0,
+            bottom: 1080,
+        };
+        let work = RECT {
+            left: -1872,
+            top: 0,
+            right: 0,
+            bottom: 1040,
+        };
+        assert_eq!(maximized_bounds(monitor, work), ((48, 0), (1872, 1040)));
     }
 
     #[test]
