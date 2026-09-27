@@ -1402,11 +1402,11 @@ fn sync_video_host_at_size(
     physical_size: (u32, u32),
     scale: f32,
 ) -> Result<()> {
-    let video_visible = app.get_media_presented()
-        && !app.get_audio_media()
-        && !app.get_modal_overlay_active()
-        && !app.get_error_visible()
-        && !app.get_drop_target_visible();
+    let video_visible =
+        video_surface_should_render(app.get_media_presented(), app.get_audio_media())
+            && !app.get_modal_overlay_active()
+            && !app.get_error_visible()
+            && !app.get_drop_target_visible();
     host.set_visible(video_visible);
 
     host.resize(
@@ -1419,6 +1419,10 @@ fn sync_video_host_at_size(
             app.get_video_bottom_inset(),
         ),
     )
+}
+
+fn video_surface_should_render(media_presented: bool, audio_media: bool) -> bool {
+    media_presented && !audio_media
 }
 
 #[cfg(target_os = "windows")]
@@ -3556,7 +3560,12 @@ pub fn run(
                             }
                         }
 
-                        if let Some(renderer) = gl_renderer.as_mut() {
+                        if let Some(renderer) = gl_renderer.as_mut()
+                            && video_surface_should_render(
+                                app.get_media_presented(),
+                                app.get_audio_media(),
+                            )
+                        {
                             let size = app.window().size();
                             let render_started = crate::benchmark_diagnostics::begin_render();
                             // SAFETY: BeforeRendering guarantees the same
@@ -4359,7 +4368,7 @@ mod tests {
         command_for_dropped_path, command_palette_items, command_palette_items_with_registry,
         conversion_history_record, conversion_preset_entries, format_bitrate, format_container,
         format_file_size, format_size_change, format_time, format_track_summary,
-        is_audio_only_media, media_name_without_extension,
+        is_audio_only_media, media_name_without_extension, video_surface_should_render,
     };
     use crate::converter::ConverterEvent;
     use crate::ipc::Command;
@@ -4367,6 +4376,14 @@ mod tests {
     #[cfg(target_os = "windows")]
     use crate::settings::WindowPlacementPreference;
     use slint::winit_030::winit::keyboard::{KeyCode, ModifiersState};
+
+    #[test]
+    fn integrated_video_surface_never_paints_under_audio() {
+        assert!(video_surface_should_render(true, false));
+        assert!(!video_surface_should_render(true, true));
+        assert!(!video_surface_should_render(false, false));
+        assert!(!video_surface_should_render(false, true));
+    }
 
     #[test]
     fn formats_short_and_long_durations() {

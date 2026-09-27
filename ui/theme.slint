@@ -30,10 +30,11 @@ export global Theme {
     out property <brush> canvas-background-opaque: is-dark
         ? @linear-gradient(160deg, #141419 0%, #0d0d11 100%)
         : @linear-gradient(160deg, #fafafb 0%, #f1f1f4 100%);
-    out property <brush> audio-canvas-background: is-dark
-        ? @linear-gradient(160deg, #14141966 0%, #0d0d1175 100%)
-        : @linear-gradient(160deg, #fafafb70 0%, #f1f1f480 100%);
-    out property <brush> audio-canvas-background-opaque: is-dark
+    // Keep the windowed audio surround byte-for-byte aligned with mpv's
+    // `background-color` in player/mpv.rs. A renderer retained after video
+    // must not make the same surface darker than a directly opened audio file.
+    out property <brush> media-canvas-background: is-dark ? #09090db8 : #ffffff6b;
+    out property <brush> media-canvas-background-opaque: is-dark
         ? @linear-gradient(160deg, #141419 0%, #0d0d11 100%)
         : @linear-gradient(160deg, #fafafb 0%, #f1f1f4 100%);
     out property <brush> audio-artwork-placeholder: is-dark

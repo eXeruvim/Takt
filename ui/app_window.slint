@@ -362,8 +362,8 @@ export component AppWindow inherits Window {
         height: parent.height;
         background: root.media_presented && root.audio_media
             ? root.edge_to_edge
-                ? Theme.audio-canvas-background-opaque
-                : Theme.audio-canvas-background
+                ? Theme.media-canvas-background-opaque
+                : Theme.media-canvas-background
             : root.media_presented && root.integrated_video_renderer
                 ? transparent
                 : root.edge_to_edge

@@ -129,6 +129,8 @@ fn loop_value_is_enabled(value: &str) -> bool {
 }
 
 fn video_background_color(dark_theme: bool) -> &'static str {
+    // Keep these values aligned with Theme.media-canvas-background. mpv owns
+    // the letterbox around video; Slint owns the corresponding audio surround.
     if dark_theme {
         "0.035/0.035/0.05/0.72"
     } else {
