@@ -24,6 +24,7 @@ use crate::converter::{
 };
 use crate::ipc::{AspectRatio, Command, EqualizerPreset, Event, FrameStepDirection};
 use crate::player::commands::{CommandSender, SendError as PlayerCommandError};
+use crate::player::media_info::MediaInfo;
 use crate::player::playlist::{
     AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, is_media_file,
 };
@@ -860,7 +861,7 @@ const PALETTE_COMMANDS: &[PaletteCommandSpec] = &[
         description: "Открыть или закрыть очередь файлов",
         shortcut: "Ctrl L",
         keywords: "playlist queue список очередь файлы",
-        requires_media: false,
+        requires_media: true,
     },
     PaletteCommandSpec {
         action: 8,
@@ -1368,6 +1369,38 @@ fn format_track_summary(video: u32, audio: u32, subtitles: u32) -> String {
 
 fn is_audio_only_media(video_track_count: u32, video_codec: &str, audio_codec: &str) -> bool {
     video_track_count == 0 && video_codec.is_empty() && !audio_codec.is_empty()
+}
+
+fn quote_mpv_argument(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
+fn probe_conversion_source(path: &Path) -> Result<MediaInfo> {
+    let mpv = libmpv::Mpv::with_initializer(|initializer| {
+        initializer.set_property("vo", "null".to_owned())?;
+        initializer.set_property("ao", "null".to_owned())?;
+        initializer.set_property("pause", true)?;
+        initializer.set_property("audio-display", "no".to_owned())?;
+        initializer.set_property("terminal", false)?;
+        Ok(())
+    })
+    .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+    let mut events = mpv.create_event_context();
+    let quoted_path = quote_mpv_argument(&path.to_string_lossy());
+    mpv.command("loadfile", &[&quoted_path, "replace"])
+        .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+    while std::time::Instant::now() < deadline {
+        match events.wait_event(0.25) {
+            Some(Ok(libmpv::events::Event::FileLoaded)) => return Ok(MediaInfo::read(&mpv)),
+            Some(Err(error)) => return Err(anyhow::anyhow!("{error:?}")),
+            _ => {}
+        }
+    }
+
+    anyhow::bail!("файл не ответил за 8 секунд")
 }
 
 fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
@@ -2841,6 +2874,9 @@ pub fn run(
         app.on_toggle_info(move || {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_info_drawer_visible();
+                if opening && app.get_current_media_path().is_empty() {
+                    return;
+                }
                 if opening {
                     app.set_inspector_left_aligned(true);
                     app.set_inspector_reserved(true);
@@ -2873,6 +2909,9 @@ pub fn run(
         app.on_toggle_info(move || {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_info_drawer_visible();
+                if opening && app.get_current_media_path().is_empty() {
+                    return;
+                }
                 if opening {
                     app.set_inspector_left_aligned(true);
                     app.set_info_drawer_visible(true);
@@ -2893,6 +2932,9 @@ pub fn run(
         app.on_toggle_playlist(move || {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_playlist_drawer_visible();
+                if opening && app.get_playlist_items().row_count() == 0 {
+                    return;
+                }
                 if opening {
                     app.set_inspector_left_aligned(true);
                     app.set_inspector_reserved(true);
@@ -2925,6 +2967,9 @@ pub fn run(
         app.on_toggle_playlist(move || {
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_playlist_drawer_visible();
+                if opening && app.get_playlist_items().row_count() == 0 {
+                    return;
+                }
                 if opening {
                     app.set_inspector_left_aligned(true);
                     app.set_playlist_drawer_visible(true);
@@ -3032,6 +3077,99 @@ pub fn run(
         let app_weak = app.as_weak();
         let dialog_active = dialog_active.clone();
 
+        app.on_choose_conversion_source(move || {
+            if dialog_active
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
+                return;
+            }
+
+            let Some(app) = app_weak.upgrade() else {
+                dialog_active.store(false, Ordering::Release);
+                return;
+            };
+            app.set_conversion_source_loading(true);
+            app.set_conversion_source_error("".into());
+            let app_weak = app.as_weak();
+            let dialog_active = dialog_active.clone();
+
+            std::thread::spawn(move || {
+                let path = rfd::FileDialog::new()
+                    .add_filter("Медиа", MEDIA_EXTENSIONS)
+                    .add_filter("Видео", VIDEO_EXTENSIONS)
+                    .add_filter("Аудио", AUDIO_EXTENSIONS)
+                    .pick_file();
+
+                let probe = path.as_deref().map(|path| {
+                    probe_conversion_source(path).map(|info| (path.to_path_buf(), info))
+                });
+                dialog_active.store(false, Ordering::Release);
+
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(app) = app_weak.upgrade() else {
+                        return;
+                    };
+                    app.set_conversion_source_loading(false);
+
+                    match probe {
+                        None => {}
+                        Some(Err(error)) => {
+                            app.set_conversion_source_error(
+                                format!("Не удалось прочитать файл: {error}").into(),
+                            );
+                        }
+                        Some(Ok((path, info))) => {
+                            let audio_media = is_audio_only_media(
+                                info.video_track_count,
+                                &info.codec,
+                                &info.audio_codec,
+                            );
+                            let name = path
+                                .file_name()
+                                .map(|value| value.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| path.to_string_lossy().into_owned());
+                            app.set_conversion_source_path(
+                                path.to_string_lossy().into_owned().into(),
+                            );
+                            app.set_conversion_source_name(name.into());
+                            app.set_conversion_source_size(
+                                format_precise_file_size(info.file_size_bytes).into(),
+                            );
+                            app.set_conversion_source_duration_seconds(
+                                info.duration_seconds.max(0.0) as f32,
+                            );
+                            app.set_conversion_source_duration(
+                                if info.duration_seconds.is_finite() && info.duration_seconds > 0.0
+                                {
+                                    format_time(info.duration_seconds).into()
+                                } else {
+                                    "—".into()
+                                },
+                            );
+                            app.set_conversion_source_format(if audio_media {
+                                format_codec(&info.audio_codec).into()
+                            } else {
+                                format_container(&info.container).into()
+                            });
+                            app.set_conversion_audio_media(audio_media);
+                            app.set_conversion_source_error("".into());
+                            app.set_conversion_output_path("".into());
+                            app.set_conversion_progress(0.0);
+                            app.set_conversion_status("".into());
+                            app.set_conversion_size_status("".into());
+                            apply_conversion_presets(&app, audio_media, &info.audio_codec);
+                        }
+                    }
+                });
+            });
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+        let dialog_active = dialog_active.clone();
+
         app.on_choose_conversion_output(move |index| {
             if dialog_active
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -3049,7 +3187,7 @@ pub fn run(
                 return;
             };
             app.set_conversion_preset_index(index);
-            let source = PathBuf::from(app.get_current_media_path().as_str());
+            let source = PathBuf::from(app.get_conversion_source_path().as_str());
             let app_weak = app.as_weak();
             let dialog_active = dialog_active.clone();
 
@@ -3099,7 +3237,7 @@ pub fn run(
                 app.set_error_visible(true);
                 return;
             };
-            let source = PathBuf::from(app.get_current_media_path().as_str());
+            let source = PathBuf::from(app.get_conversion_source_path().as_str());
             let output = PathBuf::from(app.get_conversion_output_path().as_str());
             let options = ConversionOptions::from_ui_indices(
                 app.get_conversion_resolution_index(),
@@ -3120,7 +3258,7 @@ pub fn run(
                     output,
                     preset,
                     options,
-                    duration_seconds: app.get_duration_seconds() as f64,
+                    duration_seconds: app.get_conversion_source_duration_seconds() as f64,
                 },
             ) {
                 Ok(()) => app.set_conversion_output_path("".into()),
@@ -3705,8 +3843,16 @@ pub fn run(
 
                         Event::FileLoaded { name, path } => {
                             app.set_audio_display_name(media_name_without_extension(&name).into());
-                            app.set_file_name(name.into());
-                            app.set_current_media_path(path.into());
+                            app.set_file_name(name.clone().into());
+                            app.set_current_media_path(path.clone().into());
+                            if !app.get_conversion_running() && !app.get_converter_visible() {
+                                app.set_conversion_source_path(path.into());
+                                app.set_conversion_source_name(name.into());
+                                app.set_conversion_source_duration("—".into());
+                                app.set_conversion_source_duration_seconds(0.0);
+                                app.set_conversion_source_format("—".into());
+                                app.set_conversion_source_size("—".into());
+                            }
                             if !app.get_conversion_running() {
                                 app.set_conversion_output_path("".into());
                                 app.set_conversion_progress(0.0);
@@ -3923,14 +4069,30 @@ pub fn run(
                             });
                             app.set_codec(format_codec(&codec).into());
                             app.set_audio_codec(format_codec(&audio_codec).into());
-                            if !app.get_conversion_running() {
+                            if !app.get_conversion_running() && !app.get_converter_visible() {
                                 apply_conversion_presets(&app, audio_media, &audio_codec);
+                                app.set_conversion_audio_media(audio_media);
+                                app.set_conversion_source_duration_seconds(
+                                    duration_seconds.max(0.0) as f32,
+                                );
+                                app.set_conversion_source_duration(
+                                    if duration_seconds.is_finite() && duration_seconds > 0.0 {
+                                        format_time(duration_seconds).into()
+                                    } else {
+                                        "—".into()
+                                    },
+                                );
+                                app.set_conversion_source_format(if audio_media {
+                                    format_codec(&audio_codec).into()
+                                } else {
+                                    format_container(&container).into()
+                                });
+                                app.set_conversion_source_size(
+                                    format_precise_file_size(file_size_bytes).into(),
+                                );
                             }
                             app.set_container_format(format_container(&container).into());
                             app.set_file_size_label(format_file_size(file_size_bytes).into());
-                            app.set_conversion_source_size(
-                                format_precise_file_size(file_size_bytes).into(),
-                            );
                             app.set_media_duration_label(
                                 if duration_seconds.is_finite() && duration_seconds > 0.0 {
                                     format_time(duration_seconds).into()
@@ -4604,6 +4766,9 @@ mod tests {
 
         let seek = command_palette_items("перемотать назад");
         assert!(seek[0].requires_media);
+
+        let playlist = command_palette_items("показать плейлист");
+        assert!(playlist[0].requires_media);
     }
 
     #[test]

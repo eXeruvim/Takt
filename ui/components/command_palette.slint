@@ -134,7 +134,7 @@ component CommandRow inherits Rectangle {
         }
         shortcut-field := ShortcutField {
             visible: root.entry.shortcut-editable;
-            width: root.entry.shortcut-editable ? 344px : 0px;
+            width: root.entry.shortcut-editable ? 320px : 0px;
             shortcut: root.entry.shortcut;
             highlighted: root.selected;
             enabled: (root.enabled || root.editing) && !root.blocked;
@@ -255,9 +255,9 @@ export component CommandPaletteOverlay inherits Rectangle {
     panel := Rectangle {
         property <float> safe-scale: max(0.1, root.scale-factor);
         property <length> target-width: min(parent.width - Theme.space-12,
-            root.confirming-reset ? 520px : 680px);
+            root.confirming-reset ? 520px : 780px);
         property <length> target-height: min(parent.height - Theme.space-12,
-            root.confirming-reset ? 260px : 560px);
+            root.confirming-reset ? 260px : 580px);
         width: Math.floor(target-width / 1px * safe-scale) / safe-scale * 1px;
         height: Math.floor(target-height / 1px * safe-scale) / safe-scale * 1px;
         x: Math.floor((parent.width - self.width) / 2 / 1px * safe-scale)

@@ -427,11 +427,15 @@ export component MediaInspector inherits Rectangle {
     in-out property <bool> shuffle-enabled;
     in property <length> parent-width;
     in property <length> parent-height;
+    in property <float> scale-factor: 1.0;
     in property <bool> fullscreen-active: false;
     in property <bool> media-presented: false;
+    in property <bool> modal-mode: false;
     out property <length> slide-offset: open || prewarming
         ? 0px : self.width + Theme.space-5;
-    private property <length> playback-content-height: 912px;
+    out property <length> modal-slide-offset: open || prewarming
+        ? 0px : Theme.space-8;
+    private property <length> playback-content-height: modal-mode ? 864px : 912px;
     private property <length> video-content-height: 80px
         + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
         + 116px + 64px + 96px
@@ -482,12 +486,32 @@ export component MediaInspector inherits Rectangle {
         ? Theme.player-controls-height + Theme.space-6 : Theme.space-4;
     private property <length> available-height:
         max(0px, parent-height - top-clearance - bottom-clearance);
-    width: min(wide-layout ? 440px : 392px, parent-width - Theme.space-8);
-    height: wide-layout ? available-height : min(available-height, 820px);
-    x: left-aligned
-        ? Theme.space-4 - slide-offset
-        : parent-width - self.width - Theme.space-4 + slide-offset;
-    y: top-clearance + (wide-layout ? 0px : max(0px, (available-height - self.height) / 2));
+    private property <float> safe-scale: max(0.1, scale-factor);
+    private property <length> target-width: modal-mode
+        ? min(680px, parent-width - Theme.space-8)
+        : min(wide-layout ? 440px : 392px, parent-width - Theme.space-8);
+    private property <length> target-height: modal-mode
+        ? min(available-height, 720px)
+        : wide-layout ? available-height : min(available-height, 820px);
+    private property <length> modal-base-y: Math.round(
+        (top-clearance + max(0px, (available-height - self.height) / 2))
+            / 1px * safe-scale
+    ) / safe-scale * 1px;
+    width: modal-mode
+        ? Math.floor(target-width / 1px * safe-scale) / safe-scale * 1px
+        : target-width;
+    height: modal-mode
+        ? Math.floor(target-height / 1px * safe-scale) / safe-scale * 1px
+        : target-height;
+    x: modal-mode
+        ? Math.round((parent-width - self.width) / 2 / 1px * safe-scale)
+            / safe-scale * 1px
+        : left-aligned
+            ? Theme.space-4 - slide-offset
+            : parent-width - self.width - Theme.space-4 + slide-offset;
+    y: modal-mode
+        ? modal-base-y + modal-slide-offset
+        : top-clearance + max(0px, (available-height - self.height) / 2);
     opacity: open ? 1 : prewarming ? 0.001 : 0;
     border-radius: Theme.radius-large;
     background: Theme.surface-inspector;
@@ -500,6 +524,11 @@ export component MediaInspector inherits Rectangle {
 
     changed video-settings-available => {
         if (!root.video-settings-available && root.settings-page == 2) {
+            root.settings-page = 0;
+        }
+    }
+    changed media-loaded => {
+        if (!root.media-loaded && root.settings-page != 0) {
             root.settings-page = 0;
         }
     }
@@ -518,7 +547,7 @@ export component MediaInspector inherits Rectangle {
         easing: cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    animate slide-offset {
+    animate slide-offset, modal-slide-offset {
         duration: root.open ? Theme.motion-slow : Theme.motion-dismiss;
         easing: cubic-bezier(0.16, 1, 0.3, 1);
     }
@@ -544,7 +573,7 @@ export component MediaInspector inherits Rectangle {
             alignment: center;
 
             UiText {
-                text: "Inspector";
+                text: root.playback-open ? "Настройки" : "Медиатека";
                 variant: TextVariant.title;
                 horizontal-stretch: 1;
                 vertical-alignment: center;
@@ -552,7 +581,7 @@ export component MediaInspector inherits Rectangle {
 
             IconButton {
                 icon: @image-url("../icons/window-close.svg");
-                accessible-name: "Закрыть Inspector";
+                accessible-name: "Закрыть панель";
                 circular: true;
                 capture-focus: false;
                 clicked => root.close();
@@ -583,21 +612,21 @@ export component MediaInspector inherits Rectangle {
             }
         }
 
-        if !root.left-aligned : HorizontalLayout {
+        if !root.left-aligned && root.media-loaded : HorizontalLayout {
             height: Theme.space-10;
             spacing: Theme.space-2;
 
             Button {
                 horizontal-stretch: 1;
                 min-width: 0px;
-                text: "Плеер";
+                text: "Общие";
                 selected: root.playback-open && root.settings-page == 0;
                 clicked => {
                     root.settings-page = 0;
                     if (!root.playback-open) { root.show-playback(); }
                 }
             }
-            Button {
+            if root.media-loaded : Button {
                 horizontal-stretch: 1;
                 min-width: 0px;
                 text: "Звук";
@@ -922,11 +951,39 @@ export component MediaInspector inherits Rectangle {
                 Divider { }
 
                 Rectangle {
-                    height: 88px;
+                    height: root.modal-mode ? Theme.space-10 : 88px;
                     horizontal-stretch: 1;
                     background: transparent;
 
-                    CompactToggleRow {
+                    if root.modal-mode : HorizontalLayout {
+                        width: parent.width;
+                        height: parent.height;
+                        spacing: Theme.space-3;
+
+                        CompactToggleRow {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            height: Theme.space-10;
+                            border-radius: Theme.radius-medium;
+                            background: Theme.surface-control;
+                            title: "Повторять список";
+                            checked: root.folder-loop-enabled;
+                            toggled(checked) => root.set-folder-loop(checked);
+                        }
+
+                        CompactToggleRow {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            height: Theme.space-10;
+                            border-radius: Theme.radius-medium;
+                            background: Theme.surface-control;
+                            title: "Случайный порядок";
+                            checked: root.shuffle-enabled;
+                            toggled => root.toggle-shuffle();
+                        }
+                    }
+
+                    if !root.modal-mode : CompactToggleRow {
                         x: (parent.width - self.width) / 2;
                         y: 0px;
                         width: min(parent.width - Theme.space-4, 280px);
@@ -938,7 +995,7 @@ export component MediaInspector inherits Rectangle {
                         toggled(checked) => root.set-folder-loop(checked);
                     }
 
-                    CompactToggleRow {
+                    if !root.modal-mode : CompactToggleRow {
                         x: (parent.width - self.width) / 2;
                         y: Theme.space-12;
                         width: min(parent.width - Theme.space-4, 280px);

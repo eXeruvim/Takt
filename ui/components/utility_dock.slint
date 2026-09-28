@@ -1,0 +1,171 @@
+import { Theme } from "../theme.slint";
+import { FocusTouchArea, Icon, IconButton, Slider, UiText, TextVariant } from "../design_system/primitives.slint";
+
+component UtilityAction inherits Rectangle {
+    in property <image> icon;
+    in property <string> text;
+    in property <string> accessible-name: text;
+    in property <bool> selected: false;
+    callback clicked();
+
+    width: 76px;
+    height: 48px;
+    border-radius: Theme.radius-medium;
+    background: hit.pressed ? Theme.surface-pressed
+        : hit.has-hover ? Theme.surface-hover
+        : selected ? Theme.surface-selected : transparent;
+    border-width: hit.has-focus ? Theme.focus-ring-width : 1px;
+    border-color: hit.has-focus ? Theme.focus-ring
+        : selected ? Theme.accent : transparent;
+    accessible-role: button;
+    accessible-label: accessible-name;
+    accessible-action-default => root.clicked();
+    forward-focus: hit;
+
+    hit := FocusTouchArea {
+        width: parent.width;
+        height: parent.height;
+        capture-focus: false;
+        clicked => root.clicked();
+    }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: Theme.space-1;
+        size: Theme.icon-small;
+        source: root.icon;
+        tint: root.selected ? Theme.accent : Theme.text-primary;
+    }
+
+    UiText {
+        x: Theme.space-1;
+        y: Theme.space-6;
+        width: parent.width - Theme.space-2;
+        height: Theme.space-5;
+        text: root.text;
+        variant: TextVariant.caption;
+        color: root.selected ? Theme.accent : Theme.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    animate background, border-color {
+        duration: Theme.motion-fast;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
+}
+
+// The empty-state utility shelf belongs to the launch composition instead of
+// floating at the bottom edge like a truncated playback bar.
+export component UtilityDock inherits Rectangle {
+    in-out property <float> volume: 1;
+    in-out property <bool> muted: false;
+    in property <bool> volume-feedback-visible: false;
+    in property <bool> settings-open: false;
+    in property <bool> command-palette-open: false;
+    in property <bool> converter-open: false;
+    callback set-volume(float);
+    callback toggle-mute();
+    callback toggle-settings();
+    callback show-commands();
+    callback open-converter();
+
+    height: 72px;
+    border-radius: Theme.radius-large;
+    background: Theme.surface-control;
+    border-width: 1px;
+    border-color: Theme.border-default;
+
+    HorizontalLayout {
+        padding-left: Theme.space-3;
+        padding-right: Theme.space-3;
+        padding-top: Theme.space-3;
+        padding-bottom: Theme.space-3;
+        spacing: Theme.space-2;
+        alignment: center;
+
+        volume-control := Rectangle {
+            width: 184px;
+            height: 48px;
+            border-radius: Theme.radius-medium;
+            background: Theme.surface-hover;
+
+            IconButton {
+                x: Theme.space-1;
+                y: (parent.height - self.height) / 2;
+                icon: !root.muted && root.volume > 0
+                    ? @image-url("../icons/volume.svg")
+                    : @image-url("../icons/volume-off.svg");
+                accessible-name: root.muted ? "Включить звук" : "Выключить звук";
+                circular: true;
+                selected: root.muted;
+                capture-focus: false;
+                opacity: root.volume-feedback-visible ? 0 : 1;
+                clicked => root.toggle-mute();
+
+                animate opacity {
+                    duration: Theme.motion-fast;
+                    easing: cubic-bezier(0.2, 0, 0, 1);
+                }
+            }
+
+            UiText {
+                x: 0px;
+                y: (parent.height - self.height) / 2;
+                width: Theme.space-12;
+                height: Theme.space-10;
+                text: Math.round(root.volume * 100) + "%";
+                variant: TextVariant.label;
+                font-size: Theme.text-body;
+                color: Theme.accent;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                opacity: root.volume-feedback-visible ? 1 : 0;
+
+                animate opacity {
+                    duration: Theme.motion-normal;
+                    easing: cubic-bezier(0.2, 0, 0, 1);
+                }
+            }
+
+            Slider {
+                x: Theme.space-12 + Theme.space-2;
+                y: (parent.height - self.height) / 2;
+                width: parent.width - self.x - Theme.space-3;
+                value <=> root.volume;
+                expand-on-hover: true;
+                changed(value) => root.set-volume(value);
+            }
+        }
+
+        Rectangle {
+            width: 1px;
+            height: Theme.space-8;
+            background: Theme.border-subtle;
+        }
+
+        UtilityAction {
+            icon: @image-url("../icons/convert.svg");
+            text: "Конвертер";
+            accessible-name: "Открыть конвертер";
+            selected: root.converter-open;
+            clicked => root.open-converter();
+        }
+
+        UtilityAction {
+            icon: @image-url("../icons/settings.svg");
+            text: "Настройки";
+            selected: root.settings-open;
+            clicked => root.toggle-settings();
+        }
+
+        UtilityAction {
+            icon: @image-url("../icons/keyboard.svg");
+            text: "Клавиши";
+            accessible-name: "Команды и горячие клавиши";
+            selected: root.command-palette-open;
+            clicked => root.show-commands();
+        }
+    }
+}

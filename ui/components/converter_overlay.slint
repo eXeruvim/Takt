@@ -242,7 +242,11 @@ component PresetRow inherits Rectangle {
 
 export component ConverterOverlay inherits Rectangle {
     in property <bool> open;
+    in property <float> scale-factor: 1.0;
     in property <string> source-name;
+    in property <bool> source-selected: false;
+    in property <bool> source-loading: false;
+    in property <string> source-error;
     in property <string> source-size;
     in property <string> source-duration;
     in property <string> source-format;
@@ -336,6 +340,7 @@ export component ConverterOverlay inherits Rectangle {
             : "Это больше, чем обычно нужно для " + resolution-help-title
                 + ". Качество будет высоким, но файл заметно увеличится.";
     callback choose-output(int);
+    callback choose-source();
     callback start(int);
     callback cancel();
     callback clear-queue();
@@ -360,10 +365,19 @@ export component ConverterOverlay inherits Rectangle {
     }
 
     panel := Rectangle {
-        width: min(parent.width - Theme.space-4, 960px);
-        height: min(parent.height - Theme.space-3, root.desired-panel-height);
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
+        private property <float> safe-scale: max(0.1, root.scale-factor);
+        private property <length> target-width: min(parent.width - Theme.space-4, 960px);
+        private property <length> target-height:
+            min(parent.height - Theme.space-3, root.desired-panel-height);
+
+        // Center the complete modal on physical pixels. At fractional Windows
+        // DPI, a half-physical-pixel origin softens every glyph in the subtree.
+        width: Math.floor(target-width / 1px * safe-scale) / safe-scale * 1px;
+        height: Math.floor(target-height / 1px * safe-scale) / safe-scale * 1px;
+        x: Math.round((parent.width - self.width) / 2 / 1px * safe-scale)
+            / safe-scale * 1px;
+        y: Math.round((parent.height - self.height) / 2 / 1px * safe-scale)
+            / safe-scale * 1px;
         border-radius: Theme.radius-xlarge;
         background: Theme.surface-modal;
         border-width: 1px;
@@ -469,7 +483,7 @@ export component ConverterOverlay inherits Rectangle {
                         MarqueeText {
                             height: Theme.space-5;
                             vertical-stretch: 0;
-                            text: root.source-name;
+                            text: root.source-loading ? "Читаем данные файла…" : root.source-name;
                             variant: TextVariant.label;
                             text-size: Theme.text-body + 1px;
                             hovered: source-hover.has-hover;
@@ -477,15 +491,20 @@ export component ConverterOverlay inherits Rectangle {
                         MarqueeText {
                             height: Theme.space-5;
                             vertical-stretch: 0;
-                            text: root.source-format + "  ·  " + root.source-duration;
+                            text: root.source-error != "" ? root.source-error
+                                : root.source-selected
+                                ? root.source-format + "  ·  " + root.source-duration
+                                : "Видео или аудио для конвертации";
                             variant: TextVariant.caption;
-                            text-color: Theme.text-secondary;
+                            text-color: root.source-error != ""
+                                ? Theme.danger : Theme.text-secondary;
                             text-size: Theme.text-small + 1px;
                             hovered: source-hover.has-hover;
                         }
                     }
 
                     UiText {
+                        visible: root.source-selected;
                         text: root.source-size;
                         variant: TextVariant.label;
                         color: Theme.text-secondary;
@@ -493,9 +512,25 @@ export component ConverterOverlay inherits Rectangle {
                         vertical-alignment: center;
                     }
 
+                    Rectangle {
+                        width: 124px;
+                        background: transparent;
+                    }
+
                 }
 
                 source-hover := TouchArea { }
+
+                Button {
+                    x: parent.width - self.width - Theme.space-3;
+                    y: (parent.height - self.height) / 2;
+                    width: 124px;
+                    text: root.source-loading
+                        ? "Читаем…"
+                        : root.source-selected ? "Изменить…" : "Выбрать файл";
+                    enabled: !root.source-loading && !root.running;
+                    clicked => root.choose-source();
+                }
             }
 
             body-row := HorizontalLayout {
@@ -542,7 +577,7 @@ export component ConverterOverlay inherits Rectangle {
                                 for preset in root.presets : PresetRow {
                                     entry: preset;
                                     selected: preset.index == root.preset-index;
-                                    enabled: true;
+                                    enabled: root.source-selected;
                                     activated => {
                                         root.preset-index = preset.index;
                                         root.preset-title = preset.title;
@@ -697,7 +732,7 @@ export component ConverterOverlay inherits Rectangle {
                                     }
                                     Toggle {
                                         checked <=> root.keep-audio-tracks;
-                                        enabled: true;
+                                        enabled: root.source-selected;
                                     }
 
                                     UiText {
@@ -831,7 +866,7 @@ export component ConverterOverlay inherits Rectangle {
                                         y: (parent.height - self.height) / 2;
                                         width: parent.width;
                                         text: root.output-path == "" ? "Выбрать…" : "Изменить…";
-                                        enabled: true;
+                                        enabled: root.source-selected;
                                         clicked => root.choose-output(root.preset-index);
                                     }
                                 }
@@ -939,7 +974,8 @@ export component ConverterOverlay inherits Rectangle {
                     width: 164px;
                     text: root.running ? "В очередь" : "Конвертировать";
                     primary: true;
-                    enabled: root.ffmpeg-available && root.output-path != "";
+                    enabled: root.ffmpeg-available && root.source-selected
+                        && root.output-path != "";
                     clicked => {
                         root.video-help-visible = false;
                         root.start(root.preset-index);
