@@ -29,7 +29,7 @@ pub enum ThemePreference {
 pub enum AccentPreference {
     #[default]
     Copper,
-    Amber,
+    Iris,
     Sage,
     Blue,
 }
@@ -99,7 +99,7 @@ impl AccentPreference {
     pub fn from_ui_index(index: i32) -> Option<Self> {
         match index {
             0 => Some(Self::Copper),
-            1 => Some(Self::Amber),
+            1 => Some(Self::Iris),
             2 => Some(Self::Sage),
             3 => Some(Self::Blue),
             _ => None,
@@ -109,7 +109,7 @@ impl AccentPreference {
     pub const fn ui_index(self) -> i32 {
         match self {
             Self::Copper => 0,
-            Self::Amber => 1,
+            Self::Iris => 1,
             Self::Sage => 2,
             Self::Blue => 3,
         }
@@ -118,7 +118,7 @@ impl AccentPreference {
     const fn as_str(self) -> &'static str {
         match self {
             Self::Copper => "copper",
-            Self::Amber => "amber",
+            Self::Iris => "iris",
             Self::Sage => "sage",
             Self::Blue => "blue",
         }
@@ -127,7 +127,7 @@ impl AccentPreference {
     fn parse(value: &str) -> Option<Self> {
         match value.trim() {
             "copper" => Some(Self::Copper),
-            "amber" => Some(Self::Amber),
+            "iris" | "amber" => Some(Self::Iris),
             "sage" => Some(Self::Sage),
             "blue" => Some(Self::Blue),
             _ => None,
@@ -598,6 +598,16 @@ mod tests {
         assert_eq!(loaded.theme(), ThemePreference::System);
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
+    }
+
+    #[test]
+    fn legacy_amber_accent_migrates_to_iris() {
+        assert_eq!(
+            AccentPreference::parse("amber"),
+            Some(AccentPreference::Iris)
+        );
+        assert_eq!(AccentPreference::Iris.as_str(), "iris");
+        assert_eq!(AccentPreference::Iris.ui_index(), 1);
     }
 
     #[test]

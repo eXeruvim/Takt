@@ -8,35 +8,35 @@ export global Theme {
 
     // Semantic surfaces. Canvas may reveal the desktop in a regular window;
     // focused surfaces become progressively more opaque with their elevation.
-    out property <color> surface-canvas: is-dark ? #101014d9 : #f6f6f8e3;
-    out property <color> surface-canvas-opaque: is-dark ? #101014 : #f6f6f8;
+    out property <color> surface-canvas: is-dark ? #101014d9 : #f1ede8dc;
+    out property <color> surface-canvas-opaque: is-dark ? #101014 : #f1ede8;
     out property <color> surface-media: #060608;
-    out property <color> surface-chrome: is-dark ? #151519e6 : #fafafbe8;
-    out property <color> surface-player-controls: is-dark ? #151519c7 : #fafafbd1;
-    out property <color> surface-inspector: is-dark ? #18181de8 : #fcfcfdea;
-    out property <color> surface-popover: is-dark ? #1c1c21f5 : #fffffff7;
-    out property <color> surface-modal: is-dark ? #19191ef7 : #fffffff9;
+    out property <color> surface-chrome: is-dark ? #151519e6 : #f7f3efe8;
+    out property <color> surface-player-controls: is-dark ? #151519c7 : #f6f1ecd1;
+    out property <color> surface-inspector: is-dark ? #18181de8 : #f7f3efed;
+    out property <color> surface-popover: is-dark ? #1c1c21f5 : #fbf8f5f7;
+    out property <color> surface-modal: is-dark ? #19191ef7 : #fcf9f6f9;
     out property <color> surface-control: is-dark ? #ffffff0d : #0000000a;
     out property <color> surface-hover: is-dark ? #ffffff16 : #00000010;
     out property <color> surface-pressed: is-dark ? #ffffff21 : #0000001a;
-    out property <color> surface-selected: is-dark ? #e07a4f26 : #c85f381a;
-    out property <color> backdrop: is-dark ? #0000008f : #16161a57;
+    out property <color> surface-selected: accent-subtle;
+    out property <color> backdrop: is-dark ? #0000008f : #2b252149;
     out property <brush> canvas-background: is-dark
         ? @linear-gradient(160deg, #141419d9 0%, #0d0d11e3 100%)
-        : @linear-gradient(160deg, #fafafbe3 0%, #f1f1f4e8 100%);
+        : @linear-gradient(160deg, #f4f0ebdc 0%, #e9e3dde0 100%);
     out property <brush> canvas-background-maximized: is-dark
         ? @linear-gradient(160deg, #141419e6 0%, #0d0d11eb 100%)
-        : @linear-gradient(160deg, #fafafbe8 0%, #f1f1f4eb 100%);
+        : @linear-gradient(160deg, #f4f0ebe8 0%, #e9e3ddeb 100%);
     out property <brush> canvas-background-opaque: is-dark
         ? @linear-gradient(160deg, #141419 0%, #0d0d11 100%)
-        : @linear-gradient(160deg, #fafafb 0%, #f1f1f4 100%);
+        : @linear-gradient(160deg, #f4f0eb 0%, #e9e3dd 100%);
     // Keep the windowed audio surround byte-for-byte aligned with mpv's
     // `background-color` in player/mpv.rs. A renderer retained after video
     // must not make the same surface darker than a directly opened audio file.
-    out property <brush> media-canvas-background: is-dark ? #09090db8 : #ffffff6b;
+    out property <brush> media-canvas-background: is-dark ? #09090db8 : #f3eee970;
     out property <brush> media-canvas-background-opaque: is-dark
         ? @linear-gradient(160deg, #141419 0%, #0d0d11 100%)
-        : @linear-gradient(160deg, #fafafb 0%, #f1f1f4 100%);
+        : @linear-gradient(160deg, #f4efea 0%, #e8e2dc 100%);
     out property <brush> audio-artwork-placeholder: is-dark
         ? @linear-gradient(145deg, #3a2721 0%, #242329 48%, #1b1b20 100%)
         : @linear-gradient(145deg, #f1d8ce 0%, #f7f5f4 48%, #ececf0 100%);
@@ -44,28 +44,28 @@ export global Theme {
     // Curated accents keep contrast predictable in both themes. Copper remains
     // the Oxide default and carries the Rust-inspired identity.
     out property <color> accent: accent-mode == 1
-        ? (is-dark ? #e3a64b : #b96b13)
+        ? (is-dark ? #8862c4 : #7651b5)
         : accent-mode == 2
-            ? (is-dark ? #5fb38b : #2f8060)
+            ? (is-dark ? #5fb38b : #277052)
             : accent-mode == 3
-                ? (is-dark ? #6f9df5 : #3f72c8)
-                : (is-dark ? #e07a4f : #c85f38);
+                ? (is-dark ? #6f9df5 : #3565b5)
+                : (is-dark ? #e07a4f : #b95330);
     out property <color> accent-hover: accent-mode == 1
-        ? (is-dark ? #efb866 : #a75e0d)
+        ? (is-dark ? #9874d2 : #68449f)
         : accent-mode == 2
-            ? (is-dark ? #73c69e : #277052)
+            ? (is-dark ? #73c69e : #205e45)
             : accent-mode == 3
-                ? (is-dark ? #83adff : #3565b5)
-                : (is-dark ? #eb906a : #b95330);
+                ? (is-dark ? #83adff : #2c559b)
+                : (is-dark ? #eb906a : #a94729);
     out property <color> accent-pressed: accent-mode == 1
-        ? (is-dark ? #c58b34 : #914f08)
+        ? (is-dark ? #7651b5 : #59388a)
         : accent-mode == 2
-            ? (is-dark ? #459873 : #205e45)
+            ? (is-dark ? #459873 : #174b36)
             : accent-mode == 3
-                ? (is-dark ? #567fcf : #2c559b)
-                : (is-dark ? #c9653f : #a94729);
+                ? (is-dark ? #567fcf : #244783)
+                : (is-dark ? #c9653f : #8f3c24);
     out property <color> accent-subtle: accent-mode == 1
-        ? (is-dark ? #e3a64b2b : #b96b1320)
+        ? (is-dark ? #9874d22b : #7651b520)
         : accent-mode == 2
             ? (is-dark ? #5fb38b2b : #2f806020)
             : accent-mode == 3
@@ -74,14 +74,14 @@ export global Theme {
     out property <color> on-accent: #ffffff;
 
     // Content colors.
-    out property <color> text-primary: is-dark ? #f7f7f8 : #17171a;
-    out property <color> text-secondary: is-dark ? #b5b5bd : #5f5f68;
-    out property <color> text-muted: is-dark ? #7c7c86 : #8a8a94;
-    out property <color> text-disabled: is-dark ? #55555e : #b1b1b8;
+    out property <color> text-primary: is-dark ? #f7f7f8 : #201d1b;
+    out property <color> text-secondary: is-dark ? #b5b5bd : #5a534e;
+    out property <color> text-muted: is-dark ? #7c7c86 : #716963;
+    out property <color> text-disabled: is-dark ? #55555e : #a49b94;
     out property <color> border-subtle: is-dark ? #ffffff12 : #00000010;
     out property <color> border-default: is-dark ? #ffffff20 : #0000001c;
     out property <color> border-strong: is-dark ? #ffffff36 : #00000030;
-    out property <color> border-glass: is-dark ? #ffffff24 : #ffffffa3;
+    out property <color> border-glass: is-dark ? #ffffff24 : #5a4b3c24;
 
     // Feedback colors.
     out property <color> success: is-dark ? #32d583 : #168a55;
@@ -93,7 +93,7 @@ export global Theme {
 
     // Focus and elevation.
     out property <color> focus-ring: accent-mode == 1
-        ? (is-dark ? #f2c474 : #a75e0d)
+        ? (is-dark ? #aa8cdd : #7651b5)
         : accent-mode == 2
             ? (is-dark ? #86d4ae : #277052)
             : accent-mode == 3

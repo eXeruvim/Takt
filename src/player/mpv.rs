@@ -134,7 +134,7 @@ fn video_background_color(dark_theme: bool) -> &'static str {
     if dark_theme {
         "0.035/0.035/0.05/0.72"
     } else {
-        "1.0/1.0/1.0/0.42"
+        "0.953/0.933/0.914/0.44"
     }
 }
 
@@ -1335,7 +1335,7 @@ mod tests {
     #[test]
     fn chooses_letterbox_color_for_the_active_theme() {
         assert_eq!(video_background_color(true), "0.035/0.035/0.05/0.72");
-        assert_eq!(video_background_color(false), "1.0/1.0/1.0/0.42");
+        assert_eq!(video_background_color(false), "0.953/0.933/0.914/0.44");
     }
 
     #[test]
