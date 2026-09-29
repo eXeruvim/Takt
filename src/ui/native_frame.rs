@@ -7,7 +7,7 @@ use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, SetLastError, WPARAM},
     Graphics::Gdi::{
         GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect, MonitorFromWindow,
-        RDW_INTERNALPAINT, RedrawWindow,
+        RDW_INTERNALPAINT, RDW_UPDATENOW, RedrawWindow,
     },
     System::Threading::GetCurrentThreadId,
     UI::{
@@ -17,8 +17,9 @@ use windows_sys::Win32::{
             MINMAXINFO, NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE,
             SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetTimer, SetWindowLongW, SetWindowPos,
             WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_GETMINMAXINFO, WM_NCACTIVATE, WM_NCCALCSIZE,
-            WM_NCDESTROY, WM_NCPAINT, WM_STYLECHANGING, WM_TIMER, WS_CAPTION, WS_EX_CLIENTEDGE,
-            WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE,
+            WM_NCDESTROY, WM_NCPAINT, WM_SIZE, WM_STYLECHANGING, WM_TIMER, WS_CAPTION,
+            WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE, WVR_ALIGNBOTTOM,
+            WVR_ALIGNLEFT, WVR_ALIGNRIGHT, WVR_ALIGNTOP,
         },
     },
 };
@@ -166,12 +167,19 @@ unsafe extern "system" fn frame_proc(
             // SAFETY: Windows supplies NCCALCSIZE_PARAMS when wParam != 0 and
             // RECT otherwise, writable for this synchronous message only.
             // Do not hold a Rust reference across calls into the window system.
-            let rect_ptr = if wparam != 0 {
+            let (rect_ptr, previous) = if wparam != 0 {
                 // SAFETY: this message variant provides NCCALCSIZE_PARAMS;
-                // its first rectangle is the proposed client area.
-                unsafe { std::ptr::addr_of_mut!((*(lparam as *mut NCCALCSIZE_PARAMS)).rgrc[0]) }
+                // its first rectangle is the proposed client area and its
+                // second rectangle is the previous outer window area.
+                unsafe {
+                    let params = lparam as *mut NCCALCSIZE_PARAMS;
+                    (
+                        std::ptr::addr_of_mut!((*params).rgrc[0]),
+                        Some((*params).rgrc[1]),
+                    )
+                }
             } else {
-                lparam as *mut RECT
+                (lparam as *mut RECT, None)
             };
             // SAFETY: pointer validated by the WM_NCCALCSIZE contract above.
             let proposed = unsafe { *rect_ptr };
@@ -197,14 +205,44 @@ unsafe extern "system" fn frame_proc(
                 *rect_ptr = client_rect(proposed, fullscreen != 0, work_area);
             }
             // Custom chrome owns the whole client area, even if Slint temporarily
-            // enables decorations. Do not let DefWindowProc reserve a caption.
-            0
+            // enables decorations. During a normal live resize, preserve the
+            // previous compositor surface against the edge that stays fixed.
+            // Windows otherwise anchors it top-left: that is correct for the
+            // smooth right/bottom edges, but makes the opposite edge appear to
+            // jump until Slint presents its asynchronous replacement frame.
+            if !maximized && fullscreen == 0 {
+                previous
+                    .map(|previous| preserved_client_alignment(proposed, previous))
+                    .unwrap_or(0) as LRESULT
+            } else {
+                0
+            }
         }
         WM_NCPAINT | WM_NCUAHDRAWCAPTION | WM_NCUAHDRAWFRAME => 0,
         WM_NCACTIVATE => {
             // SAFETY: preserve winit's active/focus bookkeeping. Documented -1
             // tells DefWindowProc to update activation WITHOUT painting a caption.
             unsafe { DefSubclassProc(hwnd, message, wparam, -1) }
+        }
+        WM_SIZE => {
+            // Let winit/Slint consume the authoritative new size first, then
+            // synchronously present that frame before this native resize event
+            // returns. The ordinary event-loop redraw can lag one compositor
+            // frame behind a moving top/left edge because those edges also move
+            // the window origin. RDW_UPDATENOW closes that gap without adding a
+            // permanent render loop outside resize events.
+            // SAFETY: forward the live HWND message unchanged, then request an
+            // immediate internal paint; neither call retains the null regions.
+            let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
+            unsafe {
+                RedrawWindow(
+                    hwnd,
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                    RDW_INTERNALPAINT | RDW_UPDATENOW,
+                );
+            }
+            result
         }
         WM_ENTERSIZEMOVE => {
             // Windows runs a nested modal loop while the user holds a resize
@@ -323,6 +361,28 @@ fn maximized_bounds(monitor: RECT, work: RECT) -> ((i32, i32), (i32, i32)) {
         (work.left - monitor.left, work.top - monitor.top),
         (work.right - work.left, work.bottom - work.top),
     )
+}
+
+fn preserved_client_alignment(proposed: RECT, previous: RECT) -> u32 {
+    let width_changed = proposed.right - proposed.left != previous.right - previous.left;
+    let height_changed = proposed.bottom - proposed.top != previous.bottom - previous.top;
+    if !width_changed && !height_changed {
+        return 0;
+    }
+
+    let horizontal =
+        if width_changed && proposed.left != previous.left && proposed.right == previous.right {
+            WVR_ALIGNRIGHT
+        } else {
+            WVR_ALIGNLEFT
+        };
+    let vertical =
+        if height_changed && proposed.top != previous.top && proposed.bottom == previous.bottom {
+            WVR_ALIGNBOTTOM
+        } else {
+            WVR_ALIGNTOP
+        };
+    horizontal | vertical
 }
 
 #[cfg(test)]
@@ -460,6 +520,59 @@ mod tests {
             bottom: 1040,
         };
         assert_eq!(maximized_bounds(monitor, work), ((48, 0), (1872, 1040)));
+    }
+
+    #[test]
+    fn resize_preserves_pixels_against_the_stationary_edges() {
+        let previous = RECT {
+            left: 100,
+            top: 100,
+            right: 500,
+            bottom: 400,
+        };
+        assert_eq!(
+            preserved_client_alignment(
+                RECT {
+                    left: 80,
+                    ..previous
+                },
+                previous
+            ),
+            WVR_ALIGNRIGHT | WVR_ALIGNTOP
+        );
+        assert_eq!(
+            preserved_client_alignment(
+                RECT {
+                    top: 80,
+                    ..previous
+                },
+                previous
+            ),
+            WVR_ALIGNLEFT | WVR_ALIGNBOTTOM
+        );
+        assert_eq!(
+            preserved_client_alignment(
+                RECT {
+                    left: 80,
+                    top: 80,
+                    ..previous
+                },
+                previous
+            ),
+            WVR_ALIGNRIGHT | WVR_ALIGNBOTTOM
+        );
+        assert_eq!(
+            preserved_client_alignment(
+                RECT {
+                    right: 520,
+                    bottom: 420,
+                    ..previous
+                },
+                previous
+            ),
+            WVR_ALIGNLEFT | WVR_ALIGNTOP
+        );
+        assert_eq!(preserved_client_alignment(previous, previous), 0);
     }
 
     #[test]
