@@ -147,7 +147,7 @@ impl CommandSender {
 fn payload_is_bounded(command: &Command) -> bool {
     match command {
         Command::OpenFile(path) | Command::OpenFolder(path) | Command::LoadSubtitle(path) => {
-            path.len() <= PATH_TEXT_BYTES
+            path.as_os_str().as_encoded_bytes().len() <= PATH_TEXT_BYTES
         }
         _ => true,
     }

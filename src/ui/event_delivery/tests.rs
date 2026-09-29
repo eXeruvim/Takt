@@ -107,7 +107,10 @@ fn player_command_and_event_channels_preserve_media_boundaries() {
     let Some(Command::OpenFile(path)) = command_rx.try_recv(true) else {
         panic!("media command was not delivered to the player");
     };
-    assert_eq!(path, r"C:\Музыка\трек с пробелом.mp3");
+    assert_eq!(
+        path,
+        std::path::PathBuf::from(r"C:\Музыка\трек с пробелом.mp3")
+    );
     assert!(command_errors.is_empty());
 
     let (event_tx, event_rx) = bounded(PLAYER_EVENT_CAPACITY);
@@ -135,8 +138,10 @@ fn player_command_and_event_channels_preserve_media_boundaries() {
     assert_eq!(batch.len(), 4);
     assert!(matches!(&batch[0], Event::LoadStarted(name) if name == "трек с пробелом.mp3"));
     assert!(matches!(batch[1], Event::TimePos(value) if value == 2.0));
-    assert!(matches!(&batch[2], Event::FileLoaded { name, path: delivered } if
-        name == "трек с пробелом.mp3" && delivered == &path));
+    assert!(
+        matches!(&batch[2], Event::FileLoaded { name, path: delivered } if
+        name == "трек с пробелом.mp3" && delivered == &path)
+    );
     assert!(matches!(batch[3], Event::PlaybackState(true)));
     drop(completion);
     drop(bridge);

@@ -1,4 +1,5 @@
 use crate::render::mpv_opengl::MpvRenderSource;
+use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum AspectRatio {
@@ -87,8 +88,8 @@ impl EqualizerPreset {
 
 #[derive(Debug)]
 pub enum Command {
-    OpenFile(String),
-    OpenFolder(String),
+    OpenFile(PathBuf),
+    OpenFolder(PathBuf),
 
     TogglePlay,
 
@@ -100,7 +101,7 @@ pub enum Command {
     SetSpeed(f64),
     SelectAudioTrack(i64),
     SelectSubtitleTrack(Option<i64>),
-    LoadSubtitle(String),
+    LoadSubtitle(PathBuf),
     AdjustAudioDelay(f64),
     AdjustSubtitleDelay(f64),
     ResetAudioDelay,
@@ -161,7 +162,7 @@ pub struct ChapterInfo {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RecentFileInfo {
-    pub path: String,
+    pub path: PathBuf,
     pub name: String,
     pub location: String,
 }
@@ -187,7 +188,7 @@ pub enum Event {
 
     FileLoaded {
         name: String,
-        path: String,
+        path: PathBuf,
     },
     MediaAvailable(bool),
     VideoOutputReady,

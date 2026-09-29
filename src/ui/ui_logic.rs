@@ -1405,10 +1405,10 @@ fn probe_conversion_source(path: &Path) -> Result<MediaInfo> {
 
 fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
     if path.is_dir() {
-        return Ok(Command::OpenFolder(path.to_string_lossy().into_owned()));
+        return Ok(Command::OpenFolder(path.to_owned()));
     }
     if path.is_file() && is_media_file(path) {
-        return Ok(Command::OpenFile(path.to_string_lossy().into_owned()));
+        return Ok(Command::OpenFile(path.to_owned()));
     }
 
     Err(format!(
@@ -2446,7 +2446,7 @@ pub fn run(
                 dialog_active.store(false, Ordering::Release);
 
                 if let Some(path) = path {
-                    let _ = tx.send(Command::OpenFile(path.to_string_lossy().into_owned()));
+                    let _ = tx.send(Command::OpenFile(path));
                 }
             });
         });
@@ -2455,7 +2455,7 @@ pub fn run(
     {
         let tx = tx.clone();
         app.on_open_recent(move |path| {
-            let _ = tx.send(Command::OpenFile(path.to_string()));
+            let _ = tx.send(Command::OpenFile(PathBuf::from(path.to_string())));
         });
     }
 
@@ -2509,7 +2509,7 @@ pub fn run(
                 dialog_active.store(false, Ordering::Release);
 
                 if let Some(path) = path {
-                    let _ = tx.send(Command::LoadSubtitle(path.to_string_lossy().into_owned()));
+                    let _ = tx.send(Command::LoadSubtitle(path));
                 }
             });
         });
@@ -2534,7 +2534,7 @@ pub fn run(
                 dialog_active.store(false, Ordering::Release);
 
                 if let Some(path) = path {
-                    let _ = tx.send(Command::OpenFolder(path.to_string_lossy().into_owned()));
+                    let _ = tx.send(Command::OpenFolder(path));
                 }
             });
         });
@@ -3844,6 +3844,7 @@ pub fn run(
                         Event::FileLoaded { name, path } => {
                             app.set_audio_display_name(media_name_without_extension(&name).into());
                             app.set_file_name(name.clone().into());
+                            let path = path.to_string_lossy().into_owned();
                             app.set_current_media_path(path.clone().into());
                             if !app.get_conversion_running() && !app.get_converter_visible() {
                                 app.set_conversion_source_path(path.into());
@@ -4005,7 +4006,7 @@ pub fn run(
                                 .into_iter()
                                 .map(|file| RecentFileEntry {
                                     name: file.name.into(),
-                                    path: file.path.into(),
+                                    path: file.path.to_string_lossy().into_owned().into(),
                                     location: file.location.into(),
                                 })
                                 .collect::<Vec<_>>();

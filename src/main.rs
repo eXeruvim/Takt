@@ -85,11 +85,10 @@ fn main() -> anyhow::Result<()> {
 
     let (ui_tx, player_rx, command_errors) = player::commands::channel();
     if let Some(path) = startup_path {
-        let path_text = path.to_string_lossy().into_owned();
         let command = if path.is_dir() {
-            ipc::Command::OpenFolder(path_text)
+            ipc::Command::OpenFolder(path)
         } else {
-            ipc::Command::OpenFile(path_text)
+            ipc::Command::OpenFile(path)
         };
         ui_tx
             .send(command)

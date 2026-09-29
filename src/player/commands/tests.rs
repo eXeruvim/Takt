@@ -58,7 +58,9 @@ fn coalescing_does_not_cross_media_relative_or_toggle_boundaries() {
         tx.send(command).unwrap();
     }
     assert!(matches!(rx.try_recv(true), Some(Command::Seek(2.0))));
-    assert!(matches!(rx.try_recv(true), Some(Command::OpenFile(path)) if path == "next.mp4"));
+    assert!(
+        matches!(rx.try_recv(true), Some(Command::OpenFile(path)) if path == std::path::Path::new("next.mp4"))
+    );
     assert!(matches!(rx.try_recv(true), Some(Command::Seek(3.0))));
     assert!(matches!(
         rx.try_recv(true),
@@ -127,7 +129,9 @@ fn output_startup_never_moves_commands_into_an_unbounded_pending_queue() {
         rx.try_recv(false),
         Some(Command::SetVideoWindow(43))
     ));
-    assert!(matches!(rx.try_recv(true), Some(Command::OpenFile(path)) if path == "first.mp4"));
+    assert!(
+        matches!(rx.try_recv(true), Some(Command::OpenFile(path)) if path == std::path::Path::new("first.mp4"))
+    );
     assert!(matches!(rx.try_recv(true), Some(Command::Seek(10.0))));
 }
 
@@ -161,10 +165,32 @@ fn dropping_receiver_releases_pending_paths_and_reports_disconnect() {
 #[test]
 fn oversized_path_payload_never_enters_the_mailbox() {
     let (tx, rx, errors) = channel();
-    let result = tx.send(Command::OpenFile("x".repeat(PATH_TEXT_BYTES + 1)));
+    let result = tx.send(Command::OpenFile("x".repeat(PATH_TEXT_BYTES + 1).into()));
     assert_eq!(result, Err(SendError::PayloadTooLarge));
     assert_eq!(errors.try_recv(), Ok(SendError::PayloadTooLarge));
     assert!(rx.try_recv(true).is_none());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_path_payload_is_not_lossily_converted_inside_the_mailbox() {
+    use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf};
+
+    let path = PathBuf::from(OsString::from_wide(&[
+        b'C' as u16,
+        b':' as u16,
+        b'\\' as u16,
+        0xd800,
+        b'.' as u16,
+        b'm' as u16,
+        b'p' as u16,
+        b'4' as u16,
+    ]));
+    let (tx, rx, errors) = channel();
+    tx.send(Command::OpenFile(path.clone())).unwrap();
+
+    assert!(matches!(rx.try_recv(true), Some(Command::OpenFile(delivered)) if delivered == path));
+    assert!(errors.is_empty());
 }
 
 #[test]

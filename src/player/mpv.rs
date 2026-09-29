@@ -294,7 +294,7 @@ fn send_recent_files(tx: &Sender<Event>, session: &SessionStore) {
         .iter()
         .filter(|path| path.is_file())
         .map(|path| RecentFileInfo {
-            path: bounded_text(&path.to_string_lossy(), PATH_TEXT_BYTES),
+            path: path.clone(),
             name: path
                 .file_name()
                 .map(|name| bounded_text(&name.to_string_lossy(), UI_TEXT_BYTES))
@@ -445,7 +445,7 @@ fn load_current(mpv: &Mpv, tx: &Sender<Event>, playlist: &DirectoryPlaylist) -> 
     if let Some(file_name) = path.file_name() {
         let _ = tx.send(Event::FileLoaded {
             name: bounded_text(&file_name.to_string_lossy(), UI_TEXT_BYTES),
-            path: bounded_text(&path.to_string_lossy(), PATH_TEXT_BYTES),
+            path: path.to_owned(),
         });
     }
     send_playlist(tx, playlist);
@@ -547,11 +547,11 @@ fn handle_command(
 ) -> anyhow::Result<bool> {
     match command {
         Command::OpenFile(path) => {
-            load_path(mpv, tx, playlist, PathBuf::from(path), options.shuffled)?;
+            load_path(mpv, tx, playlist, path, options.shuffled)?;
             options.media_available = true;
         }
         Command::OpenFolder(path) => {
-            load_directory(mpv, tx, playlist, Path::new(&path), options.shuffled)?;
+            load_directory(mpv, tx, playlist, &path, options.shuffled)?;
             options.media_available = true;
         }
         Command::TogglePlay => {
@@ -605,12 +605,12 @@ fn handle_command(
             if !options.media_available {
                 return Ok(true);
             }
-            if !Path::new(&path).is_file() {
-                anyhow::bail!("Файл субтитров не найден: {path}");
+            if !path.is_file() {
+                anyhow::bail!("Файл субтитров не найден: {}", path.display());
             }
-            let quoted_path = quote_mpv_command_arg(&path);
+            let quoted_path = quote_mpv_command_arg(&path.to_string_lossy());
             mpv_error(mpv.command("sub-add", &[&quoted_path, "select"]))
-                .with_context(|| format!("Не удалось загрузить субтитры: {path}"))?;
+                .with_context(|| format!("Не удалось загрузить субтитры: {}", path.display()))?;
             let _ = tx.send(Event::SubtitleTracks(read_subtitle_tracks(mpv)));
         }
         Command::AdjustAudioDelay(delta) => {
