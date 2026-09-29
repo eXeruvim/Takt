@@ -1026,7 +1026,11 @@ fn validate_job(source: &Path, output: &Path) -> Result<(), String> {
 fn parse_progress_seconds(line: &str) -> Option<f64> {
     let (key, value) = line.trim().split_once('=')?;
     match key {
-        "out_time_us" | "out_time_ms" => value.parse::<f64>().ok().map(|value| value / 1_000_000.0),
+        "out_time_us" | "out_time_ms" => value
+            .parse::<f64>()
+            .ok()
+            .map(|value| value / 1_000_000.0)
+            .filter(|value| value.is_finite() && *value >= 0.0),
         "out_time" => parse_ffmpeg_timestamp(value),
         _ => None,
     }
@@ -1044,8 +1048,16 @@ fn parse_ffmpeg_timestamp(value: &str) -> Option<f64> {
     let hours = parts.next()?.parse::<f64>().ok()?;
     let minutes = parts.next()?.parse::<f64>().ok()?;
     let seconds = parts.next()?.parse::<f64>().ok()?;
-    (parts.next().is_none() && hours >= 0.0 && minutes >= 0.0 && seconds >= 0.0)
+    let valid = parts.next().is_none()
+        && hours.is_finite()
+        && minutes.is_finite()
+        && seconds.is_finite()
+        && hours >= 0.0
+        && (0.0..60.0).contains(&minutes)
+        && (0.0..60.0).contains(&seconds);
+    valid
         .then_some(hours * 3_600.0 + minutes * 60.0 + seconds)
+        .filter(|value| value.is_finite())
 }
 
 fn estimate_remaining(elapsed: Duration, fraction: f64) -> Option<f64> {
@@ -1285,6 +1297,23 @@ mod tests {
         assert_eq!(parse_progress_seconds("speed=1.0x"), None);
         assert_eq!(parse_progress_size("total_size=1048576"), Some(1_048_576));
         assert_eq!(parse_progress_size("speed=1.0x"), None);
+    }
+
+    #[test]
+    fn rejects_non_finite_negative_and_malformed_progress_values() {
+        for line in [
+            "out_time_us=NaN",
+            "out_time_us=inf",
+            "out_time_us=-1",
+            "out_time=NaN:00:00",
+            "out_time=00:60:00",
+            "out_time=00:00:60",
+            "out_time=-1:00:00",
+            "out_time=00:00:00:01",
+            "out_time=not-a-time",
+        ] {
+            assert_eq!(parse_progress_seconds(line), None, "fixture: {line}");
+        }
     }
 
     #[test]

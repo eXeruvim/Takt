@@ -601,6 +601,86 @@ mod tests {
     }
 
     #[test]
+    fn malformed_setting_records_preserve_all_runtime_invariants() {
+        let keys = [
+            "theme",
+            "accent",
+            "volume",
+            "speed",
+            "completion_behavior",
+            "hardware_decoding",
+            "window_placement",
+            "shortcut",
+            "unknown",
+            "",
+        ];
+        let values = [
+            "",
+            "NaN",
+            "inf",
+            "-inf",
+            "-999999999999999999999",
+            "999999999999999999999",
+            "0",
+            "1",
+            "true",
+            "false",
+            "0\t0\t760\t520",
+            "-1000001\t0\t760\t520",
+            "1\t\"KeyA\"\t255",
+            "1\t\"KeyB\"\t0\textra",
+            "текст с пробелом",
+        ];
+        let mut state = 0xd1b5_4a32_d192_ed03_u64;
+
+        for _ in 0..2_000 {
+            let mut content = String::from("OXIDE_SETTINGS\t1\n");
+            for _ in 0..24 {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                let key = keys[state as usize % keys.len()];
+                state = state.rotate_left(19).wrapping_add(0x9e37_79b9_7f4a_7c15);
+                let value = values[state as usize % values.len()];
+                content.push_str(key);
+                content.push('\t');
+                content.push_str(value);
+                content.push('\n');
+            }
+
+            let settings = AppSettings::parse(&content).expect("valid header must remain readable");
+            assert!(settings.default_volume().is_finite());
+            assert!((0.0..=1.0).contains(&settings.default_volume()));
+            assert!(settings.default_speed().is_finite());
+            assert!((0.25..=4.0).contains(&settings.default_speed()));
+            assert!(settings.shortcut_overrides().len() <= MAX_SHORTCUT_OVERRIDES);
+            assert!(settings.shortcut_overrides().iter().all(|preference| {
+                !preference.key_code.is_empty()
+                    && preference.key_code.len() <= MAX_SHORTCUT_KEY_BYTES
+            }));
+            for (index, preference) in settings.shortcut_overrides().iter().enumerate() {
+                assert!(
+                    settings.shortcut_overrides()[index + 1..]
+                        .iter()
+                        .all(|other| other.action_id != preference.action_id)
+                );
+            }
+            if let Some(placement) = settings.window_placement() {
+                assert!(placement.x.unsigned_abs() <= super::MAX_WINDOW_COORDINATE as u32);
+                assert!(placement.y.unsigned_abs() <= super::MAX_WINDOW_COORDINATE as u32);
+                assert!(
+                    (super::MIN_WINDOW_WIDTH..=super::MAX_WINDOW_DIMENSION)
+                        .contains(&placement.width)
+                );
+                assert!(
+                    (super::MIN_WINDOW_HEIGHT..=super::MAX_WINDOW_DIMENSION)
+                        .contains(&placement.height)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn legacy_amber_accent_migrates_to_iris() {
         assert_eq!(
             AccentPreference::parse("amber"),

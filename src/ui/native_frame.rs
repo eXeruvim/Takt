@@ -138,6 +138,8 @@ unsafe extern "system" fn frame_proc(
             // maximized outer rectangle to the monitor work area. Correcting
             // WM_NCCALCSIZE alone leaves an invisible borderless overhang that
             // can still sit above taskbar buttons and consume their clicks.
+            // SAFETY: preserve the lower subclass chain for this live HWND;
+            // the message parameters are forwarded unchanged.
             unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
             let mut info = MONITORINFO {
                 cbSize: std::mem::size_of::<MONITORINFO>() as u32,
@@ -234,6 +236,8 @@ unsafe extern "system" fn frame_proc(
             // SAFETY: forward the live HWND message unchanged, then request an
             // immediate internal paint; neither call retains the null regions.
             let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
+            // SAFETY: the HWND remains live throughout this callback and
+            // RedrawWindow does not retain either null region pointer.
             unsafe {
                 RedrawWindow(
                     hwnd,

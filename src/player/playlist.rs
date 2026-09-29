@@ -494,6 +494,79 @@ mod tests {
     }
 
     #[test]
+    fn natural_sort_obeys_total_order_properties_on_mixed_names() {
+        let fragments = [
+            "",
+            "a",
+            "A",
+            "z",
+            "Ж",
+            "ёж",
+            "é",
+            "0",
+            "00",
+            "1",
+            "01",
+            "9",
+            "10",
+            "999999999999999999999999999999",
+            "-",
+            " ",
+            ".",
+            "_",
+        ];
+        let mut names = Vec::new();
+        for left in fragments {
+            for right in fragments {
+                names.push(format!("{left}{right}.mkv"));
+            }
+        }
+
+        for left in &names {
+            assert_eq!(natural_cmp(left, left), Ordering::Equal);
+            for right in &names {
+                assert_eq!(
+                    natural_cmp(left, right),
+                    natural_cmp(right, left).reverse(),
+                    "left={left:?}, right={right:?}"
+                );
+            }
+        }
+
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        for _ in 0..20_000 {
+            let mut next_index = || {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state as usize % names.len()
+            };
+            let left = &names[next_index()];
+            let middle = &names[next_index()];
+            let right = &names[next_index()];
+            if natural_cmp(left, middle) != Ordering::Greater
+                && natural_cmp(middle, right) != Ordering::Greater
+            {
+                assert_ne!(
+                    natural_cmp(left, right),
+                    Ordering::Greater,
+                    "left={left:?}, middle={middle:?}, right={right:?}"
+                );
+            }
+        }
+
+        names.sort_by(|left, right| natural_cmp(left, right));
+        assert!(
+            names
+                .windows(2)
+                .all(|pair| natural_cmp(&pair[0], &pair[1]) != Ordering::Greater)
+        );
+        let once = names.clone();
+        names.sort_by(|left, right| natural_cmp(left, right));
+        assert_eq!(names, once);
+    }
+
+    #[test]
     fn opens_directory_at_first_naturally_sorted_media_file() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)

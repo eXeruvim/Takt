@@ -92,7 +92,8 @@ impl SessionStore {
             if fields.next() == Some("position") {
                 let seconds = fields.next().and_then(|value| value.parse::<f64>().ok());
                 let path = fields.next().and_then(decode_path);
-                if let (Some(seconds), Some(path)) = (seconds, path)
+                if fields.next().is_none()
+                    && let (Some(seconds), Some(path)) = (seconds, path)
                     && seconds.is_finite()
                     && seconds >= RESUME_MIN_SECONDS
                 {
@@ -382,6 +383,64 @@ mod tests {
             decode_path(&encode_path(Path::new(&maximum))).unwrap(),
             Path::new(&maximum)
         );
+    }
+
+    #[test]
+    fn malformed_history_records_preserve_bounded_finite_state() {
+        let paths = [
+            encode_path(Path::new("track.mp3")),
+            encode_path(Path::new("Видео/ролик 10.mkv")),
+            String::new(),
+            "0".into(),
+            "gg".into(),
+            "ff".into(),
+            "61".repeat(512),
+        ];
+        let seconds = [
+            "NaN",
+            "inf",
+            "-inf",
+            "-1",
+            "0",
+            "4.999",
+            "5",
+            "42.5",
+            "1e308",
+            "not-a-number",
+        ];
+        let mut state = 0xa076_1d64_78bd_642f_u64;
+
+        for _ in 0..1_000 {
+            let mut content = format!("{}\n", super::STATE_HEADER);
+            for _ in 0..32 {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                let path = &paths[state as usize % paths.len()];
+                state = state.rotate_left(23).wrapping_add(0xe703_7ed1_a0b4_28db);
+                let time = seconds[state as usize % seconds.len()];
+                match state % 5 {
+                    0 => content.push_str(&format!("recent\t{path}\n")),
+                    1 => content.push_str(&format!("position\t{time}\t{path}\n")),
+                    2 => content.push_str(&format!("position\t{time}\t{path}\textra\n")),
+                    3 => content.push_str("position\n"),
+                    _ => content.push_str("unknown\tignored\n"),
+                }
+            }
+
+            let store = SessionStore::parse(&content).expect("valid header must remain readable");
+            assert!(store.recent.len() <= super::MAX_RECENT_FILES);
+            for (index, path) in store.recent.iter().enumerate() {
+                assert!(super::path_bytes(path).is_some());
+                assert!(!store.recent[index + 1..].contains(path));
+            }
+            assert!(store.positions.iter().count() <= super::positions::MAX_POSITIONS);
+            for (path, position) in store.positions.iter() {
+                assert!(super::path_bytes(path).is_some());
+                assert!(position.is_finite());
+                assert!(position >= super::RESUME_MIN_SECONDS);
+            }
+        }
     }
 
     #[test]
