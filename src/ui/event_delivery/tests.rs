@@ -3,13 +3,13 @@ use crossbeam_channel::TrySendError;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, PartialEq)]
-enum Event {
+enum TestEvent {
     Position(u32),
     Boundary(&'static str),
 }
 
-fn replaces(a: &Event, b: &Event) -> bool {
-    matches!((a, b), (Event::Position(_), Event::Position(_)))
+fn replaces(a: &TestEvent, b: &TestEvent) -> bool {
+    matches!((a, b), (TestEvent::Position(_), TestEvent::Position(_)))
 }
 
 #[test]
@@ -55,15 +55,15 @@ fn slow_ui_has_one_callback_and_a_fixed_source_budget() {
 fn coalescing_never_crosses_file_or_terminal_boundaries() {
     let (tx, rx) = bounded(32);
     for event in [
-        Event::Position(1),
-        Event::Position(2),
-        Event::Boundary("loaded next file"),
-        Event::Position(0),
-        Event::Position(3),
-        Event::Boundary("completed"),
-        Event::Position(4),
-        Event::Position(5),
-        Event::Boundary("failed"),
+        TestEvent::Position(1),
+        TestEvent::Position(2),
+        TestEvent::Boundary("loaded next file"),
+        TestEvent::Position(0),
+        TestEvent::Position(3),
+        TestEvent::Boundary("completed"),
+        TestEvent::Position(4),
+        TestEvent::Position(5),
+        TestEvent::Boundary("failed"),
     ] {
         tx.send(event).unwrap();
     }
@@ -82,15 +82,65 @@ fn coalescing_never_crosses_file_or_terminal_boundaries() {
     assert_eq!(
         received,
         [
-            Event::Position(2),
-            Event::Boundary("loaded next file"),
-            Event::Position(3),
-            Event::Boundary("completed"),
-            Event::Position(5),
-            Event::Boundary("failed")
+            TestEvent::Position(2),
+            TestEvent::Boundary("loaded next file"),
+            TestEvent::Position(3),
+            TestEvent::Boundary("completed"),
+            TestEvent::Position(5),
+            TestEvent::Boundary("failed")
         ]
     );
     drop(bridge);
+}
+
+#[test]
+fn player_command_and_event_channels_preserve_media_boundaries() {
+    use crate::{
+        ipc::{Command, Event},
+        player::commands,
+    };
+
+    let (command_tx, command_rx, command_errors) = commands::channel();
+    command_tx
+        .send(Command::OpenFile(r"C:\Музыка\трек с пробелом.mp3".into()))
+        .unwrap();
+    let Some(Command::OpenFile(path)) = command_rx.try_recv(true) else {
+        panic!("media command was not delivered to the player");
+    };
+    assert_eq!(path, r"C:\Музыка\трек с пробелом.mp3");
+    assert!(command_errors.is_empty());
+
+    let (event_tx, event_rx) = bounded(PLAYER_EVENT_CAPACITY);
+    let (jobs_tx, jobs) = bounded(1);
+    let bridge = spawn(
+        event_rx,
+        |previous, next| matches!((previous, next), (Event::TimePos(_), Event::TimePos(_))),
+        move |batch, done| jobs_tx.try_send((batch, done)).is_ok(),
+    )
+    .unwrap();
+    for event in [
+        Event::LoadStarted("трек с пробелом.mp3".into()),
+        Event::TimePos(1.0),
+        Event::TimePos(2.0),
+        Event::FileLoaded {
+            name: "трек с пробелом.mp3".into(),
+            path: path.clone(),
+        },
+        Event::PlaybackState(true),
+    ] {
+        event_tx.send(event).unwrap();
+    }
+
+    let (batch, completion) = jobs.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(batch.len(), 4);
+    assert!(matches!(&batch[0], Event::LoadStarted(name) if name == "трек с пробелом.mp3"));
+    assert!(matches!(batch[1], Event::TimePos(value) if value == 2.0));
+    assert!(matches!(&batch[2], Event::FileLoaded { name, path: delivered } if
+        name == "трек с пробелом.mp3" && delivered == &path));
+    assert!(matches!(batch[3], Event::PlaybackState(true)));
+    drop(completion);
+    drop(bridge);
+    assert!(event_tx.send(Event::PlaybackStopped).is_err());
 }
 
 #[test]

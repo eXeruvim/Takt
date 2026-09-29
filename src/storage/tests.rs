@@ -272,6 +272,21 @@ fn oversized_input_and_output_fail_closed() {
     assert!(Persistence::open(&path, parse).is_err());
 }
 
+#[test]
+fn unreadable_state_path_disables_saving_without_mutating_it() {
+    let files = TestDirectory::new();
+    let path = files.path("state.txt");
+    fs::create_dir(&path).unwrap();
+
+    let (mut store, value) = Persistence::load(Some(path.clone()), parse);
+    assert_eq!(value, "");
+    let notice = store.take_notice().expect("read failure must be visible");
+    assert!(notice.contains("сохранение отключено"));
+    assert!(store.save(SECOND).is_err());
+    assert!(path.is_dir());
+    assert_eq!(fs::read_dir(&path).unwrap().count(), 0);
+}
+
 struct ChildGuard(Child);
 impl Drop for ChildGuard {
     fn drop(&mut self) {
