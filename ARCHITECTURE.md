@@ -11,6 +11,8 @@ rendering notifier, пока OpenGL-контекст окна активен.
 Slint UI -> ipc::Command -> player::mpv -> libmpv
 Slint UI <- ipc::Event   <- player::mpv <- libmpv events
 
+player::mpv -> bounded session snapshot -> storage writer
+
 Slint UI -> converter::ConverterCommand -> converter -> FFmpeg process
 Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
 ```
@@ -24,6 +26,8 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
 - `src/player/mpv.rs` — жизненный цикл libmpv, команды и события;
 - `src/player/playlist.rs` — обнаружение и сортировка видео и аудио в папке;
 - `src/player/media_info.rs` — чтение свойств медиа;
+- `src/player/session_store.rs` — модель истории/позиций и один ограниченный
+  фоновый writer; очистка и shutdown используют подтверждённый flush;
 - `src/player/shortcuts.rs` — будущая модель переназначаемых клавиш;
 - `src/converter.rs` — обнаружение FFmpeg, профили, прогресс и жизненный цикл
   отдельного процесса конвертации;

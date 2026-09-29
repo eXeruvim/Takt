@@ -321,6 +321,13 @@ fn record_current_media(
 }
 
 fn save_session(tx: &Sender<Event>, session: &mut SessionStore) {
+    if let Some(message) = session.save_in_background_and_take_error() {
+        eprintln!("{message}");
+        let _ = tx.send(Event::Error(message));
+    }
+}
+
+fn flush_session(tx: &Sender<Event>, session: &mut SessionStore) {
     if let Some(message) = session.save_and_take_error() {
         eprintln!("{message}");
         let _ = tx.send(Event::Error(message));
@@ -344,7 +351,11 @@ fn send_media_info(info: &MediaInfo, tx: &Sender<Event>) {
     });
 }
 
-fn send_media_ready(mpv: &Mpv, tx: &Sender<Event>) {
+fn audio_metadata_is_relevant(info: &MediaInfo) -> bool {
+    info.video_track_count == 0 && info.audio_track_count > 0
+}
+
+fn send_media_ready(mpv: &Mpv, tx: &Sender<Event>) -> MediaInfo {
     let info = MediaInfo::read(mpv);
     send_media_info(&info, tx);
     if info.video_track_count > 0 {
@@ -360,6 +371,7 @@ fn send_media_ready(mpv: &Mpv, tx: &Sender<Event>) {
     let _ = tx.send(Event::MediaAvailable(true));
     let paused = mpv.get_property::<bool>("pause").unwrap_or(false);
     let _ = tx.send(Event::PlaybackState(!paused));
+    info
 }
 
 fn send_audio_metadata(path: &Path, tx: &Sender<Event>) {
@@ -440,7 +452,6 @@ fn load_current(mpv: &Mpv, tx: &Sender<Event>, playlist: &DirectoryPlaylist) -> 
         )));
     }
     load_file_in_mpv(mpv, path)?;
-    send_audio_metadata(path, tx);
 
     if let Some(file_name) = path.file_name() {
         let _ = tx.send(Event::FileLoaded {
@@ -1041,7 +1052,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                 }
             }
             if matches!(&command, Command::Quit) {
-                save_session(&tx, &mut session);
+                flush_session(&tx, &mut session);
             }
 
             let makes_output_ready = matches!(
@@ -1152,7 +1163,17 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     {
                         record_current_media(&tx, &playlist, &mut session);
                     }
-                    send_media_ready(&mpv, &tx);
+                    let info = send_media_ready(&mpv, &tx);
+                    // Tag and artwork probing can require real HDD reads. Video
+                    // never consumes this presentation data, so avoid delaying
+                    // its FileLoaded/VideoReconfig path. For audio, readiness is
+                    // already visible before the bounded metadata read starts.
+                    if audio_metadata_is_relevant(&info)
+                        && let Some(path) =
+                            playlist.as_ref().and_then(DirectoryPlaylist::current_path)
+                    {
+                        send_audio_metadata(path, &tx);
+                    }
                     if let Some(position) = resume_position {
                         let _ = tx.send(Event::ResumeAvailable(position));
                     }
@@ -1205,11 +1226,11 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     }
                 }
                 Ok(MpvEvent::VideoReconfig) if options.media_available => {
-                    send_media_ready(&mpv, &tx);
+                    let _ = send_media_ready(&mpv, &tx);
                     let _ = tx.send(Event::VideoOutputReady);
                 }
                 Ok(MpvEvent::AudioReconfig) if options.media_available => {
-                    send_media_ready(&mpv, &tx);
+                    let _ = send_media_ready(&mpv, &tx);
                 }
                 Ok(MpvEvent::PropertyChange { name, change, .. }) => {
                     playback_diagnostics.update(name, &change);
@@ -1246,10 +1267,12 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        adjusted_delay, automatic_hwdec_mode, hwdec_is_enabled, loop_value_is_enabled,
-        quote_mpv_command_arg, should_restart_current, video_background_color,
+        adjusted_delay, audio_metadata_is_relevant, automatic_hwdec_mode, hwdec_is_enabled,
+        loop_value_is_enabled, quote_mpv_command_arg, should_restart_current,
+        video_background_color,
     };
     use crate::ipc::AspectRatio;
+    use crate::player::media_info::MediaInfo;
 
     #[test]
     fn native_seek_overlay_is_disabled_without_hiding_subtitles() {
@@ -1352,5 +1375,19 @@ mod tests {
         assert_eq!(adjusted_delay(0.3, -0.1), 0.2);
         assert_eq!(adjusted_delay(29.9, 1.0), 30.0);
         assert_eq!(adjusted_delay(-29.9, -1.0), -30.0);
+    }
+
+    #[test]
+    fn expensive_tag_reads_are_reserved_for_actual_audio_only_media() {
+        assert!(audio_metadata_is_relevant(&MediaInfo {
+            audio_track_count: 1,
+            ..MediaInfo::default()
+        }));
+        assert!(!audio_metadata_is_relevant(&MediaInfo {
+            video_track_count: 1,
+            audio_track_count: 1,
+            ..MediaInfo::default()
+        }));
+        assert!(!audio_metadata_is_relevant(&MediaInfo::default()));
     }
 }

@@ -1,7 +1,11 @@
 use crate::storage::Persistence;
+use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded};
 use std::{
     fmt::Write as _,
+    io,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    thread::{self, JoinHandle},
 };
 
 mod positions;
@@ -14,21 +18,110 @@ const MAX_RECENT_PATH_BYTES: usize = 256 * 1024;
 const RESUME_MIN_SECONDS: f64 = 5.0;
 const RESUME_END_GUARD_SECONDS: f64 = 10.0;
 
-#[derive(Debug, Default)]
+struct SaveRequest {
+    content: String,
+    copies: usize,
+}
+
+#[derive(Debug)]
+struct BackgroundSave {
+    requests: Option<Sender<SaveRequest>>,
+    results: Receiver<Result<(), String>>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl BackgroundSave {
+    fn spawn(persistence: Arc<Mutex<Persistence>>) -> io::Result<Self> {
+        // One in-flight request is enough: SessionStore keeps later changes
+        // dirty and submits their newest snapshot after this result arrives.
+        let (requests, pending) = bounded::<SaveRequest>(1);
+        let (completed, results) = bounded(1);
+        let worker = thread::Builder::new()
+            .name("oxide-session-save".into())
+            .spawn(move || {
+                while let Ok(request) = pending.recv() {
+                    let result = persistence
+                        .lock()
+                        .map_err(|_| "Хранилище истории повреждено после panic".to_owned())
+                        .and_then(|mut persistence| {
+                            for _ in 0..request.copies {
+                                persistence
+                                    .save(&request.content)
+                                    .map_err(|error| error.to_string())?;
+                            }
+                            Ok(())
+                        });
+                    if completed.send(result).is_err() {
+                        break;
+                    }
+                }
+            })?;
+        Ok(Self {
+            requests: Some(requests),
+            results,
+            worker: Some(worker),
+        })
+    }
+
+    fn submit(&self, request: SaveRequest) -> Result<(), String> {
+        self.requests
+            .as_ref()
+            .ok_or_else(|| "Фоновое сохранение истории остановлено".to_owned())?
+            .try_send(request)
+            .map_err(|error| match error {
+                crossbeam_channel::TrySendError::Full(_) => {
+                    "Предыдущее сохранение истории ещё выполняется".to_owned()
+                }
+                crossbeam_channel::TrySendError::Disconnected(_) => {
+                    "Фоновое сохранение истории недоступно".to_owned()
+                }
+            })
+    }
+}
+
+impl Drop for BackgroundSave {
+    fn drop(&mut self) {
+        self.requests.take();
+        if let Some(worker) = self.worker.take()
+            && worker.join().is_err()
+        {
+            eprintln!("Session save worker panicked during shutdown");
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct SessionStore {
     recent: Vec<PathBuf>,
     positions: Positions,
-    persistence: Persistence,
+    persistence: Arc<Mutex<Persistence>>,
+    background_save: Option<BackgroundSave>,
+    background_pending: bool,
     last_save_error: Option<String>,
     dirty: bool,
     forget_previous_pending: bool,
+}
+
+impl Default for SessionStore {
+    fn default() -> Self {
+        Self {
+            recent: Vec::new(),
+            positions: Positions::default(),
+            persistence: Arc::new(Mutex::new(Persistence::default())),
+            background_save: None,
+            background_pending: false,
+            last_save_error: None,
+            dirty: false,
+            forget_previous_pending: false,
+        }
+    }
 }
 
 impl SessionStore {
     pub fn load_default() -> Self {
         let (persistence, mut store) = Persistence::load(default_storage_path(), Self::parse);
         store.dirty |= persistence.needs_repair();
-        store.persistence = persistence;
+        store.attach_persistence(persistence);
         store
     }
 
@@ -36,8 +129,13 @@ impl SessionStore {
     fn load_from(storage_path: &Path) -> std::io::Result<Self> {
         let (persistence, mut store) = Persistence::open(storage_path, Self::parse)?;
         store.dirty |= persistence.needs_repair();
-        store.persistence = persistence;
+        store.attach_persistence(persistence);
         Ok(store)
+    }
+
+    fn attach_persistence(&mut self, persistence: Persistence) {
+        self.persistence = Arc::new(Mutex::new(persistence));
+        self.background_save = BackgroundSave::spawn(Arc::clone(&self.persistence)).ok();
     }
 
     fn parse(content: &str) -> std::io::Result<Self> {
@@ -117,7 +215,10 @@ impl SessionStore {
     }
 
     pub fn take_storage_notice(&mut self) -> Option<String> {
-        self.persistence.take_notice()
+        self.persistence
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take_notice()
     }
 
     /// Surface an error once, not on every periodic save. Keep dirty for retry.
@@ -136,6 +237,37 @@ impl SessionStore {
                 Some(message)
             }
         }
+    }
+
+    /// Queue the newest snapshot without blocking playback on disk flushes.
+    /// There is at most one in-flight write; changes made while it runs remain
+    /// dirty and are coalesced into the next snapshot.
+    pub fn save_in_background_and_take_error(&mut self) -> Option<String> {
+        let completed = self.poll_background_result();
+        let notice = completed.and_then(|result| self.apply_save_result(result));
+
+        if self.dirty && !self.background_pending {
+            let request = self.save_request();
+            match self
+                .background_save
+                .as_ref()
+                .map(|background| background.submit(request))
+            {
+                Some(Ok(())) => {
+                    self.background_pending = true;
+                    self.dirty = false;
+                    self.forget_previous_pending = false;
+                }
+                Some(Err(error)) => return self.apply_save_result(Err(error)),
+                None => {
+                    return self.apply_save_result(Err(
+                        "Не удалось запустить фоновое сохранение истории".to_owned(),
+                    ));
+                }
+            }
+        }
+
+        notice
     }
 
     pub fn record_open(&mut self, path: &Path) {
@@ -205,9 +337,24 @@ impl SessionStore {
     }
 
     pub fn save_if_dirty(&mut self) -> std::io::Result<()> {
+        self.finish_background_save()?;
         if !self.dirty {
             return Ok(());
         }
+        let request = self.save_request();
+        let mut persistence = self
+            .persistence
+            .lock()
+            .map_err(|_| io::Error::other("Хранилище истории повреждено после panic"))?;
+        for _ in 0..request.copies {
+            persistence.save(&request.content)?;
+        }
+        self.dirty = false;
+        self.forget_previous_pending = false;
+        Ok(())
+    }
+
+    fn save_request(&self) -> SaveRequest {
         let mut content = String::from(STATE_HEADER);
         content.push('\n');
         for path in &self.recent {
@@ -217,15 +364,66 @@ impl SessionStore {
         for (path, seconds) in self.positions.iter() {
             let _ = writeln!(content, "position\t{seconds:.3}\t{}", encode_path(path));
         }
-        self.persistence.save(&content)?;
-        if self.forget_previous_pending {
-            // The first commit leaves the former primary as recovery data.
-            // Commit the empty state once more so recovery forgets it too.
-            self.persistence.save(&content)?;
-            self.forget_previous_pending = false;
+        SaveRequest {
+            content,
+            // The first empty commit leaves the former primary as recovery
+            // data. A second commit makes recovery forget it as well.
+            copies: if self.forget_previous_pending { 2 } else { 1 },
         }
-        self.dirty = false;
-        Ok(())
+    }
+
+    fn poll_background_result(&mut self) -> Option<Result<(), String>> {
+        if !self.background_pending {
+            return None;
+        }
+        let result = match self.background_save.as_ref()?.results.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => {
+                Err("Фоновое сохранение истории недоступно".to_owned())
+            }
+        };
+        self.background_pending = false;
+        Some(result)
+    }
+
+    fn finish_background_save(&mut self) -> io::Result<()> {
+        if !self.background_pending {
+            return Ok(());
+        }
+        let result = self
+            .background_save
+            .as_ref()
+            .ok_or_else(|| io::Error::other("Фоновое сохранение истории недоступно"))?
+            .results
+            .recv()
+            .map_err(|_| io::Error::other("Фоновое сохранение истории недоступно"))?;
+        self.background_pending = false;
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.dirty = true;
+                Err(io::Error::other(error))
+            }
+        }
+    }
+
+    fn apply_save_result(&mut self, result: Result<(), String>) -> Option<String> {
+        match result {
+            Ok(()) => {
+                self.last_save_error = None;
+                None
+            }
+            Err(error) => {
+                self.dirty = true;
+                let message = format!("Не удалось сохранить историю и позиции: {error}");
+                if self.last_save_error.as_ref() == Some(&message) {
+                    return None;
+                }
+                self.last_save_error = Some(message.clone());
+                Some(message)
+            }
+        }
     }
 }
 
@@ -283,6 +481,7 @@ mod tests {
     use crate::storage::tests::TestDirectory;
     use std::fmt::Write as _;
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
 
     #[test]
     fn legacy_history_migrates_without_losing_positions_and_keeps_backup() {
@@ -517,6 +716,37 @@ mod tests {
         assert!(recovered.take_storage_notice().is_some());
         recovered.save_if_dirty().unwrap();
         assert!(!recovered.dirty);
+    }
+
+    #[test]
+    fn periodic_save_never_waits_for_the_storage_device() {
+        let files = TestDirectory::new();
+        let path = files.path("playback-state.txt");
+        let first = Path::new("первый трек.mp3");
+        let second = Path::new("второй трек.mp3");
+        let mut store = SessionStore::load_from(&path).unwrap();
+        store.record_open(first);
+
+        // Hold the exact mutex the writer needs, modelling a stalled HDD. The
+        // player-side scheduling call must still return immediately.
+        let persistence = Arc::clone(&store.persistence);
+        let held_storage = persistence.lock().unwrap();
+        let started = std::time::Instant::now();
+        assert!(store.save_in_background_and_take_error().is_none());
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert!(store.background_pending);
+
+        // A newer playback position remains dirty instead of spawning another
+        // writer or being lost behind the in-flight snapshot.
+        store.record_open(second);
+        store.record_position(second, 42.0, 100.0);
+        assert!(store.dirty);
+        drop(held_storage);
+
+        store.save_if_dirty().unwrap();
+        let loaded = SessionStore::load_from(&path).unwrap();
+        assert_eq!(loaded.recent(), &[second.to_owned(), first.to_owned()]);
+        assert_eq!(loaded.resume_position(second, 100.0), Some(42.0));
     }
 
     #[test]
