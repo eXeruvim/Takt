@@ -148,7 +148,7 @@ fn probe_accepts_version_and_rejects_failed_exit() {
     let files = TestFiles::new();
     let stop = AtomicBool::new(false);
     assert_eq!(
-        probe_ffmpeg(
+        super::discovery::probe(
             helper_command("version", &files.path("pid")),
             &stop,
             Duration::from_secs(3)
@@ -157,7 +157,7 @@ fn probe_accepts_version_and_rejects_failed_exit() {
         "ffmpeg version fixture"
     );
     assert!(
-        probe_ffmpeg(
+        super::discovery::probe(
             helper_command("fail", &files.path("pid")),
             &stop,
             Duration::from_secs(3)
@@ -171,7 +171,7 @@ fn probe_accepts_version_and_rejects_failed_exit() {
 fn hung_probe_times_out_and_is_reaped() {
     let files = TestFiles::new();
     let started = Instant::now();
-    let error = probe_ffmpeg(
+    let error = super::discovery::probe(
         helper_command("hang", &files.path("pid")),
         &AtomicBool::new(false),
         Duration::from_secs(1),
@@ -188,8 +188,9 @@ fn probe_shutdown_interrupts_wait_and_reaps_process() {
     let command = helper_command("hang", &files.path("pid"));
     let stop = Arc::new(AtomicBool::new(false));
     let worker_stop = stop.clone();
-    let worker =
-        thread::spawn(move || probe_ffmpeg(command, &worker_stop, Duration::from_secs(30)));
+    let worker = thread::spawn(move || {
+        super::discovery::probe(command, &worker_stop, Duration::from_secs(30))
+    });
     wait_until(|| files.path("pid").exists());
     stop.store(true, Ordering::Release);
     assert_eq!(
@@ -202,7 +203,7 @@ fn probe_shutdown_interrupts_wait_and_reaps_process() {
 #[test]
 fn probe_rejects_unbounded_output_without_newlines() {
     let files = TestFiles::new();
-    let error = probe_ffmpeg(
+    let error = super::discovery::probe(
         helper_command("flood", &files.path("pid")),
         &AtomicBool::new(false),
         Duration::from_secs(5),

@@ -1,6 +1,7 @@
 //! Owned FFmpeg process and nonblocking pipes. No detached reader threads.
 use std::{
     io::{self, Read},
+    path::Path,
     process::{Child, ChildStderr, ChildStdout, Command, ExitStatus, Stdio},
     thread,
     time::{Duration, Instant},
@@ -8,6 +9,22 @@ use std::{
 
 pub(super) const READ_BUDGET: usize = 64 * 1024;
 const REAP_TIMEOUT: Duration = Duration::from_secs(2);
+
+pub(super) fn command(executable: &Path) -> Command {
+    let mut command = Command::new(executable);
+    configure_hidden_process(&mut command);
+    command
+}
+
+#[cfg(windows)]
+fn configure_hidden_process(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn configure_hidden_process(_command: &mut Command) {}
 
 pub(super) struct ManagedChild {
     child: Child,

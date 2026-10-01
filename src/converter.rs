@@ -13,14 +13,16 @@ use std::{
 
 use crossbeam_channel::{Receiver, Sender};
 
+mod discovery;
 #[cfg(test)]
 mod lifecycle_tests;
 mod output;
 mod process;
 mod progress;
 mod queue;
+use discovery::{FfmpegInstallation, discover as discover_ffmpeg};
 use output::{WorkingOutput, publish_output};
-use process::ManagedChild;
+use process::{ManagedChild, command as converter_process};
 use progress::{
     OutputLines, append_error_line, estimate_remaining, last_error_lines, parse_progress_seconds,
     parse_progress_size,
@@ -28,8 +30,6 @@ use progress::{
 use queue::PendingJobs;
 
 const ACTIVE_WORK_POLL_INTERVAL: Duration = Duration::from_millis(50);
-const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
-const PROBE_OUTPUT_LIMIT: usize = 64 * 1024;
 pub const COMMAND_CAPACITY: usize = 16;
 
 #[derive(Default)]
@@ -240,12 +240,6 @@ pub enum ConverterEvent {
         output: PathBuf,
         message: String,
     },
-}
-
-#[derive(Debug)]
-struct FfmpegInstallation {
-    executable: PathBuf,
-    details: String,
 }
 
 struct ActiveJob {
@@ -482,99 +476,6 @@ fn send_availability(tx: &Sender<ConverterEvent>, installation: Option<&FfmpegIn
             )
         });
     let _ = tx.send(ConverterEvent::Availability { available, details });
-}
-
-fn discover_ffmpeg(shutdown: &AtomicBool) -> Option<FfmpegInstallation> {
-    for candidate in ffmpeg_candidates() {
-        if shutdown.load(Ordering::Acquire) {
-            break;
-        }
-        let mut command = converter_process(&candidate);
-        command.arg("-version");
-        match probe_ffmpeg(command, shutdown, PROBE_TIMEOUT) {
-            Ok(details) => {
-                return Some(FfmpegInstallation {
-                    executable: candidate,
-                    details,
-                });
-            }
-            Err(error) => eprintln!("FFmpeg probe {}: {error}", candidate.display()),
-        }
-    }
-    None
-}
-
-fn probe_ffmpeg(
-    command: Command,
-    shutdown: &AtomicBool,
-    timeout: Duration,
-) -> std::io::Result<String> {
-    use std::io::{Error, ErrorKind};
-    let deadline = Instant::now() + timeout;
-    let mut child = ManagedChild::spawn(command)?;
-    let mut output = Vec::new();
-    let mut total_bytes: usize = 0;
-    loop {
-        if shutdown.load(Ordering::Acquire) {
-            return Err(ErrorKind::Interrupted.into());
-        }
-        if Instant::now() >= deadline {
-            return Err(ErrorKind::TimedOut.into());
-        }
-        let status = child.try_wait()?;
-        let stdout = child.stdout()?;
-        let stderr = child.stderr()?;
-        total_bytes = total_bytes
-            .saturating_add(stdout.len())
-            .saturating_add(stderr.len());
-        if total_bytes > PROBE_OUTPUT_LIMIT {
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                "FFmpeg probe output limit exceeded",
-            ));
-        }
-        let had_output = !stdout.is_empty() || !stderr.is_empty();
-        output.extend(stdout);
-        if let Some(status) = status {
-            if !status.success() {
-                return Err(Error::other("FFmpeg version probe failed"));
-            }
-            if had_output {
-                continue;
-            }
-            return String::from_utf8_lossy(&output)
-                .lines()
-                .find(|line| line.starts_with("ffmpeg version "))
-                .map(|line| line.chars().take(512).collect())
-                .ok_or_else(|| {
-                    Error::new(ErrorKind::InvalidData, "FFmpeg version header missing")
-                });
-        }
-        thread::sleep(ACTIVE_WORK_POLL_INTERVAL);
-    }
-}
-
-fn ffmpeg_candidates() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    if let Some(configured) = std::env::var_os("OXIDE_FFMPEG") {
-        candidates.push(PathBuf::from(configured));
-    }
-    if let Ok(current_exe) = std::env::current_exe()
-        && let Some(directory) = current_exe.parent()
-    {
-        candidates.push(directory.join(ffmpeg_binary_name()));
-        candidates.push(directory.join("tools").join(ffmpeg_binary_name()));
-    }
-    candidates.push(PathBuf::from(ffmpeg_binary_name()));
-    candidates
-}
-
-const fn ffmpeg_binary_name() -> &'static str {
-    if cfg!(windows) {
-        "ffmpeg.exe"
-    } else {
-        "ffmpeg"
-    }
 }
 
 fn run_job(executable: &Path, job: JobSpec, cancel: &AtomicBool, tx: &Sender<ConverterEvent>) {
@@ -996,22 +897,6 @@ fn validate_job(source: &Path, output: &Path) -> Result<(), String> {
     }
     Ok(())
 }
-
-fn converter_process(executable: &Path) -> Command {
-    let mut command = Command::new(executable);
-    configure_hidden_process(&mut command);
-    command
-}
-
-#[cfg(windows)]
-fn configure_hidden_process(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    command.creation_flags(CREATE_NO_WINDOW);
-}
-
-#[cfg(not(windows))]
-fn configure_hidden_process(_command: &mut Command) {}
 
 pub fn suggested_output_path(source: &Path, preset: ConversionPreset) -> Option<PathBuf> {
     let parent = source.parent()?;
