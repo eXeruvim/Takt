@@ -29,8 +29,9 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
 - `src/player/session_store.rs` — модель истории/позиций и один ограниченный
   фоновый writer; очистка и shutdown используют подтверждённый flush;
 - `src/player/shortcuts.rs` — будущая модель переназначаемых клавиш;
-- `src/converter.rs` — обнаружение FFmpeg, профили, прогресс и жизненный цикл
-  отдельного процесса конвертации;
+- `src/converter.rs` и `src/converter/` — координация конвертации с отдельными
+  владельцами очереди, процесса, публикации результата и ограниченного разбора
+  progress/diagnostic потоков FFmpeg;
 - `src/render/` — интеграция поверхности видео с окном приложения;
 - `src/ui/ui_logic.rs` — связывание Slint callbacks с IPC;
 - `ui/` — декларативные компоненты Slint.

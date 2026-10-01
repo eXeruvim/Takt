@@ -529,17 +529,3 @@ fn publication_failure_keeps_destination_and_cleans_staging() {
     assert_eq!(fs::read(output).unwrap(), b"existing locked file");
     assert!(!staging_directory.exists());
 }
-
-#[test]
-fn partial_lines_and_utf8_diagnostics_have_fixed_memory_limits() {
-    let mut lines = OutputLines::default();
-    lines.feed(&vec![b'x'; MAX_LINE_BYTES * 4], false);
-    assert_eq!(lines.pending.len(), MAX_LINE_BYTES);
-    assert_eq!(
-        lines.feed(b"\nout_time_us=5000000", true)[1],
-        "out_time_us=5000000"
-    );
-    let mut log = "x".repeat(MAX_ERROR_LOG_BYTES - 2);
-    append_error_line(&mut log, "я");
-    assert!(log.len() <= MAX_ERROR_LOG_BYTES);
-}
