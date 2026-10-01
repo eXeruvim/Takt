@@ -28,13 +28,15 @@ use crate::player::media_info::MediaInfo;
 use crate::player::playlist::{
     AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, is_media_file,
 };
+use crate::player::shortcuts::{
+    ShortcutAction, ShortcutBinding, ShortcutEdit, ShortcutRegistry, is_modifier_key,
+};
 #[cfg(target_os = "windows")]
 use crate::render::mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource};
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
 use crate::settings::{
-    AccentPreference, AppSettings, CompletionBehavior, ShortcutPreference, ThemePreference,
-    WindowPlacementPreference,
+    AccentPreference, AppSettings, CompletionBehavior, ThemePreference, WindowPlacementPreference,
 };
 #[cfg(target_os = "windows")]
 use crate::ui::native_fullscreen::NativeFullscreen;
@@ -141,409 +143,11 @@ impl MonitorGeometry {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[repr(i32)]
-enum ShortcutAction {
-    OpenFile = 0,
-    OpenFolder = 1,
-    PlayPause = 2,
-    Previous = 3,
-    Next = 4,
-    ToggleMute = 5,
-    ToggleLoop = 6,
-    TogglePlaylist = 7,
-    ToggleInfo = 8,
-    ToggleSettings = 9,
-    ToggleFullscreen = 11,
-    Stop = 12,
-    SeekBackwardLong = 13,
-    SeekForwardLong = 14,
-    VolumeDown = 15,
-    VolumeUp = 16,
-    SeekBackwardShort = 22,
-    SeekForwardShort = 23,
-    ToggleCommandPalette = 24,
-    FrameBackward = 25,
-    FrameForward = 26,
-    TogglePictureInPicture = 27,
-    OpenConverter = 28,
-}
-
 #[derive(Clone, Copy)]
 enum DrawerSwipeTarget {
     Info,
     Playlist,
     Settings,
-}
-
-impl ShortcutAction {
-    const ALL: [Self; 23] = [
-        Self::ToggleCommandPalette,
-        Self::OpenFile,
-        Self::OpenFolder,
-        Self::TogglePlaylist,
-        Self::ToggleSettings,
-        Self::PlayPause,
-        Self::Stop,
-        Self::Previous,
-        Self::Next,
-        Self::SeekBackwardLong,
-        Self::SeekForwardLong,
-        Self::SeekBackwardShort,
-        Self::SeekForwardShort,
-        Self::FrameBackward,
-        Self::FrameForward,
-        Self::VolumeDown,
-        Self::VolumeUp,
-        Self::ToggleMute,
-        Self::ToggleLoop,
-        Self::ToggleFullscreen,
-        Self::TogglePictureInPicture,
-        Self::OpenConverter,
-        Self::ToggleInfo,
-    ];
-
-    fn from_id(id: i32) -> Option<Self> {
-        Self::ALL.into_iter().find(|action| *action as i32 == id)
-    }
-
-    fn from_palette_action(action: i32) -> Option<Self> {
-        match action {
-            0 => Some(Self::OpenFile),
-            1 => Some(Self::OpenFolder),
-            2 => Some(Self::PlayPause),
-            3 => Some(Self::Previous),
-            4 => Some(Self::Next),
-            5 => Some(Self::ToggleMute),
-            6 => Some(Self::ToggleLoop),
-            7 => Some(Self::TogglePlaylist),
-            8 => Some(Self::ToggleInfo),
-            9 => Some(Self::ToggleSettings),
-            11 => Some(Self::ToggleFullscreen),
-            12 => Some(Self::Stop),
-            13 => Some(Self::SeekBackwardLong),
-            14 => Some(Self::SeekForwardLong),
-            15 => Some(Self::VolumeDown),
-            16 => Some(Self::VolumeUp),
-            22 => Some(Self::SeekBackwardShort),
-            23 => Some(Self::SeekForwardShort),
-            24 => Some(Self::ToggleCommandPalette),
-            25 => Some(Self::FrameBackward),
-            26 => Some(Self::FrameForward),
-            27 => Some(Self::TogglePictureInPicture),
-            28 => Some(Self::OpenConverter),
-            _ => None,
-        }
-    }
-
-    fn title(self) -> &'static str {
-        match self {
-            Self::OpenFile => "Открыть файл",
-            Self::OpenFolder => "Открыть папку",
-            Self::PlayPause => "Пауза / воспроизведение",
-            Self::Stop => "Остановить воспроизведение",
-            Self::Previous => "Предыдущий файл",
-            Self::Next => "Следующий файл",
-            Self::SeekBackwardShort => "Назад на 5 секунд",
-            Self::SeekForwardShort => "Вперёд на 5 секунд",
-            Self::SeekBackwardLong => "Назад на 10 секунд",
-            Self::SeekForwardLong => "Вперёд на 10 секунд",
-            Self::FrameBackward => "Предыдущий кадр",
-            Self::FrameForward => "Следующий кадр",
-            Self::VolumeDown => "Уменьшить громкость",
-            Self::VolumeUp => "Увеличить громкость",
-            Self::ToggleMute => "Выключить / включить звук",
-            Self::ToggleLoop => "Повтор файла",
-            Self::ToggleFullscreen => "Полноэкранный режим",
-            Self::TogglePictureInPicture => "Картинка в картинке",
-            Self::ToggleInfo => "Свойства файла",
-            Self::TogglePlaylist => "Плейлист",
-            Self::ToggleSettings => "Настройки воспроизведения",
-            Self::ToggleCommandPalette => "Палитра команд",
-            Self::OpenConverter => "Конвертировать файл",
-        }
-    }
-
-    fn default_bindings(self) -> Vec<ShortcutBinding> {
-        let plain = |code| ShortcutBinding::new(code, ModifiersState::empty());
-        let control = |code| ShortcutBinding::new(code, ModifiersState::CONTROL);
-
-        match self {
-            Self::OpenFile => vec![control(KeyCode::KeyO), plain(KeyCode::KeyO)],
-            Self::OpenFolder => vec![ShortcutBinding::new(
-                KeyCode::KeyO,
-                ModifiersState::CONTROL | ModifiersState::SHIFT,
-            )],
-            Self::PlayPause => vec![plain(KeyCode::Space), plain(KeyCode::KeyK)],
-            Self::Stop => vec![plain(KeyCode::KeyS)],
-            Self::Previous => vec![plain(KeyCode::KeyP)],
-            Self::Next => vec![plain(KeyCode::KeyN)],
-            Self::SeekBackwardShort => vec![plain(KeyCode::ArrowLeft)],
-            Self::SeekForwardShort => vec![plain(KeyCode::ArrowRight)],
-            Self::SeekBackwardLong => vec![plain(KeyCode::KeyJ)],
-            Self::SeekForwardLong => vec![plain(KeyCode::KeyL)],
-            Self::FrameBackward => vec![plain(KeyCode::Comma)],
-            Self::FrameForward => vec![plain(KeyCode::Period)],
-            Self::VolumeDown => vec![plain(KeyCode::ArrowDown)],
-            Self::VolumeUp => vec![plain(KeyCode::ArrowUp)],
-            Self::ToggleMute => vec![plain(KeyCode::KeyM)],
-            Self::ToggleLoop => vec![plain(KeyCode::KeyR)],
-            Self::ToggleFullscreen => vec![plain(KeyCode::KeyF)],
-            Self::TogglePictureInPicture => {
-                vec![ShortcutBinding::new(KeyCode::KeyP, ModifiersState::ALT)]
-            }
-            Self::ToggleInfo => vec![plain(KeyCode::KeyI)],
-            Self::TogglePlaylist => vec![control(KeyCode::KeyL)],
-            Self::ToggleSettings | Self::OpenConverter => Vec::new(),
-            Self::ToggleCommandPalette => vec![control(KeyCode::KeyK)],
-        }
-    }
-
-    fn allows_repeat(self) -> bool {
-        matches!(
-            self,
-            Self::SeekBackwardShort
-                | Self::SeekForwardShort
-                | Self::SeekBackwardLong
-                | Self::SeekForwardLong
-                | Self::VolumeDown
-                | Self::VolumeUp
-        )
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ShortcutBinding {
-    code: KeyCode,
-    modifiers: ModifiersState,
-}
-
-impl ShortcutBinding {
-    fn new(code: KeyCode, modifiers: ModifiersState) -> Self {
-        Self { code, modifiers }
-    }
-}
-
-#[derive(Debug)]
-struct ShortcutConflict {
-    action: ShortcutAction,
-    binding: ShortcutBinding,
-}
-
-#[derive(Clone, Debug)]
-struct ShortcutRegistry {
-    bindings: Vec<(ShortcutAction, Vec<ShortcutBinding>)>,
-}
-
-impl Default for ShortcutRegistry {
-    fn default() -> Self {
-        Self {
-            bindings: ShortcutAction::ALL
-                .into_iter()
-                .map(|action| (action, action.default_bindings()))
-                .collect(),
-        }
-    }
-}
-
-impl ShortcutRegistry {
-    fn from_preferences(preferences: &[ShortcutPreference]) -> Self {
-        let mut registry = Self::default();
-        let mut decoded = Vec::new();
-        for preference in preferences {
-            let Some(action) = ShortcutAction::from_id(preference.action_id) else {
-                continue;
-            };
-            // JSON null explicitly disables an action; old JSON key strings still load.
-            let Ok(code) = serde_json::from_str::<Option<KeyCode>>(&preference.key_code) else {
-                continue;
-            };
-            let Some(modifiers) = shortcut_modifiers_from_bits(preference.modifiers) else {
-                continue;
-            };
-            if code.is_none() && !modifiers.is_empty() {
-                continue;
-            }
-            let bindings: Vec<_> = code
-                .map(|code| ShortcutBinding::new(code, modifiers))
-                .into_iter()
-                .collect();
-            decoded.push((action, bindings));
-        }
-        // Apply the complete snapshot before validation: a transferred key may belong
-        // to a default action whose explicit empty override occurs later in the file.
-        for (action, bindings) in &decoded {
-            if let Some((_, target)) = registry.bindings.iter_mut().find(|(id, _)| id == action) {
-                *target = bindings.clone();
-            }
-        }
-        if registry
-            .bindings
-            .iter()
-            .any(|(action, bindings)| registry.validate_bindings(*action, bindings).is_err())
-        {
-            // An inconsistent hand-edited snapshot must not create duplicate bindings.
-            registry = Self::default();
-            for (action, bindings) in decoded {
-                let _ = registry.replace_bindings(action, bindings);
-            }
-        }
-        registry
-    }
-
-    fn preferences(&self) -> Vec<ShortcutPreference> {
-        self.bindings
-            .iter()
-            .filter(|(action, bindings)| *bindings != action.default_bindings())
-            .filter_map(|(action, bindings)| {
-                let binding = bindings.first();
-                Some(ShortcutPreference {
-                    action_id: *action as i32,
-                    key_code: serde_json::to_string(&binding.map(|binding| binding.code)).ok()?,
-                    modifiers: binding
-                        .map_or(0, |binding| shortcut_modifiers_bits(binding.modifiers)),
-                })
-            })
-            .collect()
-    }
-
-    fn action_for(&self, binding: ShortcutBinding) -> Option<ShortcutAction> {
-        self.bindings
-            .iter()
-            .find_map(|(action, bindings)| bindings.contains(&binding).then_some(*action))
-    }
-
-    fn display_for(&self, action: ShortcutAction) -> String {
-        self.bindings
-            .iter()
-            .find(|(candidate, _)| *candidate == action)
-            .map(|(_, bindings)| {
-                if bindings.is_empty() {
-                    "—".to_string()
-                } else {
-                    bindings
-                        .iter()
-                        .map(|binding| binding.display())
-                        .collect::<Vec<_>>()
-                        .join(" / ")
-                }
-            })
-            .unwrap_or_else(|| "—".to_string())
-    }
-
-    #[cfg(test)]
-    fn rebind(
-        &mut self,
-        action: ShortcutAction,
-        binding: ShortcutBinding,
-    ) -> Result<(), ShortcutConflict> {
-        self.replace_bindings(action, vec![binding])
-    }
-
-    fn validate_bindings(
-        &self,
-        action: ShortcutAction,
-        bindings: &[ShortcutBinding],
-    ) -> Result<(), ShortcutConflict> {
-        for &binding in bindings {
-            if let Some(conflicting_action) = self.action_for(binding)
-                && conflicting_action != action
-            {
-                return Err(ShortcutConflict {
-                    action: conflicting_action,
-                    binding,
-                });
-            }
-        }
-        Ok(())
-    }
-
-    fn replace_bindings(
-        &mut self,
-        action: ShortcutAction,
-        replacement: Vec<ShortcutBinding>,
-    ) -> Result<(), ShortcutConflict> {
-        self.validate_bindings(action, &replacement)?;
-        if let Some((_, bindings)) = self
-            .bindings
-            .iter_mut()
-            .find(|(candidate, _)| *candidate == action)
-        {
-            *bindings = replacement;
-        }
-        Ok(())
-    }
-
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    fn transfer_bindings(&mut self, action: ShortcutAction, replacement: Vec<ShortcutBinding>) {
-        for (owner, bindings) in &mut self.bindings {
-            if *owner == action {
-                *bindings = replacement.clone();
-            } else if bindings.iter().any(|binding| replacement.contains(binding)) {
-                // Explicit reassignment disables the previous command, including aliases.
-                bindings.clear();
-            }
-        }
-    }
-
-    fn transfer_notice(&self, action: ShortcutAction, replacement: &[ShortcutBinding]) -> String {
-        let owners: Vec<_> = self
-            .bindings
-            .iter()
-            .filter(|(owner, bindings)| {
-                *owner != action && bindings.iter().any(|binding| replacement.contains(binding))
-            })
-            .map(|(owner, _)| format!("«{}»", owner.title()))
-            .collect();
-        if owners.len() == 1 {
-            "При переназначении эта команда останется без горячих клавиш.".to_owned()
-        } else {
-            format!(
-                "При переназначении {} останутся без горячих клавиш.",
-                owners.join(", ")
-            )
-        }
-    }
-}
-
-/// A preview stays separate from the live registry until the user saves it.
-#[derive(Default)]
-struct ShortcutEdit {
-    pending: Option<(ShortcutAction, Vec<ShortcutBinding>)>,
-}
-
-impl ShortcutEdit {
-    fn stage(
-        &mut self,
-        registry: &ShortcutRegistry,
-        action: ShortcutAction,
-        bindings: Vec<ShortcutBinding>,
-    ) -> Result<(), ShortcutConflict> {
-        let result = registry.validate_bindings(action, &bindings);
-        self.pending = Some((action, bindings));
-        result
-    }
-
-    fn save(&mut self, registry: &mut ShortcutRegistry, action: ShortcutAction) -> bool {
-        let Some((pending_action, bindings)) = self.pending.take() else {
-            return false;
-        };
-        pending_action == action && registry.replace_bindings(action, bindings).is_ok()
-    }
-
-    fn overwrite(&mut self, registry: &mut ShortcutRegistry, action: ShortcutAction) -> bool {
-        let Some((pending_action, bindings)) = self.pending.take() else {
-            return false;
-        };
-        if pending_action != action {
-            return false;
-        }
-        registry.transfer_bindings(action, bindings);
-        true
-    }
 }
 
 fn preview_shortcut_edit(
@@ -582,110 +186,6 @@ fn preview_shortcut_edit(
             );
         }
     }
-}
-
-const SHORTCUT_MODIFIER_CONTROL: u8 = 1 << 0;
-const SHORTCUT_MODIFIER_SHIFT: u8 = 1 << 1;
-const SHORTCUT_MODIFIER_ALT: u8 = 1 << 2;
-const SHORTCUT_MODIFIER_SUPER: u8 = 1 << 3;
-const SHORTCUT_MODIFIERS_KNOWN: u8 = SHORTCUT_MODIFIER_CONTROL
-    | SHORTCUT_MODIFIER_SHIFT
-    | SHORTCUT_MODIFIER_ALT
-    | SHORTCUT_MODIFIER_SUPER;
-
-fn shortcut_modifiers_bits(modifiers: ModifiersState) -> u8 {
-    let mut bits = 0;
-    if modifiers.control_key() {
-        bits |= SHORTCUT_MODIFIER_CONTROL;
-    }
-    if modifiers.shift_key() {
-        bits |= SHORTCUT_MODIFIER_SHIFT;
-    }
-    if modifiers.alt_key() {
-        bits |= SHORTCUT_MODIFIER_ALT;
-    }
-    if modifiers.super_key() {
-        bits |= SHORTCUT_MODIFIER_SUPER;
-    }
-    bits
-}
-
-fn shortcut_modifiers_from_bits(bits: u8) -> Option<ModifiersState> {
-    if bits & !SHORTCUT_MODIFIERS_KNOWN != 0 {
-        return None;
-    }
-
-    let mut modifiers = ModifiersState::empty();
-    if bits & SHORTCUT_MODIFIER_CONTROL != 0 {
-        modifiers |= ModifiersState::CONTROL;
-    }
-    if bits & SHORTCUT_MODIFIER_SHIFT != 0 {
-        modifiers |= ModifiersState::SHIFT;
-    }
-    if bits & SHORTCUT_MODIFIER_ALT != 0 {
-        modifiers |= ModifiersState::ALT;
-    }
-    if bits & SHORTCUT_MODIFIER_SUPER != 0 {
-        modifiers |= ModifiersState::SUPER;
-    }
-    Some(modifiers)
-}
-
-impl ShortcutBinding {
-    fn display(self) -> String {
-        let mut parts = Vec::new();
-        if self.modifiers.control_key() {
-            parts.push("Ctrl".to_string());
-        }
-        if self.modifiers.shift_key() {
-            parts.push("Shift".to_string());
-        }
-        if self.modifiers.alt_key() {
-            parts.push("Alt".to_string());
-        }
-        if self.modifiers.super_key() {
-            parts.push("Win".to_string());
-        }
-        parts.push(key_code_label(self.code));
-        parts.join("+")
-    }
-}
-
-fn key_code_label(code: KeyCode) -> String {
-    match code {
-        KeyCode::Space => "Space".to_string(),
-        KeyCode::ArrowLeft => "←".to_string(),
-        KeyCode::ArrowRight => "→".to_string(),
-        KeyCode::ArrowUp => "↑".to_string(),
-        KeyCode::ArrowDown => "↓".to_string(),
-        KeyCode::Comma => ",".to_string(),
-        KeyCode::Period => ".".to_string(),
-        KeyCode::Enter => "Enter".to_string(),
-        KeyCode::Tab => "Tab".to_string(),
-        KeyCode::Backspace => "Backspace".to_string(),
-        KeyCode::Delete => "Delete".to_string(),
-        other => {
-            let name = format!("{other:?}");
-            name.strip_prefix("Key")
-                .or_else(|| name.strip_prefix("Digit"))
-                .unwrap_or(&name)
-                .to_string()
-        }
-    }
-}
-
-fn is_modifier_key(code: KeyCode) -> bool {
-    matches!(
-        code,
-        KeyCode::ControlLeft
-            | KeyCode::ControlRight
-            | KeyCode::ShiftLeft
-            | KeyCode::ShiftRight
-            | KeyCode::AltLeft
-            | KeyCode::AltRight
-            | KeyCode::SuperLeft
-            | KeyCode::SuperRight
-    )
 }
 
 fn dispatch_shortcut(app: &AppWindow, action: ShortcutAction) {
@@ -3367,7 +2867,7 @@ pub fn run(
             drop(stored_settings);
 
             if let Ok(mut edit) = shortcut_edit.lock() {
-                edit.pending = None;
+                edit.discard();
             }
             app.set_shortcut_capture_action(-1);
             app.set_shortcut_capture_recording(false);
@@ -3417,7 +2917,7 @@ pub fn run(
                 && ShortcutAction::from_id(action).is_some()
                 && let Ok(mut edit) = shortcut_edit.lock()
             {
-                edit.pending = None;
+                edit.discard();
                 app.set_shortcut_saved_action(-1);
                 app.set_shortcut_capture_valid(false);
                 app.set_shortcut_capture_preview("".into());
@@ -4855,7 +4355,7 @@ mod tests {
         assert_eq!(shortcuts.action_for(replacement), None);
         assert!(shortcuts.preferences().is_empty());
         // Cancelling or opening another editor discards the pending assignment.
-        edit.pending = None;
+        edit.discard();
         assert!(!edit.save(&mut shortcuts, ShortcutAction::ToggleMute));
         assert_eq!(shortcuts.display_for(ShortcutAction::ToggleMute), "M");
         edit.stage(&shortcuts, ShortcutAction::ToggleMute, vec![replacement])
@@ -4956,7 +4456,7 @@ mod tests {
             edit.stage(&shortcuts, ShortcutAction::ToggleMute, vec![binding])
                 .is_err()
         );
-        edit.pending = None;
+        edit.discard();
         assert!(!edit.overwrite(&mut shortcuts, ShortcutAction::ToggleMute));
         assert!(
             edit.stage(&shortcuts, ShortcutAction::ToggleMute, vec![binding])

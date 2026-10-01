@@ -28,7 +28,8 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
 - `src/player/media_info.rs` — чтение свойств медиа;
 - `src/player/session_store.rs` — модель истории/позиций и один ограниченный
   фоновый writer; очистка и shutdown используют подтверждённый flush;
-- `src/player/shortcuts.rs` — будущая модель переназначаемых клавиш;
+- `src/player/shortcuts.rs` — типизированные действия, физические сочетания,
+  конфликты, черновик редактирования и сохранение пользовательских назначений;
 - `src/converter.rs` и `src/converter/` — координация конвертации с отдельными
   владельцами обнаружения FFmpeg, профилей и аргументов кодирования, очереди,
   процесса, публикации результата и ограниченного разбора progress/diagnostic
