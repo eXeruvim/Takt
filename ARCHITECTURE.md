@@ -104,6 +104,11 @@ framebuffer, viewport, scissor, blending, clear color и dithering, которы
   `WS_EX_WINDOWEDGE` не фильтруется: проверка реального HWND показала, что user32
   автоматически сохраняет его при `WS_THICKFRAME`. Независимые CLIENTEDGE,
   STATICEDGE и DLGMODALFRAME убираются; размером окна по-прежнему управляет winit.
+  При оконном live-resize `WM_NCCALCSIZE` возвращает `WVR_VALIDRECTS`: точное
+  пересечение старой и новой client area копируется в те же экранные координаты.
+  Поэтому левая/верхняя границы не должны сдвигать уже показанный кадр, пока Slint
+  готовит поверхность нового размера. При maximized/fullscreen сохранение области
+  отключено; периодический запрос кадра в modal resize-loop остаётся независимым.
   Регистрация хранит только целевой fullscreen-флаг, а не указатель на Rust;
   удаляется на `WM_NCDESTROY`. Установка разрешена только в потоке владельца окна.
   Для Windows/MSVC `build.rs` встраивает activation manifest с зависимостью

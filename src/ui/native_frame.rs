@@ -7,7 +7,7 @@ use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, SetLastError, WPARAM},
     Graphics::Gdi::{
         GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect, MonitorFromWindow,
-        RDW_INTERNALPAINT, RDW_UPDATENOW, RedrawWindow,
+        RDW_INTERNALPAINT, RedrawWindow,
     },
     System::Threading::GetCurrentThreadId,
     UI::{
@@ -17,9 +17,8 @@ use windows_sys::Win32::{
             MINMAXINFO, NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE,
             SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetTimer, SetWindowLongW, SetWindowPos,
             WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_GETMINMAXINFO, WM_NCACTIVATE, WM_NCCALCSIZE,
-            WM_NCDESTROY, WM_NCPAINT, WM_SIZE, WM_STYLECHANGING, WM_TIMER, WS_CAPTION,
-            WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE, WVR_ALIGNBOTTOM,
-            WVR_ALIGNLEFT, WVR_ALIGNRIGHT, WVR_ALIGNTOP,
+            WM_NCDESTROY, WM_NCPAINT, WM_STYLECHANGING, WM_TIMER, WS_CAPTION, WS_EX_CLIENTEDGE,
+            WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE, WVR_VALIDRECTS,
         },
     },
 };
@@ -120,6 +119,7 @@ unsafe extern "system" fn frame_proc(
     subclass_id: usize,
     fullscreen: usize,
 ) -> LRESULT {
+    let fullscreen = fullscreen != 0;
     match message {
         WM_STYLECHANGING if lparam != 0 => {
             // SAFETY: preserve the lower subclass chain first. No Rust borrow
@@ -133,7 +133,7 @@ unsafe extern "system" fn frame_proc(
             }
             0
         }
-        WM_GETMINMAXINFO if lparam != 0 && fullscreen == 0 => {
+        WM_GETMINMAXINFO if lparam != 0 && !fullscreen => {
             // Preserve winit's minimum tracking size, then constrain only the
             // maximized outer rectangle to the monitor work area. Correcting
             // WM_NCCALCSIZE alone leaves an invisible borderless overhang that
@@ -169,25 +169,26 @@ unsafe extern "system" fn frame_proc(
             // SAFETY: Windows supplies NCCALCSIZE_PARAMS when wParam != 0 and
             // RECT otherwise, writable for this synchronous message only.
             // Do not hold a Rust reference across calls into the window system.
-            let (rect_ptr, previous) = if wparam != 0 {
+            let (rect_ptr, params_ptr, previous_client) = if wparam != 0 {
                 // SAFETY: this message variant provides NCCALCSIZE_PARAMS;
                 // its first rectangle is the proposed client area and its
-                // second rectangle is the previous outer window area.
+                // third rectangle is the previous client area.
                 unsafe {
                     let params = lparam as *mut NCCALCSIZE_PARAMS;
                     (
                         std::ptr::addr_of_mut!((*params).rgrc[0]),
-                        Some((*params).rgrc[1]),
+                        Some(params),
+                        Some((*params).rgrc[2]),
                     )
                 }
             } else {
-                (lparam as *mut RECT, None)
+                (lparam as *mut RECT, None, None)
             };
             // SAFETY: pointer validated by the WM_NCCALCSIZE contract above.
             let proposed = unsafe { *rect_ptr };
             // SAFETY: query the live HWND supplied to the callback.
             let maximized = unsafe { IsZoomed(hwnd) != 0 };
-            let work_area = if maximized && fullscreen == 0 {
+            let work_area = if maximized && !fullscreen {
                 let mut info = MONITORINFO {
                     cbSize: std::mem::size_of::<MONITORINFO>() as u32,
                     ..Default::default()
@@ -203,19 +204,27 @@ unsafe extern "system" fn frame_proc(
                 None
             };
             // SAFETY: same writable message storage; no pointer escapes.
-            unsafe {
-                *rect_ptr = client_rect(proposed, fullscreen != 0, work_area);
-            }
-            // Custom chrome owns the whole client area, even if Slint temporarily
-            // enables decorations. During a normal live resize, preserve the
-            // previous compositor surface against the edge that stays fixed.
-            // Windows otherwise anchors it top-left: that is correct for the
-            // smooth right/bottom edges, but makes the opposite edge appear to
-            // jump until Slint presents its asynchronous replacement frame.
-            if !maximized && fullscreen == 0 {
-                previous
-                    .map(|previous| preserved_client_alignment(proposed, previous))
-                    .unwrap_or(0) as LRESULT
+            let client = client_rect(proposed, fullscreen, work_area);
+            // SAFETY: same writable message storage; no pointer escapes.
+            unsafe { *rect_ptr = client };
+
+            // Keep every still-visible pixel at the same screen coordinate while
+            // the left/top edge moves. Alignment flags only describe an edge;
+            // VALIDRECTS gives DWM the exact overlap to copy from the previous
+            // surface into the new one while Slint prepares the replacement.
+            if !maximized
+                && !fullscreen
+                && let (Some(params), Some(previous)) = (params_ptr, previous_client)
+                && let Some(overlap) = preserved_client_overlap(client, previous)
+            {
+                // SAFETY: WM_NCCALCSIZE owns this writable structure until the
+                // callback returns. For a top-level window both rectangles use
+                // screen coordinates and the overlap is inside both clients.
+                unsafe {
+                    (*params).rgrc[1] = overlap;
+                    (*params).rgrc[2] = overlap;
+                }
+                WVR_VALIDRECTS as LRESULT
             } else {
                 0
             }
@@ -225,28 +234,6 @@ unsafe extern "system" fn frame_proc(
             // SAFETY: preserve winit's active/focus bookkeeping. Documented -1
             // tells DefWindowProc to update activation WITHOUT painting a caption.
             unsafe { DefSubclassProc(hwnd, message, wparam, -1) }
-        }
-        WM_SIZE => {
-            // Let winit/Slint consume the authoritative new size first, then
-            // synchronously present that frame before this native resize event
-            // returns. The ordinary event-loop redraw can lag one compositor
-            // frame behind a moving top/left edge because those edges also move
-            // the window origin. RDW_UPDATENOW closes that gap without adding a
-            // permanent render loop outside resize events.
-            // SAFETY: forward the live HWND message unchanged, then request an
-            // immediate internal paint; neither call retains the null regions.
-            let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
-            // SAFETY: the HWND remains live throughout this callback and
-            // RedrawWindow does not retain either null region pointer.
-            unsafe {
-                RedrawWindow(
-                    hwnd,
-                    std::ptr::null(),
-                    std::ptr::null_mut(),
-                    RDW_INTERNALPAINT | RDW_UPDATENOW,
-                );
-            }
-            result
         }
         WM_ENTERSIZEMOVE => {
             // Windows runs a nested modal loop while the user holds a resize
@@ -367,26 +354,20 @@ fn maximized_bounds(monitor: RECT, work: RECT) -> ((i32, i32), (i32, i32)) {
     )
 }
 
-fn preserved_client_alignment(proposed: RECT, previous: RECT) -> u32 {
-    let width_changed = proposed.right - proposed.left != previous.right - previous.left;
-    let height_changed = proposed.bottom - proposed.top != previous.bottom - previous.top;
-    if !width_changed && !height_changed {
-        return 0;
+fn preserved_client_overlap(current: RECT, previous: RECT) -> Option<RECT> {
+    let size_changed = current.right - current.left != previous.right - previous.left
+        || current.bottom - current.top != previous.bottom - previous.top;
+    if !size_changed {
+        return None;
     }
 
-    let horizontal =
-        if width_changed && proposed.left != previous.left && proposed.right == previous.right {
-            WVR_ALIGNRIGHT
-        } else {
-            WVR_ALIGNLEFT
-        };
-    let vertical =
-        if height_changed && proposed.top != previous.top && proposed.bottom == previous.bottom {
-            WVR_ALIGNBOTTOM
-        } else {
-            WVR_ALIGNTOP
-        };
-    horizontal | vertical
+    let overlap = RECT {
+        left: current.left.max(previous.left),
+        top: current.top.max(previous.top),
+        right: current.right.min(previous.right),
+        bottom: current.bottom.min(previous.bottom),
+    };
+    (overlap.left < overlap.right && overlap.top < overlap.bottom).then_some(overlap)
 }
 
 #[cfg(test)]
@@ -527,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn resize_preserves_pixels_against_the_stationary_edges() {
+    fn resize_preserves_the_exact_screen_space_overlap() {
         let previous = RECT {
             left: 100,
             top: 100,
@@ -535,48 +516,70 @@ mod tests {
             bottom: 400,
         };
         assert_eq!(
-            preserved_client_alignment(
-                RECT {
-                    left: 80,
-                    ..previous
-                },
-                previous
+            coords(
+                preserved_client_overlap(
+                    RECT {
+                        left: 80,
+                        ..previous
+                    },
+                    previous,
+                )
+                .unwrap()
             ),
-            WVR_ALIGNRIGHT | WVR_ALIGNTOP
+            [100, 100, 500, 400]
         );
         assert_eq!(
-            preserved_client_alignment(
-                RECT {
-                    top: 80,
-                    ..previous
-                },
-                previous
+            coords(
+                preserved_client_overlap(
+                    RECT {
+                        top: 80,
+                        ..previous
+                    },
+                    previous,
+                )
+                .unwrap()
             ),
-            WVR_ALIGNLEFT | WVR_ALIGNBOTTOM
+            [100, 100, 500, 400]
         );
         assert_eq!(
-            preserved_client_alignment(
+            coords(
+                preserved_client_overlap(
+                    RECT {
+                        left: 140,
+                        top: 130,
+                        ..previous
+                    },
+                    previous,
+                )
+                .unwrap()
+            ),
+            [140, 130, 500, 400]
+        );
+        assert!(
+            preserved_client_overlap(
                 RECT {
-                    left: 80,
-                    top: 80,
-                    ..previous
+                    left: 600,
+                    top: 100,
+                    right: 700,
+                    bottom: 400,
                 },
                 previous
-            ),
-            WVR_ALIGNRIGHT | WVR_ALIGNBOTTOM
+            )
+            .is_none()
         );
-        assert_eq!(
-            preserved_client_alignment(
+        assert!(preserved_client_overlap(previous, previous).is_none());
+        assert!(
+            preserved_client_overlap(
                 RECT {
+                    left: 120,
+                    top: 110,
                     right: 520,
-                    bottom: 420,
-                    ..previous
+                    bottom: 410,
                 },
                 previous
-            ),
-            WVR_ALIGNLEFT | WVR_ALIGNTOP
+            )
+            .is_none()
         );
-        assert_eq!(preserved_client_alignment(previous, previous), 0);
     }
 
     #[test]

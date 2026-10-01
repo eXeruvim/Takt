@@ -2130,7 +2130,10 @@ pub fn run(
                     {
                         remember_window_placement(&app, &event_settings, None, Some(*size));
                     }
-                    window.request_redraw();
+                    // This filter runs before Slint's winit backend applies the
+                    // authoritative size. Requesting a redraw here queues a frame
+                    // with the previous layout. Slint schedules the correct frame
+                    // after resize_event updates the window and renderer surface.
                 }
                 WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                     app.set_window_scale_factor(*scale_factor as f32);
@@ -2139,7 +2142,12 @@ pub fn run(
                 WindowEvent::Moved(position) => {
                     #[cfg(target_os = "windows")]
                     remember_window_placement(&app, &event_settings, Some(*position), None);
-                    window.request_redraw();
+                    // Moving a window does not change its contents. In particular,
+                    // resizing from the left/top produces Moved immediately before
+                    // Resized; requesting a frame here presents the old surface
+                    // geometry between two authoritative resize frames. The native
+                    // size/move timer already keeps video advancing while Windows is
+                    // running its modal interaction loop.
                 }
                 WindowEvent::CloseRequested => {
                     #[cfg(target_os = "windows")]
