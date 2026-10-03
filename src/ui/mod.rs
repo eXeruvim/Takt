@@ -1,3 +1,4 @@
+pub(crate) mod command_catalog;
 pub(crate) mod event_delivery;
 #[cfg(target_os = "windows")]
 mod native_frame;
