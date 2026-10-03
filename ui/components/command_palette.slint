@@ -3,6 +3,13 @@ import { Theme } from "../theme.slint";
 import { Button, Divider, UiText, TextVariant } from "../design_system/primitives.slint";
 import { ShortcutField, ExpandedShortcutEditor } from "command_shortcut_editor.slint";
 
+export enum ShortcutCapturePhase {
+    idle,
+    recording,
+    valid,
+    conflict,
+}
+
 export struct CommandEntry {
     action: int,
     title: string,
@@ -184,18 +191,20 @@ export component CommandPaletteOverlay inherits Rectangle {
     in property <int> capture-action: -1;
     in property <int> saved-action: -1;
     in property <string> error-message;
-    in-out property <bool> recording;
+    in-out property <ShortcutCapturePhase> capture-phase: ShortcutCapturePhase.idle;
     in-out property <bool> close-pending: false;
     in property <float> close-remaining: 3;
     in property <image> close-background;
     in property <bool> close-background-ready;
     in property <string> preview;
-    in property <bool> can-save;
     in property <bool> capture-dirty;
-    in property <bool> capture-has-candidate;
     private property <int> selected-index: 0;
     private property <bool> confirming-reset: false;
     private property <bool> editing: capture-action >= 0;
+    private property <bool> recording: capture-phase == ShortcutCapturePhase.recording;
+    private property <bool> can-save: capture-phase == ShortcutCapturePhase.valid;
+    private property <bool> capture-has-candidate: capture-phase == ShortcutCapturePhase.valid
+        || capture-phase == ShortcutCapturePhase.conflict;
     // A conflict is also an entered candidate and must not be discarded by row selection.
     private property <bool> empty-edit: editing && !capture-has-candidate;
     private property <bool> has-unsaved-edit: editing && capture-dirty;

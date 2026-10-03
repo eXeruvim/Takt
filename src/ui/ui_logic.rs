@@ -168,17 +168,15 @@ fn preview_shortcut_edit(
 ) {
     let transfer_notice = registry.transfer_notice(action, &bindings);
     let draft = edit.stage_state(registry, action, bindings);
-    app.set_shortcut_capture_recording(false);
     app.set_shortcut_capture_preview(draft.label.into());
-    app.set_shortcut_capture_has_candidate(true);
     app.set_shortcut_capture_dirty(draft.dirty);
     match draft.status {
         ShortcutDraftStatus::Valid => {
-            app.set_shortcut_capture_valid(true);
+            app.set_shortcut_capture_phase(ShortcutCapturePhase::Valid);
             app.set_shortcut_capture_error("".into());
         }
         ShortcutDraftStatus::Conflict(conflict) => {
-            app.set_shortcut_capture_valid(false);
+            app.set_shortcut_capture_phase(ShortcutCapturePhase::Conflict);
             app.set_shortcut_capture_error(
                 format!(
                     "{} занято командой «{}».\n{transfer_notice}",
@@ -192,16 +190,14 @@ fn preview_shortcut_edit(
 }
 
 fn clear_shortcut_candidate(app: &AppWindow) {
-    app.set_shortcut_capture_valid(false);
+    app.set_shortcut_capture_phase(ShortcutCapturePhase::Idle);
     app.set_shortcut_capture_dirty(false);
-    app.set_shortcut_capture_has_candidate(false);
     app.set_shortcut_capture_preview("".into());
     app.set_shortcut_capture_error("".into());
 }
 
 fn cancel_shortcut_capture(app: &AppWindow) {
     app.set_shortcut_capture_action(-1);
-    app.set_shortcut_capture_recording(false);
     app.set_shortcut_capture_focused(false);
     clear_shortcut_candidate(app);
 }
@@ -1449,13 +1445,13 @@ pub fn run(
                         }
                         // Tab explicitly leaves capture so focused actions can receive Enter/Space.
                         if code == KeyCode::Tab {
-                            if app.get_shortcut_capture_recording() {
-                                app.set_shortcut_capture_recording(false);
+                            if app.get_shortcut_capture_phase() == ShortcutCapturePhase::Recording {
+                                app.set_shortcut_capture_phase(ShortcutCapturePhase::Idle);
                                 app.set_shortcut_capture_preview("Запись приостановлена".into());
                             }
                             return EventResult::Propagate;
                         }
-                        if !app.get_shortcut_capture_recording()
+                        if app.get_shortcut_capture_phase() != ShortcutCapturePhase::Recording
                             && !app.get_shortcut_capture_focused()
                         {
                             return EventResult::Propagate;
@@ -2584,7 +2580,7 @@ pub fn run(
                 edit.discard();
                 app.set_shortcut_saved_action(-1);
                 clear_shortcut_candidate(&app);
-                app.set_shortcut_capture_recording(true);
+                app.set_shortcut_capture_phase(ShortcutCapturePhase::Recording);
                 app.set_shortcut_capture_action(action);
             }
         });
@@ -2620,9 +2616,9 @@ pub fn run(
         app.on_save_shortcut_edit(move |overwrite| {
             if let Some(app) = app_weak.upgrade()
                 && app.get_command_palette_visible()
-                && !app.get_shortcut_capture_recording()
-                && (app.get_shortcut_capture_valid()
-                    || (overwrite && !app.get_shortcut_capture_error().is_empty()))
+                && (app.get_shortcut_capture_phase() == ShortcutCapturePhase::Valid
+                    || (overwrite
+                        && app.get_shortcut_capture_phase() == ShortcutCapturePhase::Conflict))
                 && let Some(action) = ShortcutAction::from_id(app.get_shortcut_capture_action())
                 && let Ok(mut shortcuts) = shortcut_registry.lock()
                 && let Ok(mut edit) = shortcut_edit.lock()
