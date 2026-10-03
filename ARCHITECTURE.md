@@ -42,6 +42,8 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
   свойств для UI без зависимости от окна Slint;
 - `src/ui/window_placement.rs` — восстановление normal bounds на доступном
   мониторе и объединение нативных move/resize-событий без устаревшей геометрии;
+- `src/ui/window_interaction.rs` — HWND-доступ и жизненный цикл ручного drag с
+  Win32 mouse capture, включая восстановление maximized-окна под курсором;
 - `ui/` — декларативные компоненты Slint.
 
 ## Правила развития
