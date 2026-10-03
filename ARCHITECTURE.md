@@ -40,6 +40,8 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
   Slint поиск по локализованным названиям, описаниям и aliases;
 - `src/ui/presentation.rs` — чистое форматирование времени, размеров и медиа-
   свойств для UI без зависимости от окна Slint;
+- `src/ui/window_placement.rs` — восстановление normal bounds на доступном
+  мониторе и объединение нативных move/resize-событий без устаревшей геометрии;
 - `ui/` — декларативные компоненты Slint.
 
 ## Правила развития
