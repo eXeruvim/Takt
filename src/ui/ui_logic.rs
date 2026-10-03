@@ -29,7 +29,8 @@ use crate::player::playlist::{
     AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, is_media_file,
 };
 use crate::player::shortcuts::{
-    ShortcutAction, ShortcutBinding, ShortcutEdit, ShortcutRegistry, is_modifier_key,
+    ShortcutAction, ShortcutBinding, ShortcutDraftStatus, ShortcutEdit, ShortcutRegistry,
+    is_modifier_key,
 };
 #[cfg(target_os = "windows")]
 use crate::render::mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource};
@@ -165,24 +166,18 @@ fn preview_shortcut_edit(
     action: ShortcutAction,
     bindings: Vec<ShortcutBinding>,
 ) {
-    let label = if bindings.is_empty() {
-        "Не назначено".to_string()
-    } else {
-        bindings
-            .iter()
-            .map(|binding| binding.display())
-            .collect::<Vec<_>>()
-            .join(" / ")
-    };
-    app.set_shortcut_capture_recording(false);
-    app.set_shortcut_capture_preview(label.into());
     let transfer_notice = registry.transfer_notice(action, &bindings);
-    match edit.stage(registry, action, bindings) {
-        Ok(()) => {
+    let draft = edit.stage_state(registry, action, bindings);
+    app.set_shortcut_capture_recording(false);
+    app.set_shortcut_capture_preview(draft.label.into());
+    app.set_shortcut_capture_has_candidate(true);
+    app.set_shortcut_capture_dirty(draft.dirty);
+    match draft.status {
+        ShortcutDraftStatus::Valid => {
             app.set_shortcut_capture_valid(true);
             app.set_shortcut_capture_error("".into());
         }
-        Err(conflict) => {
+        ShortcutDraftStatus::Conflict(conflict) => {
             app.set_shortcut_capture_valid(false);
             app.set_shortcut_capture_error(
                 format!(
@@ -194,6 +189,21 @@ fn preview_shortcut_edit(
             );
         }
     }
+}
+
+fn clear_shortcut_candidate(app: &AppWindow) {
+    app.set_shortcut_capture_valid(false);
+    app.set_shortcut_capture_dirty(false);
+    app.set_shortcut_capture_has_candidate(false);
+    app.set_shortcut_capture_preview("".into());
+    app.set_shortcut_capture_error("".into());
+}
+
+fn cancel_shortcut_capture(app: &AppWindow) {
+    app.set_shortcut_capture_action(-1);
+    app.set_shortcut_capture_recording(false);
+    app.set_shortcut_capture_focused(false);
+    clear_shortcut_candidate(app);
 }
 
 fn dispatch_shortcut(app: &AppWindow, action: ShortcutAction) {
@@ -1430,10 +1440,7 @@ pub fn run(
                     let capture_action = app.get_shortcut_capture_action();
                     if capture_action >= 0 && app.get_command_palette_visible() {
                         if code == KeyCode::Escape {
-                            app.set_shortcut_capture_action(-1);
-                            app.set_shortcut_capture_recording(false);
-                            app.set_shortcut_capture_focused(false);
-                            app.set_shortcut_capture_error("".into());
+                            cancel_shortcut_capture(&app);
                             return EventResult::PreventDefault;
                         }
 
@@ -1457,7 +1464,7 @@ pub fn run(
                             return EventResult::PreventDefault;
                         }
                         let Some(action) = ShortcutAction::from_id(capture_action) else {
-                            app.set_shortcut_capture_action(-1);
+                            cancel_shortcut_capture(&app);
                             return EventResult::PreventDefault;
                         };
                         let binding = ShortcutBinding::new(code, modifiers);
@@ -2213,8 +2220,7 @@ pub fn run(
             if let Some(app) = app_weak.upgrade() {
                 let opening = !app.get_command_palette_visible();
                 app.set_converter_visible(false);
-                app.set_shortcut_capture_action(-1);
-                app.set_shortcut_capture_error("".into());
+                cancel_shortcut_capture(&app);
                 app.set_command_query("".into());
                 if !opening {
                     app.invoke_command_query_changed("".into());
@@ -2489,8 +2495,7 @@ pub fn run(
                     );
                     persist_shortcuts(&app, &settings, &shortcuts);
                 }
-                app.set_shortcut_capture_action(-1);
-                app.set_shortcut_capture_error("".into());
+                cancel_shortcut_capture(&app);
             }
         });
     }
@@ -2533,12 +2538,7 @@ pub fn run(
             if let Ok(mut edit) = shortcut_edit.lock() {
                 edit.discard();
             }
-            app.set_shortcut_capture_action(-1);
-            app.set_shortcut_capture_recording(false);
-            app.set_shortcut_capture_focused(false);
-            app.set_shortcut_capture_valid(false);
-            app.set_shortcut_capture_preview("".into());
-            app.set_shortcut_capture_error("".into());
+            cancel_shortcut_capture(&app);
 
             app.set_theme_mode(defaults.theme().ui_index());
             app.set_accent_mode(defaults.accent().ui_index());
@@ -2583,9 +2583,7 @@ pub fn run(
             {
                 edit.discard();
                 app.set_shortcut_saved_action(-1);
-                app.set_shortcut_capture_valid(false);
-                app.set_shortcut_capture_preview("".into());
-                app.set_shortcut_capture_error("".into());
+                clear_shortcut_candidate(&app);
                 app.set_shortcut_capture_recording(true);
                 app.set_shortcut_capture_action(action);
             }
@@ -2640,8 +2638,7 @@ pub fn run(
                     &shortcuts,
                 );
                 persist_shortcuts(&app, &settings, &shortcuts);
-                app.set_shortcut_capture_action(-1);
-                app.set_shortcut_capture_error("".into());
+                cancel_shortcut_capture(&app);
                 app.set_shortcut_saved_action(action as i32);
 
                 let feedback_app = app.as_weak();

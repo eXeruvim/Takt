@@ -127,6 +127,8 @@ export component AppWindow inherits Window {
     changed shortcut_close_pending => root.shortcut_close_state_changed(root.shortcut_close_pending);
     finish_shortcut_close => command-palette.finish-close();
     in-out property <bool> shortcut_capture_valid: false;
+    in-out property <bool> shortcut_capture_dirty: false;
+    in-out property <bool> shortcut_capture_has_candidate: false;
     in-out property <string> shortcut_capture_preview: "";
     in-out property <int> shortcut_saved_action: -1;
     in-out property <bool> command_palette_visible: false;
@@ -1034,6 +1036,8 @@ export component AppWindow inherits Window {
                 capture-focus-changed(focused) => { root.shortcut_capture_focused = focused; }
                 preview: root.shortcut_capture_preview;
                 can-save: root.shortcut_capture_valid;
+                capture-dirty: root.shortcut_capture_dirty;
+                capture-has-candidate: root.shortcut_capture_has_candidate;
                 query-changed(query) => root.command_query_changed(query);
                 begin-capture(action) => {
                     root.begin_shortcut_edit(action);
@@ -1044,6 +1048,10 @@ export component AppWindow inherits Window {
                     root.shortcut_capture_action = -1;
                     root.shortcut_capture_recording = false;
                     root.shortcut_capture_focused = false;
+                    root.shortcut_capture_valid = false;
+                    root.shortcut_capture_dirty = false;
+                    root.shortcut_capture_has_candidate = false;
+                    root.shortcut_capture_preview = "";
                     root.shortcut_capture_error = "";
                 }
                 close => {
@@ -1052,6 +1060,10 @@ export component AppWindow inherits Window {
                     root.shortcut_capture_action = -1;
                     root.shortcut_capture_recording = false;
                     root.shortcut_capture_focused = false;
+                    root.shortcut_capture_valid = false;
+                    root.shortcut_capture_dirty = false;
+                    root.shortcut_capture_has_candidate = false;
+                    root.shortcut_capture_preview = "";
                     root.shortcut_capture_error = "";
                     root.command_query_changed("");
                 }
@@ -1198,6 +1210,12 @@ export component AppWindow inherits Window {
 
     function run-palette-command(action: int) {
         shortcut_capture_action = -1;
+        shortcut_capture_recording = false;
+        shortcut_capture_focused = false;
+        shortcut_capture_valid = false;
+        shortcut_capture_dirty = false;
+        shortcut_capture_has_candidate = false;
+        shortcut_capture_preview = "";
         shortcut_capture_error = "";
         command_palette_visible = false;
         command_query = "";

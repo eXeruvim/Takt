@@ -171,10 +171,23 @@ impl ShortcutBinding {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ShortcutConflict {
     pub(crate) action: ShortcutAction,
     pub(crate) binding: ShortcutBinding,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ShortcutDraftStatus {
+    Valid,
+    Conflict(ShortcutConflict),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ShortcutDraftState {
+    pub(crate) label: String,
+    pub(crate) dirty: bool,
+    pub(crate) status: ShortcutDraftStatus,
 }
 
 #[derive(Clone, Debug)]
@@ -272,6 +285,13 @@ impl ShortcutRegistry {
                 }
             })
             .unwrap_or_else(|| "—".to_string())
+    }
+
+    fn bindings_for(&self, action: ShortcutAction) -> &[ShortcutBinding] {
+        self.bindings
+            .iter()
+            .find(|(candidate, _)| *candidate == action)
+            .map_or(&[], |(_, bindings)| bindings.as_slice())
     }
 
     #[cfg(test)]
@@ -385,6 +405,34 @@ impl ShortcutEdit {
         result
     }
 
+    pub(crate) fn stage_state(
+        &mut self,
+        registry: &ShortcutRegistry,
+        action: ShortcutAction,
+        bindings: Vec<ShortcutBinding>,
+    ) -> ShortcutDraftState {
+        let label = if bindings.is_empty() {
+            "Не назначено".to_owned()
+        } else {
+            bindings
+                .iter()
+                .map(|binding| binding.display())
+                .collect::<Vec<_>>()
+                .join(" / ")
+        };
+        let dirty = registry.bindings_for(action) != bindings;
+        let status = match self.stage(registry, action, bindings) {
+            Ok(()) => ShortcutDraftStatus::Valid,
+            Err(conflict) => ShortcutDraftStatus::Conflict(conflict),
+        };
+
+        ShortcutDraftState {
+            label,
+            dirty,
+            status,
+        }
+    }
+
     pub(crate) fn save(&mut self, registry: &mut ShortcutRegistry, action: ShortcutAction) -> bool {
         let Some((pending_action, bindings)) = self.pending.take() else {
             return false;
@@ -489,4 +537,56 @@ pub(crate) fn is_modifier_key(code: KeyCode) -> bool {
             | KeyCode::SuperLeft
             | KeyCode::SuperRight
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ShortcutAction, ShortcutBinding, ShortcutDraftStatus, ShortcutEdit, ShortcutRegistry,
+    };
+    use slint::winit_030::winit::keyboard::{KeyCode, ModifiersState};
+
+    #[test]
+    fn draft_state_uses_bindings_instead_of_display_labels_for_dirty_tracking() {
+        let registry = ShortcutRegistry::default();
+        let mut edit = ShortcutEdit::default();
+
+        let unchanged = edit.stage_state(
+            &registry,
+            ShortcutAction::PlayPause,
+            ShortcutAction::PlayPause.default_bindings(),
+        );
+        assert!(!unchanged.dirty);
+        assert_eq!(unchanged.status, ShortcutDraftStatus::Valid);
+
+        let changed = edit.stage_state(
+            &registry,
+            ShortcutAction::PlayPause,
+            vec![ShortcutBinding::new(
+                KeyCode::Enter,
+                ModifiersState::empty(),
+            )],
+        );
+        assert!(changed.dirty);
+        assert_eq!(changed.label, "Enter");
+        assert_eq!(changed.status, ShortcutDraftStatus::Valid);
+    }
+
+    #[test]
+    fn draft_state_preserves_conflict_owner_for_an_explicit_overwrite() {
+        let registry = ShortcutRegistry::default();
+        let mut edit = ShortcutEdit::default();
+        let binding = ShortcutBinding::new(KeyCode::KeyM, ModifiersState::empty());
+
+        let draft = edit.stage_state(&registry, ShortcutAction::PlayPause, vec![binding]);
+
+        assert!(draft.dirty);
+        assert_eq!(
+            draft.status,
+            ShortcutDraftStatus::Conflict(super::ShortcutConflict {
+                action: ShortcutAction::ToggleMute,
+                binding,
+            })
+        );
+    }
 }

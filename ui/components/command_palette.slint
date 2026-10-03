@@ -191,14 +191,14 @@ export component CommandPaletteOverlay inherits Rectangle {
     in property <bool> close-background-ready;
     in property <string> preview;
     in property <bool> can-save;
+    in property <bool> capture-dirty;
+    in property <bool> capture-has-candidate;
     private property <int> selected-index: 0;
     private property <bool> confirming-reset: false;
     private property <bool> editing: capture-action >= 0;
     // A conflict is also an entered candidate and must not be discarded by row selection.
-    private property <bool> empty-edit: editing && !can-save && error-message == "";
-    private property <bool> has-unsaved-edit: editing && !empty-edit
-        && preview != selected-command.shortcut
-        && !(preview == "Не назначено" && selected-command.shortcut == "—");
+    private property <bool> empty-edit: editing && !capture-has-candidate;
+    private property <bool> has-unsaved-edit: editing && capture-dirty;
     private property <int> warning-request;
     // After warning, any other command can discard this draft; the edited command cannot.
     private property <bool> discard-armed: false;
@@ -466,17 +466,6 @@ export component CommandPaletteOverlay inherits Rectangle {
                                 height: 40px;
                                 enabled: root.close-pending;
                                 clicked => { root.close-pending = false; }
-                            }
-                            UiText {
-                                width: 28px;
-                                height: 40px;
-                                text: Math.ceil(root.close-remaining) + "";
-                                font-family: "Consolas";
-                                font-size: 18px;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                                color: Theme.text-secondary;
-                                accessible-label: "До закрытия меню: " + Math.ceil(root.close-remaining) + " секунд";
                             }
                             close-confirm := Button {
                                 text: "Закрыть меню";
