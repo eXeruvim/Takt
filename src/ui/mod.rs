@@ -4,6 +4,7 @@ pub(crate) mod event_delivery;
 mod native_frame;
 #[cfg(target_os = "windows")]
 mod native_fullscreen;
+pub(crate) mod presentation;
 mod shortcut_close;
 #[cfg(target_os = "windows")]
 mod system_notification;
