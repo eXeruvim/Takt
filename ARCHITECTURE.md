@@ -40,6 +40,8 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
   результата, пресеты, отправка задач, история и применение событий FFmpeg;
 - `src/ui/settings_controller.rs` — применение и сохранение пользовательских
   параметров темы, акцента, воспроизведения и аппаратного декодирования;
+- `src/ui/video_output.rs` — Windows-жизненный цикл встроенного OpenGL-вывода,
+  HWND fallback, render notifier и handshake готовности видео с player thread;
 - `src/ui/command_catalog.rs` — неизменяемые описания команд и независимый от
   Slint поиск по локализованным названиям, описаниям и aliases;
 - `src/ui/presentation.rs` — чистое форматирование времени, размеров и медиа-

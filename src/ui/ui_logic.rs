@@ -1,8 +1,6 @@
 #![deny(clippy::undocumented_unsafe_blocks)]
 
 #[cfg(target_os = "windows")]
-use std::cell::RefCell;
-#[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 use std::{
     path::{Path, PathBuf},
@@ -26,10 +24,6 @@ use crate::player::shortcuts::{
     ShortcutAction, ShortcutBinding, ShortcutDraftStatus, ShortcutEdit, ShortcutRegistry,
     is_modifier_key,
 };
-#[cfg(target_os = "windows")]
-use crate::render::mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource};
-#[cfg(target_os = "windows")]
-use crate::render::mpv_render::VideoHost;
 use crate::settings::{AppSettings, ThemePreference};
 use crate::ui::command_catalog;
 #[cfg(test)]
@@ -40,6 +34,8 @@ use crate::ui::presentation::{
 };
 #[cfg(target_os = "windows")]
 use crate::ui::system_notification;
+#[cfg(target_os = "windows")]
+use crate::ui::video_output::VideoOutputController;
 #[cfg(target_os = "windows")]
 use crate::ui::window_interaction::{
     WindowDragState, begin_manual_window_drag, finish_manual_window_drag, native_window_handle,
@@ -61,11 +57,6 @@ use slint::winit_030::{
 };
 use slint::{Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::{
-    Foundation::HWND,
-    Graphics::Gdi::{RDW_INTERNALPAINT, RedrawWindow},
-};
-
 slint::include_modules!();
 
 #[cfg(target_os = "windows")]
@@ -247,75 +238,6 @@ fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
     ))
 }
 
-#[cfg(target_os = "windows")]
-fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
-    let size = app.window().size();
-    sync_video_host_at_size(
-        host,
-        app,
-        (size.width, size.height),
-        app.window().scale_factor(),
-    )
-}
-
-#[cfg(target_os = "windows")]
-fn sync_video_host_at_size(
-    host: &mut VideoHost,
-    app: &AppWindow,
-    physical_size: (u32, u32),
-    scale: f32,
-) -> Result<()> {
-    let video_visible =
-        video_surface_should_render(app.get_media_presented(), app.get_audio_media())
-            && !app.get_modal_overlay_active()
-            && !app.get_error_visible()
-            && !app.get_drop_target_visible();
-    host.set_visible(video_visible);
-
-    host.resize(
-        physical_size,
-        scale,
-        (
-            app.get_video_left_panel_inset(),
-            app.get_video_right_panel_inset(),
-            app.get_video_top_inset(),
-            app.get_video_bottom_inset(),
-        ),
-    )
-}
-
-fn video_surface_should_render(media_presented: bool, audio_media: bool) -> bool {
-    media_presented && !audio_media
-}
-
-#[cfg(target_os = "windows")]
-fn request_native_redraw(target: usize) {
-    // SAFETY: target comes from the live Slint Win32 window handle. RedrawWindow
-    // does not retain either null region pointer after the call.
-    unsafe {
-        RedrawWindow(
-            target as HWND,
-            std::ptr::null(),
-            std::ptr::null_mut(),
-            RDW_INTERNALPAINT,
-        );
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn activate_hwnd_video_fallback(
-    slot: &mut Option<VideoHost>,
-    app: &AppWindow,
-    tx: &CommandSender,
-) -> Result<()> {
-    let mut host = VideoHost::create(app.window())?;
-    sync_video_host(&mut host, app)?;
-    let _ = tx.send(Command::SetVideoWindow(host.handle()));
-    *slot = Some(host);
-    app.set_integrated_video_renderer(false);
-    Ok(())
-}
-
 pub fn run(
     tx: CommandSender,
     rx: Receiver<Event>,
@@ -388,15 +310,9 @@ pub fn run(
     let current_duration = Arc::new(Mutex::new(0.0));
     let dialog_active = Arc::new(AtomicBool::new(false));
     #[cfg(target_os = "windows")]
-    let video_host = Rc::new(RefCell::new(None::<VideoHost>));
-    #[cfg(target_os = "windows")]
-    let render_source = Arc::new(Mutex::new(None::<MpvRenderSource>));
-    #[cfg(target_os = "windows")]
-    let video_renderer_requested = Arc::new(AtomicBool::new(false));
+    let video_output = VideoOutputController::default();
     #[cfg(target_os = "windows")]
     let window_modes = WindowModeController::default();
-    #[cfg(target_os = "windows")]
-    let video_resize_timer = Rc::new(slint::Timer::default());
     #[cfg(target_os = "windows")]
     let window_drag_state = Arc::new(Mutex::new(WindowDragState::default()));
 
@@ -1130,7 +1046,7 @@ pub fn run(
     #[cfg(target_os = "windows")]
     {
         let app_weak = app.as_weak();
-        let panel_video_host = video_host.clone();
+        let panel_video_output = video_output.clone();
 
         app.on_toggle_info(move || {
             if let Some(app) = app_weak.upgrade() {
@@ -1144,11 +1060,7 @@ pub fn run(
                     app.set_info_drawer_visible(true);
                     app.set_playlist_drawer_visible(false);
                     app.set_settings_drawer_visible(false);
-                    if let Ok(mut video_host) = panel_video_host.try_borrow_mut()
-                        && let Some(host) = video_host.as_mut()
-                    {
-                        let _ = sync_video_host(host, &app);
-                    }
+                    panel_video_output.sync_fallback(&app);
                 } else {
                     app.set_info_drawer_visible(false);
                     let delayed_app = app.as_weak();
@@ -1188,7 +1100,7 @@ pub fn run(
     #[cfg(target_os = "windows")]
     {
         let app_weak = app.as_weak();
-        let panel_video_host = video_host.clone();
+        let panel_video_output = video_output.clone();
 
         app.on_toggle_playlist(move || {
             if let Some(app) = app_weak.upgrade() {
@@ -1202,11 +1114,7 @@ pub fn run(
                     app.set_playlist_drawer_visible(true);
                     app.set_info_drawer_visible(false);
                     app.set_settings_drawer_visible(false);
-                    if let Ok(mut video_host) = panel_video_host.try_borrow_mut()
-                        && let Some(host) = video_host.as_mut()
-                    {
-                        let _ = sync_video_host(host, &app);
-                    }
+                    panel_video_output.sync_fallback(&app);
                 } else {
                     app.set_playlist_drawer_visible(false);
                     let delayed_app = app.as_weak();
@@ -1246,7 +1154,7 @@ pub fn run(
     #[cfg(target_os = "windows")]
     {
         let app_weak = app.as_weak();
-        let panel_video_host = video_host.clone();
+        let panel_video_output = video_output.clone();
 
         app.on_toggle_settings(move || {
             if let Some(app) = app_weak.upgrade() {
@@ -1257,11 +1165,7 @@ pub fn run(
                     app.set_settings_drawer_visible(true);
                     app.set_info_drawer_visible(false);
                     app.set_playlist_drawer_visible(false);
-                    if let Ok(mut video_host) = panel_video_host.try_borrow_mut()
-                        && let Some(host) = video_host.as_mut()
-                    {
-                        let _ = sync_video_host(host, &app);
-                    }
+                    panel_video_output.sync_fallback(&app);
                 } else {
                     app.set_settings_drawer_visible(false);
                     let delayed_app = app.as_weak();
@@ -1566,216 +1470,12 @@ pub fn run(
     }
 
     #[cfg(target_os = "windows")]
-    let (native_init_error_tx, native_init_error_rx) = crossbeam_channel::bounded(1);
-    #[cfg(target_os = "windows")]
-    {
-        // The native child HWND is only used when integrated OpenGL rendering
-        // is unavailable. Register its event bridge once, but keep it dormant
-        // for the normal integrated path so idle windows do not wake every 50ms.
-        let timer_app = app.as_weak();
-        let timer_window_modes = window_modes.clone();
-        video_resize_timer.start(
-            slint::TimerMode::Repeated,
-            Duration::from_millis(50),
-            move || {
-                let Some(app) = timer_app.upgrade() else {
-                    return;
-                };
-                if VideoHost::take_fullscreen_request() {
-                    timer_window_modes.toggle_fullscreen(&app);
-                }
-                if VideoHost::take_pointer_activity() {
-                    app.invoke_reveal_controls();
-                }
-                if VideoHost::take_primary_click() {
-                    if app.get_info_drawer_visible() {
-                        app.invoke_toggle_info();
-                    }
-                    if app.get_playlist_drawer_visible() {
-                        app.invoke_toggle_playlist();
-                    }
-                    if app.get_settings_drawer_visible() {
-                        app.invoke_toggle_settings();
-                    }
-                }
-            },
-        );
-        video_resize_timer.stop();
-
-        let app_weak = app.as_weak();
-        let tx_handle = tx.clone();
-        let notifier_video_host = video_host.clone();
-        let notifier_render_source = render_source.clone();
-        let notifier_renderer_requested = Arc::clone(&video_renderer_requested);
-        let notifier_video_timer = Rc::clone(&video_resize_timer);
-        let mut gl_renderer = None::<MpvOpenGlRenderer>;
-        let mut render_api_failed = false;
-
-        app.window()
-            .set_rendering_notifier(move |state, graphics_api| {
-                let Some(app) = app_weak.upgrade() else {
-                    return;
-                };
-                if matches!(state, slint::RenderingState::RenderingSetup) {
-                    // Slint 1.17/winit pre-renders the first frame before
-                    // set_visible(true). The HWND exists here, but has not yet
-                    // been shown. A queued event-loop callback is too late.
-                    // Run independently of video initialization and repeat if
-                    // Slint recreates the rendering surface/window.
-                    if let Err(error) =
-                        super::native_frame::prepare(app.window(), app.window().is_fullscreen())
-                    {
-                        // Preserve the first failure without blocking if setup
-                        // is repeated before the event loop finishes exiting.
-                        let _ = native_init_error_tx.try_send(error);
-                        let _ = slint::quit_event_loop();
-                    }
-                    return;
-                }
-                let Ok(mut video_host) = notifier_video_host.try_borrow_mut() else {
-                    return;
-                };
-
-                match state {
-                    slint::RenderingState::BeforeRendering => {
-                        if gl_renderer.is_none()
-                            && video_host.is_none()
-                            && !render_api_failed
-                            && notifier_renderer_requested.load(Ordering::Acquire)
-                        {
-                            let source = notifier_render_source
-                                .lock()
-                                .ok()
-                                .and_then(|source| source.clone());
-
-                            if let Some(source) = source {
-                                let renderer = match graphics_api {
-                                    slint::GraphicsAPI::NativeOpenGL { get_proc_address } => {
-                                        let wake_app = app.as_weak();
-                                        let native_redraw_hwnd =
-                                            native_window_handle(app.window()).map(|hwnd| hwnd as usize);
-                                        let redraw_pending = Arc::new(AtomicBool::new(false));
-                                        let wake_pending = Arc::clone(&redraw_pending);
-                                        let wake_renderer = move || {
-                                            if let Some(target) = native_redraw_hwnd {
-                                                request_native_redraw(target);
-                                            }
-                                            if wake_pending.swap(true, Ordering::AcqRel) {
-                                                return;
-                                            }
-                                            let event_pending = Arc::clone(&wake_pending);
-                                            if wake_app
-                                                .upgrade_in_event_loop(move |app| {
-                                                    event_pending.store(false, Ordering::Release);
-                                                    app.window().request_redraw();
-                                                })
-                                                .is_err()
-                                            {
-                                                wake_pending.store(false, Ordering::Release);
-                                            }
-                                        };
-                                        // SAFETY: Slint invokes BeforeRendering
-                                        // with this window's OpenGL context
-                                        // current. The renderer stays inside
-                                        // this notifier and is destroyed during
-                                        // RenderingTeardown with that same
-                                        // context current.
-                                        unsafe {
-                                            MpvOpenGlRenderer::create(
-                                                source,
-                                                *get_proc_address,
-                                                wake_renderer,
-                                            )
-                                        }
-                                    }
-                                    _ => Err(anyhow::anyhow!(
-                                        "FemtoVG did not expose a native OpenGL context"
-                                    )),
-                                };
-
-                                match renderer {
-                                    Ok(renderer) => {
-                                        notifier_renderer_requested.store(false, Ordering::Release);
-                                        notifier_video_timer.stop();
-                                        gl_renderer = Some(renderer);
-                                        app.set_integrated_video_renderer(true);
-                                        let _ = tx_handle.send(Command::RenderApiReady);
-                                    }
-                                    Err(error) => {
-                                        eprintln!(
-                                            "OpenGL video renderer unavailable, using HWND fallback: {error:#}"
-                                        );
-                                        render_api_failed = true;
-                                        notifier_renderer_requested.store(false, Ordering::Release);
-                                        if let Err(error) = activate_hwnd_video_fallback(
-                                            &mut video_host,
-                                            &app,
-                                            &tx_handle,
-                                        ) {
-                                            app.set_error_message(error.to_string().into());
-                                            app.set_error_visible(true);
-                                        } else {
-                                            notifier_video_timer.restart();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if let Some(renderer) = gl_renderer.as_mut()
-                            && video_surface_should_render(
-                                app.get_media_presented(),
-                                app.get_audio_media(),
-                            )
-                        {
-                            let size = app.window().size();
-                            let render_started = crate::benchmark_diagnostics::begin_render();
-                            // SAFETY: BeforeRendering guarantees the same
-                            // current OpenGL context used to create renderer.
-                            let render_result = unsafe {
-                                renderer.render((size.width, size.height))
-                            };
-                            crate::benchmark_diagnostics::finish_render(render_started);
-                            if let Err(error) = render_result {
-                                eprintln!("OpenGL video render failed: {error:#}");
-                                gl_renderer = None;
-                                render_api_failed = true;
-                                app.set_integrated_video_renderer(false);
-                                app.set_error_message(
-                                    "Не удалось продолжить встроенный вывод видео".into(),
-                                );
-                                app.set_error_visible(true);
-                            }
-                        }
-                    }
-                    slint::RenderingState::AfterRendering => {
-                        if let Some(renderer) = gl_renderer.as_ref() {
-                            // SAFETY: AfterRendering still has the window's
-                            // original OpenGL context current.
-                            unsafe { renderer.report_swap() };
-                        } else if let Some(host) = video_host.as_mut()
-                            && let Err(error) = sync_video_host(host, &app)
-                        {
-                            app.set_error_message(error.to_string().into());
-                            app.set_error_visible(true);
-                        }
-                    }
-                    slint::RenderingState::RenderingTeardown => {
-                        notifier_video_timer.stop();
-                        gl_renderer = None;
-                        *video_host = None;
-                    }
-                    _ => {}
-                }
-            })
-            .map_err(|error| anyhow::anyhow!("Не удалось подключить подготовку окна: {error}"))?;
-    }
+    let native_init_error_rx =
+        video_output.register_rendering(&app, tx.clone(), window_modes.clone())?;
 
     let weak = app.as_weak();
     #[cfg(target_os = "windows")]
-    let event_render_source = render_source.clone();
-    #[cfg(target_os = "windows")]
-    let event_renderer_requested = Arc::clone(&video_renderer_requested);
+    let event_video_output = video_output.event_handle();
     #[cfg(target_os = "windows")]
     let event_player_tx = tx.clone();
 
@@ -1786,9 +1486,7 @@ pub fn run(
             let weak = weak.clone();
             let current_duration = current_duration.clone();
             #[cfg(target_os = "windows")]
-            let render_source = event_render_source.clone();
-            #[cfg(target_os = "windows")]
-            let renderer_requested = Arc::clone(&event_renderer_requested);
+            let video_output = event_video_output.clone();
             #[cfg(target_os = "windows")]
             let player_tx = event_player_tx.clone();
 
@@ -1802,10 +1500,7 @@ pub fn run(
                     match event {
                         #[cfg(target_os = "windows")]
                         Event::RenderSource(source) => {
-                            if let Ok(mut target) = render_source.lock() {
-                                *target = Some(source);
-                            }
-                            app.window().request_redraw();
+                            video_output.set_render_source(&app, source);
                         }
 
                         #[cfg(not(target_os = "windows"))]
@@ -1813,18 +1508,7 @@ pub fn run(
 
                         Event::VideoRendererRequired => {
                             #[cfg(target_os = "windows")]
-                            {
-                                if app.get_integrated_video_renderer() {
-                                    // The OpenGL renderer is kept between
-                                    // playlist items. Re-enable mpv's video
-                                    // track explicitly instead of waiting for
-                                    // renderer creation that already happened.
-                                    let _ = player_tx.send(Command::RenderApiReady);
-                                } else {
-                                    renderer_requested.store(true, Ordering::Release);
-                                    app.window().request_redraw();
-                                }
-                            }
+                            video_output.request_renderer(&app, &player_tx);
                         }
 
                         Event::LoadStarted(name) => {
@@ -2351,19 +2035,10 @@ mod tests {
     use super::{
         PALETTE_COMMANDS, ShortcutAction, ShortcutBinding, ShortcutEdit, ShortcutRegistry,
         command_for_dropped_path, command_palette_items, command_palette_items_with_registry,
-        video_surface_should_render,
     };
     use crate::ipc::Command;
     use crate::settings::ShortcutPreference;
     use slint::winit_030::winit::keyboard::{KeyCode, ModifiersState};
-
-    #[test]
-    fn integrated_video_surface_never_paints_under_audio() {
-        assert!(video_surface_should_render(true, false));
-        assert!(!video_surface_should_render(true, true));
-        assert!(!video_surface_should_render(false, false));
-        assert!(!video_surface_should_render(false, true));
-    }
 
     #[test]
     fn rejects_unsupported_dropped_paths() {

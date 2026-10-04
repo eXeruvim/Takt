@@ -12,6 +12,8 @@ mod shortcut_close;
 mod system_notification;
 pub mod ui_logic;
 #[cfg(target_os = "windows")]
+mod video_output;
+#[cfg(target_os = "windows")]
 mod window_interaction;
 #[cfg(target_os = "windows")]
 mod window_modes;
