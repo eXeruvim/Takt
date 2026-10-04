@@ -3,23 +3,18 @@
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     rc::Rc,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, atomic::AtomicBool},
 };
 
 use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
 
 use crate::converter::{ConverterCommand, ConverterEvent};
-use crate::ipc::{AspectRatio, Command, EqualizerPreset, Event, FrameStepDirection};
+use crate::ipc::{Command, Event};
 use crate::player::commands::{CommandSender, SendError as PlayerCommandError};
-use crate::player::playlist::{
-    AUDIO_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, is_media_file,
-};
+use crate::player::playlist::is_media_file;
 use crate::player::shortcuts::{
     ShortcutAction, ShortcutBinding, ShortcutDraftStatus, ShortcutEdit, ShortcutRegistry,
     is_modifier_key,
@@ -60,8 +55,6 @@ slint::include_modules!();
 // this shorter than the visual dismissal avoids a noticeable pause before the
 // artwork returns to its resting position.
 const DRAWER_MEDIA_RELEASE_DELAY: Duration = Duration::from_millis(180);
-
-const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "ass", "ssa", "vtt", "sub", "idx", "sup"];
 
 #[derive(Clone, Copy)]
 enum DrawerSwipeTarget {
@@ -707,313 +700,12 @@ pub fn run(
     }
 
     super::settings_controller::register_preference_callbacks(&app, &tx, &settings);
-
-    {
-        let tx = tx.clone();
-        let dialog_active = dialog_active.clone();
-
-        app.on_open_file(move || {
-            if dialog_active
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_err()
-            {
-                return;
-            }
-
-            let tx = tx.clone();
-            let dialog_active = dialog_active.clone();
-            std::thread::spawn(move || {
-                let path = rfd::FileDialog::new()
-                    .add_filter("Медиа", MEDIA_EXTENSIONS)
-                    .add_filter("Видео", VIDEO_EXTENSIONS)
-                    .add_filter("Аудио", AUDIO_EXTENSIONS)
-                    .pick_file();
-                dialog_active.store(false, Ordering::Release);
-
-                if let Some(path) = path {
-                    let _ = tx.send(Command::OpenFile(path));
-                }
-            });
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_open_recent(move |path| {
-            let _ = tx.send(Command::OpenFile(PathBuf::from(path.to_string())));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_clear_playback_data(move || {
-            let _ = tx.send(Command::ClearPlaybackData);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        let app_weak = app.as_weak();
-        app.on_resume_saved_playback(move || {
-            if let Some(app) = app_weak.upgrade() {
-                app.set_resume_prompt_visible(false);
-            }
-            let _ = tx.send(Command::ResolveResume(true));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        let app_weak = app.as_weak();
-        app.on_restart_saved_playback(move || {
-            if let Some(app) = app_weak.upgrade() {
-                app.set_resume_prompt_visible(false);
-            }
-            let _ = tx.send(Command::ResolveResume(false));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        let dialog_active = dialog_active.clone();
-
-        app.on_load_subtitle(move || {
-            if dialog_active
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_err()
-            {
-                return;
-            }
-
-            let tx = tx.clone();
-            let dialog_active = dialog_active.clone();
-            std::thread::spawn(move || {
-                let path = rfd::FileDialog::new()
-                    .add_filter("Субтитры", SUBTITLE_EXTENSIONS)
-                    .pick_file();
-                dialog_active.store(false, Ordering::Release);
-
-                if let Some(path) = path {
-                    let _ = tx.send(Command::LoadSubtitle(path));
-                }
-            });
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        let dialog_active = dialog_active.clone();
-
-        app.on_open_folder(move || {
-            if dialog_active
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_err()
-            {
-                return;
-            }
-
-            let tx = tx.clone();
-            let dialog_active = dialog_active.clone();
-            std::thread::spawn(move || {
-                let path = rfd::FileDialog::new().pick_folder();
-                dialog_active.store(false, Ordering::Release);
-
-                if let Some(path) = path {
-                    let _ = tx.send(Command::OpenFolder(path));
-                }
-            });
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_play_pause(move || {
-            let _ = tx.send(Command::TogglePlay);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_stop(move || {
-            let _ = tx.send(Command::Stop);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        let current_duration = current_duration.clone();
-
-        app.on_seek(move |value| {
-            let duration = current_duration
-                .lock()
-                .map(|duration| *duration)
-                .unwrap_or_default();
-            let seek_to = value as f64 * duration;
-            let _ = tx.send(Command::Seek(seek_to));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_set_volume(move |value| {
-            let _ = tx.send(Command::SetVolume(value as f64 * 100.0));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_set_speed(move |value| {
-            let _ = tx.send(Command::SetSpeed(value as f64));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_select_audio_track(move |id| {
-            let _ = tx.send(Command::SelectAudioTrack(i64::from(id)));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_select_subtitle_track(move |id| {
-            let id = (id >= 0).then(|| i64::from(id));
-            let _ = tx.send(Command::SelectSubtitleTrack(id));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_adjust_audio_delay(move |delta| {
-            let _ = tx.send(Command::AdjustAudioDelay(f64::from(delta)));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_adjust_subtitle_delay(move |delta| {
-            let _ = tx.send(Command::AdjustSubtitleDelay(f64::from(delta)));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_reset_audio_delay(move || {
-            let _ = tx.send(Command::ResetAudioDelay);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_reset_subtitle_delay(move || {
-            let _ = tx.send(Command::ResetSubtitleDelay);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_select_chapter(move |index| {
-            let _ = tx.send(Command::SelectChapter(i64::from(index)));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_set_aspect_ratio(move |index| {
-            if let Some(aspect_ratio) = AspectRatio::from_ui_index(index) {
-                let _ = tx.send(Command::SetAspectRatio(aspect_ratio));
-            }
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_set_equalizer_enabled(move |enabled| {
-            let _ = tx.send(Command::SetEqualizerEnabled(enabled));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_set_equalizer_preset(move |index| {
-            if let Some(preset) = EqualizerPreset::from_ui_index(index) {
-                let _ = tx.send(Command::SetEqualizerPreset(preset));
-            }
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_adjust_equalizer_preamp(move |delta| {
-            let _ = tx.send(Command::AdjustEqualizerPreamp(f64::from(delta)));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_adjust_equalizer_band(move |index, delta| {
-            let Ok(index) = usize::try_from(index) else {
-                return;
-            };
-            let _ = tx.send(Command::AdjustEqualizerBand {
-                index,
-                delta_db: f64::from(delta),
-            });
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        app.on_reset_equalizer(move || {
-            let _ = tx.send(Command::ResetEqualizer);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_next_video(move || {
-            let _ = tx.send(Command::NextVideo);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_previous_video(move || {
-            let _ = tx.send(Command::PreviousVideo);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_toggle_loop(move || {
-            let _ = tx.send(Command::ToggleLoop);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_toggle_shuffle(move || {
-            let _ = tx.send(Command::ToggleShuffle);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_request_media_info(move || {
-            let _ = tx.send(Command::RequestMediaInfo);
-        });
-    }
+    super::player_command_controller::register_callbacks(
+        &app,
+        &tx,
+        &dialog_active,
+        &current_duration,
+    );
 
     #[cfg(target_os = "windows")]
     window_modes.register_callbacks(&app);
@@ -1410,63 +1102,6 @@ pub fn run(
                         app.set_shortcut_saved_action(-1);
                     }
                 });
-            }
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_seek_relative(move |value| {
-            let _ = tx.send(Command::SeekRelative(value as f64));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_step_frame(move |direction| {
-            let direction = if direction < 0 {
-                FrameStepDirection::Backward
-            } else {
-                FrameStepDirection::Forward
-            };
-            let _ = tx.send(Command::StepFrame(direction));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_adjust_volume(move |value| {
-            let _ = tx.send(Command::AdjustVolume(value as f64));
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_toggle_mute(move || {
-            let _ = tx.send(Command::ToggleMute);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_play_playlist_index(move |index| {
-            if let Ok(index) = usize::try_from(index) {
-                let _ = tx.send(Command::PlayIndex(index));
-            }
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        app.on_remove_playlist_index(move |index| {
-            if let Ok(index) = usize::try_from(index) {
-                let _ = tx.send(Command::RemoveIndex(index));
             }
         });
     }

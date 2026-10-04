@@ -5,6 +5,7 @@ pub(crate) mod event_delivery;
 mod native_frame;
 #[cfg(target_os = "windows")]
 mod native_fullscreen;
+mod player_command_controller;
 mod player_event_controller;
 pub(crate) mod presentation;
 mod settings_controller;

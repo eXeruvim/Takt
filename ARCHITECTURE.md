@@ -44,6 +44,8 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
   HWND fallback, render notifier и handshake готовности видео с player thread;
 - `src/ui/player_event_controller.rs` — применение ограниченных пакетов событий
   проигрывателя к Slint-модели, включая переходы медиа, таймлайн и метаданные;
+- `src/ui/player_command_controller.rs` — перевод файловых, транспортных,
+  аудио- и playlist-действий Slint в типизированные команды player thread;
 - `src/ui/command_catalog.rs` — неизменяемые описания команд и независимый от
   Slint поиск по локализованным названиям, описаниям и aliases;
 - `src/ui/presentation.rs` — чистое форматирование времени, размеров и медиа-
