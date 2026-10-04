@@ -45,9 +45,13 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
 - `src/ui/presentation.rs` — чистое форматирование времени, размеров и медиа-
   свойств для UI без зависимости от окна Slint;
 - `src/ui/window_placement.rs` — восстановление normal bounds на доступном
-  мониторе и объединение нативных move/resize-событий без устаревшей геометрии;
+  мониторе, запись положения и объединение нативных move/resize-событий без
+  устаревшей геометрии;
 - `src/ui/window_interaction.rs` — HWND-доступ и жизненный цикл ручного drag с
   Win32 mouse capture, включая восстановление maximized-окна под курсором;
+- `src/ui/window_modes.rs` — единый владелец состояния fullscreen и picture-in-
+  picture, включая сохранение и восстановление прежней геометрии;
+- `src/ui/windows_theme.rs` — изолированное чтение системной темы Windows;
 - `ui/` — декларативные компоненты Slint.
 
 ## Правила развития
@@ -106,7 +110,12 @@ framebuffer, viewport, scissor, blending, clear color и dithering, которы
   client area для `WM_NCCALCSIZE`, подавление `WM_NCPAINT` и двух legacy UAH draw
   сообщений. `WM_NCACTIVATE` передаётся winit с `lParam=-1`: учёт фокуса сохраняется,
   стандартный заголовок не перерисовывается. Maximized ограничивается рабочей
-  областью целевого монитора, fullscreen сохраняет всю область монитора.
+  областью целевого монитора, fullscreen сохраняет всю область монитора. При
+  выходе из fullscreen winit восстанавливает ранее сохранённый `WINDOWPLACEMENT`;
+  для безрамочного окна предложенная им maximized-геометрия дополнительно
+  нормализуется в `WM_WINDOWPOSCHANGING`, до её применения Windows. Это штатная
+  точка расширения Win32 и не требует таймера либо повторного `SetWindowPos`
+  после перехода.
   Одного подавления рисования оказалось недостаточно. При установке удаляются
   `WS_CAPTION` (включая BORDER/DLGFRAME) и декоративные extended-edge стили.
   `WM_STYLECHANGING` фильтрует те же биты при последующих записях winit, до их

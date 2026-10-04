@@ -1,9 +1,16 @@
-use slint::winit_030::{
-    WinitWindowAccessor,
-    winit::dpi::{LogicalSize, PhysicalPosition},
+use std::sync::{Arc, Mutex};
+
+use slint::{
+    ComponentHandle,
+    winit_030::{
+        WinitWindowAccessor,
+        winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
+    },
 };
 
-use crate::settings::WindowPlacementPreference;
+use crate::settings::{AppSettings, WindowPlacementPreference};
+
+use super::ui_logic::AppWindow;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct MonitorGeometry {
@@ -129,6 +136,60 @@ pub(crate) fn restore_window_placement(
             size.height as f32,
         ));
     }
+}
+
+pub(crate) fn remember_window_placement(
+    app: &AppWindow,
+    settings: &Arc<Mutex<AppSettings>>,
+    event_position: Option<PhysicalPosition<i32>>,
+    event_size: Option<PhysicalSize<u32>>,
+) {
+    let previous = settings
+        .lock()
+        .ok()
+        .and_then(|settings| settings.window_placement());
+    if let Some(placement) = current_window_placement(app, previous, event_position, event_size)
+        && let Ok(mut settings) = settings.lock()
+    {
+        settings.set_window_placement(placement);
+    }
+}
+
+fn current_window_placement(
+    app: &AppWindow,
+    previous: Option<WindowPlacementPreference>,
+    event_position: Option<PhysicalPosition<i32>>,
+    event_size: Option<PhysicalSize<u32>>,
+) -> Option<WindowPlacementPreference> {
+    if app.get_fullscreen_mode() || app.get_picture_in_picture() || app.get_window_maximized() {
+        return None;
+    }
+
+    app.window()
+        .with_winit_window(|window| {
+            if window.fullscreen().is_some()
+                || window.is_maximized()
+                || window.is_minimized().unwrap_or(false)
+            {
+                return None;
+            }
+            // During a winit callback, querying the window can still return
+            // geometry from the preceding native event. Prefer the event's
+            // authoritative value for the dimension that changed.
+            let fallback_position = window.outer_position().ok()?;
+            let fallback_size = window.inner_size().to_logical::<f64>(window.scale_factor());
+            let event_size = event_size
+                .map(|size| size.to_logical::<f64>(window.scale_factor()))
+                .map(|size| (size.width, size.height));
+            merge_window_placement(
+                previous,
+                event_position.map(|position| (position.x, position.y)),
+                event_size,
+                (fallback_position.x, fallback_position.y),
+                (fallback_size.width, fallback_size.height),
+            )
+        })
+        .flatten()
 }
 
 pub(crate) fn merge_window_placement(

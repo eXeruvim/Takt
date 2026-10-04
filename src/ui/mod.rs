@@ -14,4 +14,8 @@ pub mod ui_logic;
 #[cfg(target_os = "windows")]
 mod window_interaction;
 #[cfg(target_os = "windows")]
+mod window_modes;
+#[cfg(target_os = "windows")]
 mod window_placement;
+#[cfg(target_os = "windows")]
+mod windows_theme;

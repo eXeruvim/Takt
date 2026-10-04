@@ -30,12 +30,10 @@ use crate::player::shortcuts::{
 use crate::render::mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource};
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
-use crate::settings::{AppSettings, ThemePreference, WindowPlacementPreference};
+use crate::settings::{AppSettings, ThemePreference};
 use crate::ui::command_catalog;
 #[cfg(test)]
 use crate::ui::command_catalog::COMMANDS as PALETTE_COMMANDS;
-#[cfg(target_os = "windows")]
-use crate::ui::native_fullscreen::NativeFullscreen;
 use crate::ui::presentation::{
     format_bitrate, format_codec, format_container, format_file_size, format_precise_file_size,
     format_time, format_track_summary, is_audio_only_media, media_name_without_extension,
@@ -48,11 +46,14 @@ use crate::ui::window_interaction::{
     update_manual_window_drag,
 };
 #[cfg(target_os = "windows")]
-use crate::ui::window_placement::{merge_window_placement, restore_window_placement};
+use crate::ui::window_modes::WindowModeController;
+#[cfg(target_os = "windows")]
+use crate::ui::window_placement::{remember_window_placement, restore_window_placement};
+#[cfg(target_os = "windows")]
+use crate::ui::windows_theme::prefers_dark_apps as windows_prefers_dark_apps;
 use slint::winit_030::{
     EventResult, WinitWindowAccessor,
     winit::{
-        dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
         event::{MouseButton, WindowEvent},
         keyboard::{KeyCode, ModifiersState, PhysicalKey},
         window::Theme as WinitTheme,
@@ -61,9 +62,8 @@ use slint::winit_030::{
 use slint::{Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::{
-    Foundation::{ERROR_SUCCESS, HWND},
+    Foundation::HWND,
     Graphics::Gdi::{RDW_INTERNALPAINT, RedrawWindow},
-    System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW},
 };
 
 slint::include_modules!();
@@ -74,49 +74,7 @@ slint::include_modules!();
 // artwork returns to its resting position.
 const DRAWER_MEDIA_RELEASE_DELAY: Duration = Duration::from_millis(180);
 
-#[cfg(target_os = "windows")]
-fn windows_light_theme_flag(value_name: &str) -> Option<bool> {
-    let subkey = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\0"
-        .encode_utf16()
-        .collect::<Vec<_>>();
-    let value_name = format!("{value_name}\0").encode_utf16().collect::<Vec<_>>();
-    let mut value = 1_u32;
-    let mut value_size = std::mem::size_of::<u32>() as u32;
-
-    // SAFETY: Both strings are NUL-terminated for the duration of the call, and
-    // the output buffer points to a writable u32 with its exact byte length.
-    let status = unsafe {
-        RegGetValueW(
-            HKEY_CURRENT_USER,
-            subkey.as_ptr(),
-            value_name.as_ptr(),
-            RRF_RT_REG_DWORD,
-            std::ptr::null_mut(),
-            std::ptr::addr_of_mut!(value).cast(),
-            std::ptr::addr_of_mut!(value_size),
-        )
-    };
-
-    (status == ERROR_SUCCESS).then_some(value != 0)
-}
-
-#[cfg(target_os = "windows")]
-fn windows_prefers_dark_apps() -> Option<bool> {
-    windows_light_theme_flag("AppsUseLightTheme")
-        .or_else(|| windows_light_theme_flag("SystemUsesLightTheme"))
-        .map(|uses_light_theme| !uses_light_theme)
-}
-
 const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "ass", "ssa", "vtt", "sub", "idx", "sup"];
-
-#[cfg(target_os = "windows")]
-#[derive(Clone, Copy, Default)]
-struct PictureInPictureState {
-    active: bool,
-    saved_position: Option<PhysicalPosition<i32>>,
-    saved_size: Option<PhysicalSize<u32>>,
-    was_maximized: bool,
-}
 
 #[derive(Clone, Copy)]
 enum DrawerSwipeTarget {
@@ -345,62 +303,6 @@ fn request_native_redraw(target: usize) {
 }
 
 #[cfg(target_os = "windows")]
-fn current_window_placement(
-    app: &AppWindow,
-    previous: Option<WindowPlacementPreference>,
-    event_position: Option<PhysicalPosition<i32>>,
-    event_size: Option<PhysicalSize<u32>>,
-) -> Option<WindowPlacementPreference> {
-    if app.get_fullscreen_mode() || app.get_picture_in_picture() || app.get_window_maximized() {
-        return None;
-    }
-
-    app.window()
-        .with_winit_window(|window| {
-            if window.fullscreen().is_some()
-                || window.is_maximized()
-                || window.is_minimized().unwrap_or(false)
-            {
-                return None;
-            }
-            // During a winit callback, querying the window can still return
-            // geometry from the preceding native event. Prefer the event's
-            // authoritative value for the dimension that changed.
-            let fallback_position = window.outer_position().ok()?;
-            let fallback_size = window.inner_size().to_logical::<f64>(window.scale_factor());
-            let event_size = event_size
-                .map(|size| size.to_logical::<f64>(window.scale_factor()))
-                .map(|size| (size.width, size.height));
-            merge_window_placement(
-                previous,
-                event_position.map(|position| (position.x, position.y)),
-                event_size,
-                (fallback_position.x, fallback_position.y),
-                (fallback_size.width, fallback_size.height),
-            )
-        })
-        .flatten()
-}
-
-#[cfg(target_os = "windows")]
-fn remember_window_placement(
-    app: &AppWindow,
-    settings: &Arc<Mutex<AppSettings>>,
-    event_position: Option<PhysicalPosition<i32>>,
-    event_size: Option<PhysicalSize<u32>>,
-) {
-    let previous = settings
-        .lock()
-        .ok()
-        .and_then(|settings| settings.window_placement());
-    if let Some(placement) = current_window_placement(app, previous, event_position, event_size)
-        && let Ok(mut settings) = settings.lock()
-    {
-        settings.set_window_placement(placement);
-    }
-}
-
-#[cfg(target_os = "windows")]
 fn activate_hwnd_video_fallback(
     slot: &mut Option<VideoHost>,
     app: &AppWindow,
@@ -412,112 +314,6 @@ fn activate_hwnd_video_fallback(
     *slot = Some(host);
     app.set_integrated_video_renderer(false);
     Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn toggle_native_fullscreen(app: &AppWindow, native_fullscreen: &Arc<Mutex<NativeFullscreen>>) {
-    let fullscreen = !app.get_fullscreen_mode();
-
-    let result = native_fullscreen
-        .lock()
-        .map_err(|_| anyhow::anyhow!("Не удалось изменить полноэкранный режим"))
-        .and_then(|mut native_fullscreen| native_fullscreen.set(app.window(), fullscreen));
-
-    if let Err(error) = result {
-        app.set_error_message(error.to_string().into());
-        app.set_error_visible(true);
-    } else {
-        app.set_fullscreen_mode(fullscreen);
-        app.invoke_reveal_controls();
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn toggle_picture_in_picture(
-    app: &AppWindow,
-    state: &Arc<Mutex<PictureInPictureState>>,
-    native_fullscreen: &Arc<Mutex<NativeFullscreen>>,
-) {
-    let entering = !app.get_picture_in_picture();
-    if entering && app.get_fullscreen_mode() {
-        toggle_native_fullscreen(app, native_fullscreen);
-        if app.get_fullscreen_mode() {
-            return;
-        }
-    }
-
-    if entering {
-        app.set_info_drawer_visible(false);
-        app.set_playlist_drawer_visible(false);
-        app.set_settings_drawer_visible(false);
-        app.set_inspector_reserved(false);
-        app.set_command_palette_visible(false);
-        app.set_picture_in_picture(true);
-    }
-
-    let result = state
-        .lock()
-        .map_err(|_| anyhow::anyhow!("Не удалось изменить режим «картинка в картинке»"))
-        .map(|mut state| {
-            app.window().with_winit_window(|window| {
-                if entering {
-                    if state.active {
-                        return;
-                    }
-                    state.saved_position = window.outer_position().ok();
-                    state.saved_size = Some(window.inner_size());
-                    state.was_maximized = window.is_maximized();
-
-                    window.set_minimized(false);
-                    window.set_maximized(false);
-
-                    let target_logical = LogicalSize::new(480.0, 300.0);
-                    let target_physical: PhysicalSize<u32> =
-                        target_logical.to_physical(window.scale_factor());
-                    let _ = window.request_inner_size(target_physical);
-
-                    if let Some(monitor) = window.current_monitor() {
-                        let monitor_position = monitor.position();
-                        let monitor_size = monitor.size();
-                        let right_offset = monitor_size
-                            .width
-                            .saturating_sub(target_physical.width.saturating_add(32));
-                        let bottom_offset = monitor_size
-                            .height
-                            .saturating_sub(target_physical.height.saturating_add(72));
-                        window.set_outer_position(PhysicalPosition::new(
-                            monitor_position.x + i32::try_from(right_offset).unwrap_or(i32::MAX),
-                            monitor_position.y + i32::try_from(bottom_offset).unwrap_or(i32::MAX),
-                        ));
-                    }
-                    state.active = true;
-                } else if state.active {
-                    window.set_maximized(false);
-                    if let Some(size) = state.saved_size {
-                        let _ = window.request_inner_size(size);
-                    }
-                    if let Some(position) = state.saved_position {
-                        window.set_outer_position(position);
-                    }
-                    if state.was_maximized {
-                        window.set_maximized(true);
-                    }
-                    *state = PictureInPictureState::default();
-                }
-                window.request_redraw();
-            });
-        });
-
-    if let Err(error) = result {
-        if entering {
-            app.set_picture_in_picture(false);
-        }
-        app.set_error_message(error.to_string().into());
-        app.set_error_visible(true);
-    } else if !entering {
-        app.set_picture_in_picture(false);
-    }
-    app.invoke_reveal_controls();
 }
 
 pub fn run(
@@ -598,9 +394,7 @@ pub fn run(
     #[cfg(target_os = "windows")]
     let video_renderer_requested = Arc::new(AtomicBool::new(false));
     #[cfg(target_os = "windows")]
-    let native_fullscreen = Arc::new(Mutex::new(NativeFullscreen::default()));
-    #[cfg(target_os = "windows")]
-    let picture_in_picture_state = Arc::new(Mutex::new(PictureInPictureState::default()));
+    let window_modes = WindowModeController::default();
     #[cfg(target_os = "windows")]
     let video_resize_timer = Rc::new(slint::Timer::default());
     #[cfg(target_os = "windows")]
@@ -712,13 +506,14 @@ pub fn run(
                 }
                 WindowEvent::Focused(focused) => {
                     #[cfg(target_os = "windows")]
-                    if *focused && !app.get_window_active() && app.get_fullscreen_mode() {
+                    if app.get_fullscreen_mode() && (!focused || !app.get_window_active()) {
                         // Windows overlays (for example Snipping Tool) may return
-                        // focus and forward the Escape that dismissed them to the
-                        // underlying window. Do not treat that same key press as a
-                        // request to leave fullscreen.
+                        // the Escape that dismissed them before or together with
+                        // the focus-restored event. Start the guard on focus loss
+                        // and extend it on return so that same key press cannot
+                        // also leave Oxide fullscreen.
                         fullscreen_escape_blocked_until =
-                            Some(Instant::now() + Duration::from_millis(450));
+                            Some(Instant::now() + Duration::from_millis(750));
                     }
                     app.set_window_active(*focused);
                     #[cfg(target_os = "windows")]
@@ -939,8 +734,9 @@ pub fn run(
 
                     if code == KeyCode::Escape && app.get_fullscreen_mode() {
                         #[cfg(target_os = "windows")]
-                        if fullscreen_escape_blocked_until
-                            .is_some_and(|deadline| Instant::now() < deadline)
+                        if !app.get_window_active()
+                            || fullscreen_escape_blocked_until
+                                .is_some_and(|deadline| Instant::now() < deadline)
                         {
                             return EventResult::PreventDefault;
                         }
@@ -1302,35 +1098,7 @@ pub fn run(
     }
 
     #[cfg(target_os = "windows")]
-    {
-        let app_weak = app.as_weak();
-        let native_fullscreen = native_fullscreen.clone();
-        let picture_in_picture_state = picture_in_picture_state.clone();
-
-        app.on_toggle_fullscreen(move || {
-            if let Some(app) = app_weak.upgrade() {
-                if app.get_picture_in_picture() {
-                    toggle_picture_in_picture(&app, &picture_in_picture_state, &native_fullscreen);
-                }
-                toggle_native_fullscreen(&app, &native_fullscreen);
-            }
-        });
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let app_weak = app.as_weak();
-        let native_fullscreen = native_fullscreen.clone();
-        let picture_in_picture_state = picture_in_picture_state.clone();
-
-        app.on_toggle_picture_in_picture(move || {
-            if let Some(app) = app_weak.upgrade()
-                && app.get_media_loaded()
-            {
-                toggle_picture_in_picture(&app, &picture_in_picture_state, &native_fullscreen);
-            }
-        });
-    }
+    window_modes.register_callbacks(&app);
 
     #[cfg(not(target_os = "windows"))]
     {
@@ -1805,7 +1573,7 @@ pub fn run(
         // is unavailable. Register its event bridge once, but keep it dormant
         // for the normal integrated path so idle windows do not wake every 50ms.
         let timer_app = app.as_weak();
-        let timer_native_fullscreen = native_fullscreen.clone();
+        let timer_window_modes = window_modes.clone();
         video_resize_timer.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(50),
@@ -1814,7 +1582,7 @@ pub fn run(
                     return;
                 };
                 if VideoHost::take_fullscreen_request() {
-                    toggle_native_fullscreen(&app, &timer_native_fullscreen);
+                    timer_window_modes.toggle_fullscreen(&app);
                 }
                 if VideoHost::take_pointer_activity() {
                     app.invoke_reveal_controls();

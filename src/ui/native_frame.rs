@@ -16,9 +16,10 @@ use windows_sys::Win32::{
             GWL_EXSTYLE, GWL_STYLE, GetWindowLongW, GetWindowThreadProcessId, IsZoomed, KillTimer,
             MINMAXINFO, NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE,
             SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetTimer, SetWindowLongW, SetWindowPos,
-            WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_GETMINMAXINFO, WM_NCACTIVATE, WM_NCCALCSIZE,
-            WM_NCDESTROY, WM_NCPAINT, WM_STYLECHANGING, WM_TIMER, WS_CAPTION, WS_EX_CLIENTEDGE,
-            WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE, WVR_VALIDRECTS,
+            WINDOWPOS, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_GETMINMAXINFO, WM_NCACTIVATE,
+            WM_NCCALCSIZE, WM_NCDESTROY, WM_NCPAINT, WM_STYLECHANGING, WM_TIMER,
+            WM_WINDOWPOSCHANGING, WS_CAPTION, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME,
+            WS_EX_STATICEDGE, WVR_VALIDRECTS,
         },
     },
 };
@@ -39,6 +40,12 @@ const WM_NCUAHDRAWFRAME: u32 = 0x00af;
 /// The HWND owns this registration until WM_NCDESTROY. ref_data is a boolean,
 /// never a Rust pointer, so no callback can outlive borrowed application state.
 pub(super) fn prepare(window: &slint::Window, fullscreen: bool) -> Result<()> {
+    let hwnd = window_hwnd(window)?;
+    // SAFETY: Slint owns the live HWND; prepare_hwnd also checks its thread.
+    unsafe { prepare_hwnd(hwnd, fullscreen) }
+}
+
+fn window_hwnd(window: &slint::Window) -> Result<HWND> {
     let handle = window.window_handle();
     let handle = handle
         .window_handle()
@@ -46,9 +53,7 @@ pub(super) fn prepare(window: &slint::Window, fullscreen: bool) -> Result<()> {
     let RawWindowHandle::Win32(handle) = handle.as_raw() else {
         anyhow::bail!("Ожидалось окно Win32");
     };
-    let hwnd = handle.hwnd.get() as HWND;
-    // SAFETY: Slint owns the live HWND; prepare_hwnd also checks its thread.
-    unsafe { prepare_hwnd(hwnd, fullscreen) }
+    Ok(handle.hwnd.get() as HWND)
 }
 
 /// The caller keeps this HWND alive until registration completes.
@@ -83,9 +88,12 @@ unsafe fn prepare_hwnd(hwnd: HWND, fullscreen: bool) -> Result<()> {
             return Err(error);
         }
     };
-    if !installed || styles_changed {
+    if frame_change_required(installed, old_data, fullscreen, styles_changed) {
         // SAFETY: commit the new client-area policy without moving, activating,
-        // resizing or changing the z-order. No Rust pointers are retained.
+        // resizing or changing the z-order. A fullscreen-state change needs
+        // this even when style bits stayed identical: on exit it makes Windows
+        // ask for maximized work-area bounds again instead of leaving the
+        // client behind the taskbar. No Rust pointers are retained.
         let changed = unsafe {
             SetWindowPos(
                 hwnd,
@@ -111,6 +119,15 @@ unsafe fn prepare_hwnd(hwnd: HWND, fullscreen: bool) -> Result<()> {
     Ok(())
 }
 
+fn frame_change_required(
+    installed: bool,
+    previous_fullscreen: usize,
+    fullscreen: bool,
+    styles_changed: bool,
+) -> bool {
+    !installed || styles_changed || previous_fullscreen != usize::from(fullscreen)
+}
+
 unsafe extern "system" fn frame_proc(
     hwnd: HWND,
     message: u32,
@@ -130,6 +147,43 @@ unsafe extern "system" fn frame_proc(
             unsafe {
                 let styles = &mut *(lparam as *mut STYLESTRUCT);
                 styles.styleNew = chrome_style(wparam as i32, styles.styleNew);
+            }
+            0
+        }
+        WM_WINDOWPOSCHANGING if lparam != 0 && !fullscreen => {
+            // Let winit and DefWindowProc apply their normal placement policy
+            // first. In particular, this preserves the minimum-size validation
+            // performed through WM_GETMINMAXINFO.
+            // SAFETY: forward the original synchronous message unchanged.
+            unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
+
+            // winit restores the WINDOWPLACEMENT captured before fullscreen.
+            // For custom borderless chrome Windows can propose the full monitor
+            // rectangle here, leaving our client surface behind the taskbar.
+            // Win32 explicitly permits changing WINDOWPOS before it is applied,
+            // so constrain a maximized non-fullscreen window to the work area in
+            // the same native transaction instead of repairing it after a delay.
+            // SAFETY: query the live HWND supplied to this callback.
+            if unsafe { IsZoomed(hwnd) } != 0 {
+                let mut info = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                // SAFETY: hwnd is live and info is writable for this call.
+                let found = unsafe {
+                    let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                    GetMonitorInfoW(monitor, &mut info) != 0
+                };
+                if found {
+                    // SAFETY: WM_WINDOWPOSCHANGING provides writable WINDOWPOS
+                    // storage until this callback returns; no pointer escapes.
+                    unsafe {
+                        constrain_maximized_window_pos(
+                            &mut *(lparam as *mut WINDOWPOS),
+                            info.rcWork,
+                        );
+                    }
+                }
             }
             0
         }
@@ -354,6 +408,14 @@ fn maximized_bounds(monitor: RECT, work: RECT) -> ((i32, i32), (i32, i32)) {
     )
 }
 
+fn constrain_maximized_window_pos(position: &mut WINDOWPOS, work: RECT) {
+    position.x = work.left;
+    position.y = work.top;
+    position.cx = work.right - work.left;
+    position.cy = work.bottom - work.top;
+    position.flags &= !(SWP_NOMOVE | SWP_NOSIZE);
+}
+
 fn preserved_client_overlap(current: RECT, previous: RECT) -> Option<RECT> {
     let size_changed = current.right - current.left != previous.right - previous.left
         || current.bottom - current.top != previous.bottom - previous.top;
@@ -468,6 +530,41 @@ mod tests {
 
     fn coords(rect: RECT) -> [i32; 4] {
         [rect.left, rect.top, rect.right, rect.bottom]
+    }
+
+    #[test]
+    fn fullscreen_policy_changes_always_commit_non_client_geometry() {
+        assert!(frame_change_required(true, 0, true, false));
+        assert!(frame_change_required(true, 1, false, false));
+        assert!(!frame_change_required(true, 0, false, false));
+        assert!(frame_change_required(true, 0, false, true));
+        assert!(frame_change_required(false, 0, false, false));
+    }
+
+    #[test]
+    fn pending_maximized_placement_is_constrained_before_commit() {
+        let mut position = WINDOWPOS {
+            hwnd: std::ptr::null_mut(),
+            hwndInsertAfter: std::ptr::null_mut(),
+            x: -8,
+            y: -8,
+            cx: 1936,
+            cy: 1056,
+            flags: SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+        };
+        constrain_maximized_window_pos(
+            &mut position,
+            RECT {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1040,
+            },
+        );
+        assert_eq!((position.x, position.y), (0, 0));
+        assert_eq!((position.cx, position.cy), (1920, 1040));
+        assert_eq!(position.flags & (SWP_NOMOVE | SWP_NOSIZE), 0);
+        assert_ne!(position.flags & SWP_NOZORDER, 0);
     }
 
     #[test]
