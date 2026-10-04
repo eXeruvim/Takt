@@ -42,6 +42,8 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
   параметров темы, акцента, воспроизведения и аппаратного декодирования;
 - `src/ui/video_output.rs` — Windows-жизненный цикл встроенного OpenGL-вывода,
   HWND fallback, render notifier и handshake готовности видео с player thread;
+- `src/ui/player_event_controller.rs` — применение ограниченных пакетов событий
+  проигрывателя к Slint-модели, включая переходы медиа, таймлайн и метаданные;
 - `src/ui/command_catalog.rs` — неизменяемые описания команд и независимый от
   Slint поиск по локализованным названиям, описаниям и aliases;
 - `src/ui/presentation.rs` — чистое форматирование времени, размеров и медиа-
