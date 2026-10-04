@@ -30,9 +30,7 @@ use crate::player::shortcuts::{
 use crate::render::mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource};
 #[cfg(target_os = "windows")]
 use crate::render::mpv_render::VideoHost;
-use crate::settings::{
-    AccentPreference, AppSettings, CompletionBehavior, ThemePreference, WindowPlacementPreference,
-};
+use crate::settings::{AppSettings, ThemePreference, WindowPlacementPreference};
 use crate::ui::command_catalog;
 #[cfg(test)]
 use crate::ui::command_catalog::COMMANDS as PALETTE_COMMANDS;
@@ -994,52 +992,7 @@ pub fn run(
         });
     }
 
-    {
-        let app_weak = app.as_weak();
-        let settings = settings.clone();
-        app.on_choose_accent(move |index| {
-            let Some(accent) = AccentPreference::from_ui_index(index) else {
-                return;
-            };
-            let Some(app) = app_weak.upgrade() else {
-                return;
-            };
-
-            app.set_accent_mode(accent.ui_index());
-            app.window().request_redraw();
-
-            if let Ok(mut settings) = settings.lock() {
-                settings.set_accent(accent);
-                if let Err(error) = settings.save_if_dirty() {
-                    app.set_error_message(
-                        format!("Не удалось сохранить акцентный цвет: {error}").into(),
-                    );
-                    app.set_error_visible(true);
-                }
-            }
-        });
-    }
-
-    {
-        let app_weak = app.as_weak();
-        let settings = settings.clone();
-        app.on_persist_playback_defaults(move |volume, speed| {
-            let Some(app) = app_weak.upgrade() else {
-                return;
-            };
-
-            if let Ok(mut settings) = settings.lock() {
-                settings.set_default_volume(volume);
-                settings.set_default_speed(speed);
-                if let Err(error) = settings.save_if_dirty() {
-                    app.set_error_message(
-                        format!("Не удалось сохранить настройки воспроизведения: {error}").into(),
-                    );
-                    app.set_error_visible(true);
-                }
-            }
-        });
-    }
+    super::settings_controller::register_preference_callbacks(&app, &tx, &settings);
 
     {
         let tx = tx.clone();
@@ -1267,58 +1220,6 @@ pub fn run(
 
     {
         let tx = tx.clone();
-        let app_weak = app.as_weak();
-        let settings = settings.clone();
-        app.on_set_hardware_decoding(move |enabled| {
-            let _ = tx.send(Command::SetHardwareDecoding(enabled));
-            let Some(app) = app_weak.upgrade() else {
-                return;
-            };
-            if let Ok(mut settings) = settings.lock() {
-                settings.set_hardware_decoding_enabled(enabled);
-                if let Err(error) = settings.save_if_dirty() {
-                    app.set_error_message(
-                        format!(
-                            "Не удалось сохранить настройку аппаратного декодирования: {error}"
-                        )
-                        .into(),
-                    );
-                    app.set_error_visible(true);
-                }
-            }
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        let app_weak = app.as_weak();
-        let settings = settings.clone();
-        app.on_choose_theme(move |index| {
-            let Some(theme) = ThemePreference::from_ui_index(index) else {
-                return;
-            };
-            let Some(app) = app_weak.upgrade() else {
-                return;
-            };
-
-            app.set_theme_mode(theme.ui_index());
-            let _ = tx.send(Command::SetDarkTheme(app.get_dark_theme()));
-            app.window().request_redraw();
-
-            if let Ok(mut settings) = settings.lock() {
-                settings.set_theme(theme);
-                if let Err(error) = settings.save_if_dirty() {
-                    app.set_error_message(
-                        format!("Не удалось сохранить тему оформления: {error}").into(),
-                    );
-                    app.set_error_visible(true);
-                }
-            }
-        });
-    }
-
-    {
-        let tx = tx.clone();
         app.on_set_equalizer_enabled(move |enabled| {
             let _ = tx.send(Command::SetEqualizerEnabled(enabled));
         });
@@ -1381,32 +1282,6 @@ pub fn run(
 
         app.on_toggle_loop(move || {
             let _ = tx.send(Command::ToggleLoop);
-        });
-    }
-
-    {
-        let tx = tx.clone();
-
-        let app_weak = app.as_weak();
-        let settings = settings.clone();
-        app.on_set_folder_loop(move |enabled| {
-            let _ = tx.send(Command::SetFolderLoop(enabled));
-            let Some(app) = app_weak.upgrade() else {
-                return;
-            };
-            if let Ok(mut settings) = settings.lock() {
-                settings.set_completion_behavior(if enabled {
-                    CompletionBehavior::RepeatPlaylist
-                } else {
-                    CompletionBehavior::Stop
-                });
-                if let Err(error) = settings.save_if_dirty() {
-                    app.set_error_message(
-                        format!("Не удалось сохранить поведение после завершения: {error}").into(),
-                    );
-                    app.set_error_visible(true);
-                }
-            }
         });
     }
 
