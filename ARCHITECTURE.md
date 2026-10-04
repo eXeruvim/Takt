@@ -36,6 +36,8 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
   потоков;
 - `src/render/` — интеграция поверхности видео с окном приложения;
 - `src/ui/ui_logic.rs` — связывание Slint callbacks с IPC;
+- `src/ui/conversion_controller.rs` — UI-состояние конвертера: выбор входа и
+  результата, пресеты, отправка задач, история и применение событий FFmpeg;
 - `src/ui/command_catalog.rs` — неизменяемые описания команд и независимый от
   Slint поиск по локализованным названиям, описаниям и aliases;
 - `src/ui/presentation.rs` — чистое форматирование времени, размеров и медиа-
