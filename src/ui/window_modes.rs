@@ -82,6 +82,8 @@ impl WindowModeController {
             app.set_playlist_drawer_visible(false);
             app.set_settings_drawer_visible(false);
             app.set_inspector_reserved(false);
+            app.set_inspector_audio_reserved(false);
+            app.set_inspector_side_switching(false);
             app.set_command_palette_visible(false);
             app.set_picture_in_picture(true);
         }

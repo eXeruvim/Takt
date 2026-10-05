@@ -431,6 +431,7 @@ export component MediaInspector inherits Rectangle {
     in property <bool> fullscreen-active: false;
     in property <bool> media-presented: false;
     in property <bool> modal-mode: false;
+    in property <bool> side-switching: false;
     out property <length> slide-offset: open || prewarming
         ? 0px : self.width + Theme.space-5;
     out property <length> modal-slide-offset: open || prewarming
@@ -543,13 +544,17 @@ export component MediaInspector inherits Rectangle {
     }
 
     animate opacity {
-        duration: root.open ? Theme.motion-slow : Theme.motion-dismiss;
-        easing: cubic-bezier(0.16, 1, 0.3, 1);
+        duration: root.side-switching
+            ? Theme.motion-normal
+            : root.open ? Theme.motion-slow : Theme.motion-gentle;
+        easing: cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     animate slide-offset, modal-slide-offset {
-        duration: root.open ? Theme.motion-slow : Theme.motion-dismiss;
-        easing: cubic-bezier(0.16, 1, 0.3, 1);
+        duration: root.side-switching
+            ? Theme.motion-normal
+            : root.open ? Theme.motion-slow : Theme.motion-gentle;
+        easing: cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     prewarm-timer := Timer {
@@ -656,11 +661,18 @@ export component MediaInspector inherits Rectangle {
             clip: true;
 
             VerticalLayout {
-                x: (root.visible-section == 0 && root.content-present) || root.prewarming
-                    ? 0px : parent.width + Theme.space-1;
+                visible: root.content-present || root.prewarming;
+                x: root.visible-section == 0 || root.prewarming
+                    ? 0px : -parent.width - Theme.space-2;
+                opacity: root.visible-section == 0 || root.prewarming ? 1 : 0;
                 width: parent.width;
                 height: parent.height;
                 spacing: Theme.space-3;
+
+                animate x, opacity {
+                    duration: Theme.motion-normal;
+                    easing: cubic-bezier(0.4, 0, 0.2, 1);
+                }
 
                 queue-pane := Rectangle {
                     vertical-stretch: 1;
@@ -743,12 +755,19 @@ export component MediaInspector inherits Rectangle {
             }
 
             info-scroll := ScrollView {
-                visible: (root.visible-section == 1 && root.content-present) || root.prewarming;
-                x: 0px;
+                visible: root.content-present || root.prewarming;
+                x: root.visible-section == 1 || root.prewarming
+                    ? 0px : parent.width + Theme.space-2;
+                opacity: root.visible-section == 1 || root.prewarming ? 1 : 0;
                 width: parent.width;
                 height: parent.height;
                 viewport-width: self.visible-width;
                 viewport-height: max(self.visible-height, root.info-content-height);
+
+                animate x, opacity {
+                    duration: Theme.motion-normal;
+                    easing: cubic-bezier(0.4, 0, 0.2, 1);
+                }
 
                 info-viewport := Rectangle {
                     width: max(0px, info-scroll.visible-width
@@ -824,13 +843,19 @@ export component MediaInspector inherits Rectangle {
             }
 
             playback-scroll := ScrollView {
-                visible: (root.visible-section == 2 && root.content-present
-                    && root.settings-page == 0) || root.prewarming;
-                x: 0px;
+                visible: (root.visible-section == 2 && root.content-present) || root.prewarming;
+                x: root.settings-page == 0 || root.prewarming
+                    ? 0px : -parent.width - Theme.space-2;
+                opacity: root.settings-page == 0 || root.prewarming ? 1 : 0;
                 width: parent.width;
                 height: parent.height;
                 viewport-width: self.visible-width;
                 viewport-height: max(self.visible-height, root.playback-content-height);
+
+                animate x, opacity {
+                    duration: Theme.motion-normal;
+                    easing: cubic-bezier(0.4, 0, 0.2, 1);
+                }
 
                 settings-viewport := Rectangle {
                     // Fluent ScrollView expands its overlaid scrollbar on hover.
@@ -1161,13 +1186,19 @@ export component MediaInspector inherits Rectangle {
             }
 
             video-scroll := ScrollView {
-                visible: (root.visible-section == 2 && root.content-present
-                    && root.settings-page == 2) || root.prewarming;
-                x: 0px;
+                visible: (root.visible-section == 2 && root.content-present) || root.prewarming;
+                x: root.settings-page == 2 || root.prewarming
+                    ? 0px : parent.width + Theme.space-2;
+                opacity: root.settings-page == 2 || root.prewarming ? 1 : 0;
                 width: parent.width;
                 height: parent.height;
                 viewport-width: self.visible-width;
                 viewport-height: max(self.visible-height, root.video-content-height);
+
+                animate x, opacity {
+                    duration: Theme.motion-normal;
+                    easing: cubic-bezier(0.4, 0, 0.2, 1);
+                }
 
                 video-viewport := Rectangle {
                     width: max(0px, video-scroll.visible-width
@@ -1339,13 +1370,21 @@ export component MediaInspector inherits Rectangle {
             }
 
             sound-scroll := ScrollView {
-                visible: (root.visible-section == 2 && root.content-present
-                    && root.settings-page == 1) || root.prewarming;
-                x: 0px;
+                visible: (root.visible-section == 2 && root.content-present) || root.prewarming;
+                x: root.settings-page == 1 || root.prewarming
+                    ? 0px : root.settings-page == 0
+                        ? parent.width + Theme.space-2
+                        : -parent.width - Theme.space-2;
+                opacity: root.settings-page == 1 || root.prewarming ? 1 : 0;
                 width: parent.width;
                 height: parent.height;
                 viewport-width: self.visible-width;
                 viewport-height: max(self.visible-height, root.sound-content-height);
+
+                animate x, opacity {
+                    duration: Theme.motion-normal;
+                    easing: cubic-bezier(0.4, 0, 0.2, 1);
+                }
 
                 sound-viewport := Rectangle {
                     width: max(0px, sound-scroll.visible-width

@@ -50,12 +50,6 @@ use slint::winit_030::{
 use slint::{Model, ModelRc, VecModel};
 slint::include_modules!();
 
-#[cfg(target_os = "windows")]
-// Release the media composition while the drawer is still fading out. Keeping
-// this shorter than the visual dismissal avoids a noticeable pause before the
-// artwork returns to its resting position.
-const DRAWER_MEDIA_RELEASE_DELAY: Duration = Duration::from_millis(180);
-
 #[derive(Clone, Copy)]
 enum DrawerSwipeTarget {
     Info,
@@ -737,161 +731,11 @@ pub fn run(
         });
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        let app_weak = app.as_weak();
-        let panel_video_output = video_output.clone();
-
-        app.on_toggle_info(move || {
-            if let Some(app) = app_weak.upgrade() {
-                let opening = !app.get_info_drawer_visible();
-                if opening && app.get_current_media_path().is_empty() {
-                    return;
-                }
-                if opening {
-                    app.set_inspector_left_aligned(true);
-                    app.set_inspector_reserved(true);
-                    app.set_info_drawer_visible(true);
-                    app.set_playlist_drawer_visible(false);
-                    app.set_settings_drawer_visible(false);
-                    panel_video_output.sync_fallback(&app);
-                } else {
-                    app.set_info_drawer_visible(false);
-                    let delayed_app = app.as_weak();
-                    slint::Timer::single_shot(DRAWER_MEDIA_RELEASE_DELAY, move || {
-                        if let Some(app) = delayed_app.upgrade()
-                            && !app.get_inspector_visible()
-                        {
-                            app.set_inspector_reserved(false);
-                        }
-                    });
-                }
-            }
-        });
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let app_weak = app.as_weak();
-        app.on_toggle_info(move || {
-            if let Some(app) = app_weak.upgrade() {
-                let opening = !app.get_info_drawer_visible();
-                if opening && app.get_current_media_path().is_empty() {
-                    return;
-                }
-                if opening {
-                    app.set_inspector_left_aligned(true);
-                    app.set_info_drawer_visible(true);
-                    app.set_playlist_drawer_visible(false);
-                    app.set_settings_drawer_visible(false);
-                } else {
-                    app.set_info_drawer_visible(false);
-                }
-            }
-        });
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let app_weak = app.as_weak();
-        let panel_video_output = video_output.clone();
-
-        app.on_toggle_playlist(move || {
-            if let Some(app) = app_weak.upgrade() {
-                let opening = !app.get_playlist_drawer_visible();
-                if opening && app.get_playlist_items().row_count() == 0 {
-                    return;
-                }
-                if opening {
-                    app.set_inspector_left_aligned(true);
-                    app.set_inspector_reserved(true);
-                    app.set_playlist_drawer_visible(true);
-                    app.set_info_drawer_visible(false);
-                    app.set_settings_drawer_visible(false);
-                    panel_video_output.sync_fallback(&app);
-                } else {
-                    app.set_playlist_drawer_visible(false);
-                    let delayed_app = app.as_weak();
-                    slint::Timer::single_shot(DRAWER_MEDIA_RELEASE_DELAY, move || {
-                        if let Some(app) = delayed_app.upgrade()
-                            && !app.get_inspector_visible()
-                        {
-                            app.set_inspector_reserved(false);
-                        }
-                    });
-                }
-            }
-        });
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let app_weak = app.as_weak();
-        app.on_toggle_playlist(move || {
-            if let Some(app) = app_weak.upgrade() {
-                let opening = !app.get_playlist_drawer_visible();
-                if opening && app.get_playlist_items().row_count() == 0 {
-                    return;
-                }
-                if opening {
-                    app.set_inspector_left_aligned(true);
-                    app.set_playlist_drawer_visible(true);
-                    app.set_info_drawer_visible(false);
-                    app.set_settings_drawer_visible(false);
-                } else {
-                    app.set_playlist_drawer_visible(false);
-                }
-            }
-        });
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let app_weak = app.as_weak();
-        let panel_video_output = video_output.clone();
-
-        app.on_toggle_settings(move || {
-            if let Some(app) = app_weak.upgrade() {
-                let opening = !app.get_settings_drawer_visible();
-                if opening {
-                    app.set_inspector_left_aligned(false);
-                    app.set_inspector_reserved(true);
-                    app.set_settings_drawer_visible(true);
-                    app.set_info_drawer_visible(false);
-                    app.set_playlist_drawer_visible(false);
-                    panel_video_output.sync_fallback(&app);
-                } else {
-                    app.set_settings_drawer_visible(false);
-                    let delayed_app = app.as_weak();
-                    slint::Timer::single_shot(DRAWER_MEDIA_RELEASE_DELAY, move || {
-                        if let Some(app) = delayed_app.upgrade()
-                            && !app.get_inspector_visible()
-                        {
-                            app.set_inspector_reserved(false);
-                        }
-                    });
-                }
-            }
-        });
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let app_weak = app.as_weak();
-        app.on_toggle_settings(move || {
-            if let Some(app) = app_weak.upgrade() {
-                let opening = !app.get_settings_drawer_visible();
-                if opening {
-                    app.set_inspector_left_aligned(false);
-                    app.set_settings_drawer_visible(true);
-                    app.set_info_drawer_visible(false);
-                    app.set_playlist_drawer_visible(false);
-                } else {
-                    app.set_settings_drawer_visible(false);
-                }
-            }
-        });
-    }
+    super::drawer_controller::register_callbacks(
+        &app,
+        #[cfg(target_os = "windows")]
+        video_output.clone(),
+    );
 
     {
         let app_weak = app.as_weak();

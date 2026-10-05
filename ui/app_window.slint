@@ -105,7 +105,9 @@ export component AppWindow inherits Window {
     in-out property <bool> playlist_drawer_visible: false;
     in-out property <bool> settings_drawer_visible: false;
     in-out property <bool> inspector_reserved: false;
+    in-out property <bool> inspector_audio_reserved: false;
     in-out property <bool> inspector_left_aligned: true;
+    in-out property <bool> inspector_side_switching: false;
     in-out property <bool> fullscreen_mode: false;
     in-out property <bool> picture_in_picture: false;
     in-out property <bool> window_active: true;
@@ -214,9 +216,9 @@ export component AppWindow inherits Window {
         && inspector_reserved && inspector_left_aligned ? inspector_media_inset : 0px;
     out property <length> video_right_panel_inset: integrated_video_renderer ? 0px
         : inspector_reserved && !inspector_left_aligned ? inspector_media_inset : 0px;
-    out property <length> audio_left_panel_inset: inspector_reserved && inspector_left_aligned
+    out property <length> audio_left_panel_inset: inspector_audio_reserved && inspector_left_aligned
         ? inspector_media_inset : edge_to_edge ? 0px : Theme.space-4;
-    out property <length> audio_right_panel_inset: inspector_reserved && !inspector_left_aligned
+    out property <length> audio_right_panel_inset: inspector_audio_reserved && !inspector_left_aligned
             ? inspector_media_inset
             : edge_to_edge ? 0px : Theme.space-4;
     out property <bool> modal_overlay_active: command-palette.visible || converter-overlay.visible
@@ -294,7 +296,7 @@ export component AppWindow inherits Window {
     // HWND on every animation frame.
     animate audio_left_panel_inset, audio_right_panel_inset {
         duration: Theme.motion-slow;
-        easing: cubic-bezier(0.16, 1, 0.3, 1);
+        easing: cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     changed controls_can_hide => {
@@ -970,6 +972,7 @@ export component AppWindow inherits Window {
                 fullscreen-active: root.fullscreen_mode;
                 media-presented: root.media_presented;
                 modal-mode: root.settings_drawer_visible && !root.media_presented;
+                side-switching: root.inspector_side_switching;
                 show-playlist => root.toggle_playlist();
                 show-info => root.toggle_info();
                 show-playback => root.toggle_settings();
