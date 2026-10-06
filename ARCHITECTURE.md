@@ -46,6 +46,9 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
   проигрывателя к Slint-модели, включая переходы медиа, таймлайн и метаданные;
 - `src/ui/player_command_controller.rs` — перевод файловых, транспортных,
   аудио- и playlist-действий Slint в типизированные команды player thread;
+- `src/ui/shortcut_controller.rs` — UI-состояние Command Palette и редактора
+  сочетаний: capture физических клавиш, dispatch, модель поиска, сохранение и
+  согласованный сброс настроек;
 - `src/ui/drawer_controller.rs` — переход между сторонами Inspector через закрытие,
   переключение вкладок общей панели на месте и раздельная синхронизация
   Windows-видеослоя и плавного аудиомакета; межсторонний переход использует

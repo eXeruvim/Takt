@@ -11,6 +11,7 @@ mod player_event_controller;
 pub(crate) mod presentation;
 mod settings_controller;
 mod shortcut_close;
+mod shortcut_controller;
 #[cfg(target_os = "windows")]
 mod system_notification;
 pub mod ui_logic;

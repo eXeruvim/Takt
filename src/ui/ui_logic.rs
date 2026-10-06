@@ -4,7 +4,6 @@
 use std::time::{Duration, Instant};
 use std::{
     path::Path,
-    rc::Rc,
     sync::{Arc, Mutex, atomic::AtomicBool},
 };
 
@@ -15,15 +14,9 @@ use crate::converter::{ConverterCommand, ConverterEvent};
 use crate::ipc::{Command, Event};
 use crate::player::commands::{CommandSender, SendError as PlayerCommandError};
 use crate::player::playlist::is_media_file;
-use crate::player::shortcuts::{
-    ShortcutAction, ShortcutBinding, ShortcutDraftStatus, ShortcutEdit, ShortcutRegistry,
-    is_modifier_key,
-};
 use crate::settings::{AppSettings, ThemePreference};
-use crate::ui::command_catalog;
-#[cfg(test)]
-use crate::ui::command_catalog::COMMANDS as PALETTE_COMMANDS;
 use crate::ui::player_event_controller::PlayerEventController;
+use crate::ui::shortcut_controller::ShortcutController;
 #[cfg(target_os = "windows")]
 use crate::ui::system_notification;
 #[cfg(target_os = "windows")]
@@ -47,7 +40,6 @@ use slint::winit_030::{
         window::Theme as WinitTheme,
     },
 };
-use slint::{Model, ModelRc, VecModel};
 slint::include_modules!();
 
 #[derive(Clone, Copy)]
@@ -55,156 +47,6 @@ enum DrawerSwipeTarget {
     Info,
     Playlist,
     Settings,
-}
-
-fn preview_shortcut_edit(
-    app: &AppWindow,
-    edit: &mut ShortcutEdit,
-    registry: &ShortcutRegistry,
-    action: ShortcutAction,
-    bindings: Vec<ShortcutBinding>,
-) {
-    let transfer_notice = registry.transfer_notice(action, &bindings);
-    let draft = edit.stage_state(registry, action, bindings);
-    app.set_shortcut_capture_preview(draft.label.into());
-    app.set_shortcut_capture_dirty(draft.dirty);
-    match draft.status {
-        ShortcutDraftStatus::Valid => {
-            app.set_shortcut_capture_phase(ShortcutCapturePhase::Valid);
-            app.set_shortcut_capture_error("".into());
-        }
-        ShortcutDraftStatus::Conflict(conflict) => {
-            app.set_shortcut_capture_phase(ShortcutCapturePhase::Conflict);
-            app.set_shortcut_capture_error(
-                format!(
-                    "{} занято командой «{}».\n{transfer_notice}",
-                    conflict.binding.display(),
-                    conflict.action.title()
-                )
-                .into(),
-            );
-        }
-    }
-}
-
-fn clear_shortcut_candidate(app: &AppWindow) {
-    app.set_shortcut_capture_phase(ShortcutCapturePhase::Idle);
-    app.set_shortcut_capture_dirty(false);
-    app.set_shortcut_capture_preview("".into());
-    app.set_shortcut_capture_error("".into());
-}
-
-fn cancel_shortcut_capture(app: &AppWindow) {
-    app.set_shortcut_capture_action(-1);
-    app.set_shortcut_capture_focused(false);
-    clear_shortcut_candidate(app);
-}
-
-fn dispatch_shortcut(app: &AppWindow, action: ShortcutAction) {
-    app.invoke_reveal_controls();
-    match action {
-        ShortcutAction::PlayPause => app.invoke_play_pause(),
-        ShortcutAction::Stop => app.invoke_stop(),
-        ShortcutAction::Previous => app.invoke_previous_video(),
-        ShortcutAction::Next => app.invoke_next_video(),
-        ShortcutAction::SeekBackwardShort => app.invoke_seek_relative(-5.0),
-        ShortcutAction::SeekForwardShort => app.invoke_seek_relative(5.0),
-        ShortcutAction::SeekBackwardLong => app.invoke_seek_relative(-10.0),
-        ShortcutAction::SeekForwardLong => app.invoke_seek_relative(10.0),
-        ShortcutAction::FrameBackward => app.invoke_step_frame(-1),
-        ShortcutAction::FrameForward => app.invoke_step_frame(1),
-        ShortcutAction::VolumeDown => app.invoke_adjust_volume(-5.0),
-        ShortcutAction::VolumeUp => app.invoke_adjust_volume(5.0),
-        ShortcutAction::ToggleMute => app.invoke_toggle_mute(),
-        ShortcutAction::ToggleLoop => app.invoke_toggle_loop(),
-        ShortcutAction::ToggleFullscreen => app.invoke_toggle_fullscreen(),
-        ShortcutAction::TogglePictureInPicture => app.invoke_toggle_picture_in_picture(),
-        ShortcutAction::ToggleInfo => app.invoke_toggle_info(),
-        ShortcutAction::TogglePlaylist => app.invoke_toggle_playlist(),
-        ShortcutAction::ToggleCommandPalette => app.invoke_toggle_command_palette(),
-        ShortcutAction::ToggleSettings => app.invoke_toggle_settings(),
-        ShortcutAction::OpenConverter => app.invoke_open_converter(),
-        ShortcutAction::OpenFile => app.invoke_open_file(),
-        ShortcutAction::OpenFolder => app.invoke_open_folder(),
-    }
-}
-
-fn command_palette_items_with_registry(
-    query: &str,
-    shortcuts: &ShortcutRegistry,
-) -> Vec<CommandEntry> {
-    command_catalog::search(query)
-        .into_iter()
-        .map(|command| CommandEntry {
-            action: command.action,
-            title: command.title.into(),
-            description: command.description.into(),
-            shortcut: ShortcutAction::from_palette_action(command.action)
-                .map(|action| shortcuts.display_for(action))
-                .unwrap_or_else(|| command.shortcut.to_string())
-                .into(),
-            requires_media: command.requires_media,
-            shortcut_editable: ShortcutAction::from_palette_action(command.action).is_some(),
-            default_shortcut: ShortcutAction::from_palette_action(command.action)
-                .map(|action| {
-                    let defaults = action.default_bindings();
-                    if defaults.is_empty() {
-                        "не назначено".to_string()
-                    } else {
-                        defaults
-                            .iter()
-                            .map(|binding| binding.display())
-                            .collect::<Vec<_>>()
-                            .join(" / ")
-                    }
-                })
-                .unwrap_or_default()
-                .into(),
-        })
-        .collect()
-}
-
-#[cfg(test)]
-fn command_palette_items(query: &str) -> Vec<CommandEntry> {
-    command_palette_items_with_registry(query, &ShortcutRegistry::default())
-}
-
-fn set_command_palette_items(
-    model: &VecModel<CommandEntry>,
-    query: &str,
-    shortcuts: &ShortcutRegistry,
-) {
-    let items = command_palette_items_with_registry(query, shortcuts);
-    let can_update_in_place = model.row_count() == items.len()
-        && items.iter().enumerate().all(|(index, item)| {
-            model
-                .row_data(index)
-                .is_some_and(|current| current.action == item.action)
-        });
-
-    if can_update_in_place {
-        // Preserve repeater instances so an expanded shortcut row can finish
-        // its close animation after the saved label changes.
-        for (index, item) in items.into_iter().enumerate() {
-            model.set_row_data(index, item);
-        }
-    } else {
-        model.set_vec(items);
-    }
-}
-
-fn persist_shortcuts(
-    app: &AppWindow,
-    settings: &Arc<Mutex<AppSettings>>,
-    shortcuts: &ShortcutRegistry,
-) {
-    if let Ok(mut settings) = settings.lock() {
-        settings.set_shortcut_overrides(shortcuts.preferences());
-        if let Err(error) = settings.save_if_dirty() {
-            app.set_error_message(format!("Не удалось сохранить горячие клавиши: {error}").into());
-            app.set_error_visible(true);
-        }
-    }
 }
 
 fn command_for_dropped_path(path: &Path) -> Result<Command, String> {
@@ -278,18 +120,7 @@ pub fn run(
         ));
     }
     super::conversion_controller::apply_presets(&app, false, "");
-    let shortcut_registry = Arc::new(Mutex::new(
-        settings
-            .lock()
-            .map(|settings| ShortcutRegistry::from_preferences(settings.shortcut_overrides()))
-            .unwrap_or_default(),
-    ));
-    let shortcut_edit = Arc::new(Mutex::new(ShortcutEdit::default()));
-    let command_items = Rc::new(VecModel::default());
-    app.set_command_items(ModelRc::from(command_items.clone()));
-    if let Ok(shortcuts) = shortcut_registry.lock() {
-        set_command_palette_items(&command_items, "", &shortcuts);
-    }
+    let shortcuts = ShortcutController::new(&app, tx.clone(), settings.clone());
     let dialog_active = Arc::new(AtomicBool::new(false));
     #[cfg(target_os = "windows")]
     let video_output = VideoOutputController::default();
@@ -339,8 +170,7 @@ pub fn run(
     {
         let tx = tx.clone();
         let app_weak = app.as_weak();
-        let shortcut_registry = shortcut_registry.clone();
-        let shortcut_edit = shortcut_edit.clone();
+        let shortcuts = shortcuts.clone();
         #[cfg(target_os = "windows")]
         let event_window_drag_state = window_drag_state.clone();
         #[cfg(target_os = "windows")]
@@ -569,61 +399,10 @@ pub fn run(
                         return EventResult::PreventDefault;
                     }
 
-                    // The close countdown owns keyboard focus; never record its buttons' keys.
-                    if app.get_command_palette_visible() && app.get_shortcut_close_pending() {
-                        return EventResult::Propagate;
-                    }
-
-                    let capture_action = app.get_shortcut_capture_action();
-                    if capture_action >= 0 && app.get_command_palette_visible() {
-                        if code == KeyCode::Escape {
-                            cancel_shortcut_capture(&app);
-                            return EventResult::PreventDefault;
-                        }
-
-                        if event.repeat {
-                            return EventResult::PreventDefault;
-                        }
-                        // Tab explicitly leaves capture so focused actions can receive Enter/Space.
-                        if code == KeyCode::Tab {
-                            if app.get_shortcut_capture_phase() == ShortcutCapturePhase::Recording {
-                                app.set_shortcut_capture_phase(ShortcutCapturePhase::Idle);
-                                app.set_shortcut_capture_preview("Запись приостановлена".into());
-                            }
-                            return EventResult::Propagate;
-                        }
-                        if app.get_shortcut_capture_phase() != ShortcutCapturePhase::Recording
-                            && !app.get_shortcut_capture_focused()
-                        {
-                            return EventResult::Propagate;
-                        }
-                        if is_modifier_key(code) {
-                            return EventResult::PreventDefault;
-                        }
-                        let Some(action) = ShortcutAction::from_id(capture_action) else {
-                            cancel_shortcut_capture(&app);
-                            return EventResult::PreventDefault;
-                        };
-                        let binding = ShortcutBinding::new(code, modifiers);
-                        if let Ok(shortcuts) = shortcut_registry.lock()
-                            && let Ok(mut edit) = shortcut_edit.lock()
-                        {
-                            preview_shortcut_edit(
-                                &app,
-                                &mut edit,
-                                &shortcuts,
-                                action,
-                                vec![binding],
-                            );
-                        }
-                        return EventResult::PreventDefault;
-                    }
-
-                    if app.get_command_palette_visible() && code == KeyCode::Escape {
-                        app.set_command_palette_visible(false);
-                        app.set_command_query("".into());
-                        app.invoke_command_query_changed("".into());
-                        return EventResult::PreventDefault;
+                    if let Some(result) =
+                        shortcuts.handle_capture_or_palette(&app, code, modifiers, event.repeat)
+                    {
+                        return result;
                     }
 
                     if code == KeyCode::Escape && app.get_inspector_visible() {
@@ -649,24 +428,11 @@ pub fn run(
                         return EventResult::PreventDefault;
                     }
 
-                    let binding = ShortcutBinding::new(code, modifiers);
-                    let Some(action) = shortcut_registry
-                        .lock()
-                        .ok()
-                        .and_then(|shortcuts| shortcuts.action_for(binding))
-                    else {
-                        return EventResult::Propagate;
-                    };
-
-                    if app.get_command_palette_visible()
-                        && action != ShortcutAction::ToggleCommandPalette
+                    if let Some(result) =
+                        shortcuts.dispatch_binding(&app, code, modifiers, event.repeat)
                     {
-                        return EventResult::Propagate;
+                        return result;
                     }
-                    if !event.repeat || action.allows_repeat() {
-                        dispatch_shortcut(&app, action);
-                    }
-                    return EventResult::PreventDefault;
                 }
                 WindowEvent::HoveredFile(path) => {
                     app.set_drop_target_visible(path.is_dir() || is_media_file(path));
@@ -737,218 +503,12 @@ pub fn run(
         video_output.clone(),
     );
 
-    {
-        let app_weak = app.as_weak();
-
-        app.on_toggle_command_palette(move || {
-            if let Some(app) = app_weak.upgrade() {
-                let opening = !app.get_command_palette_visible();
-                app.set_converter_visible(false);
-                cancel_shortcut_capture(&app);
-                app.set_command_query("".into());
-                if !opening {
-                    app.invoke_command_query_changed("".into());
-                }
-                app.set_command_palette_visible(opening);
-            }
-        });
-    }
-
     super::conversion_controller::register_callbacks(
         &app,
         converter_tx,
         converter_control,
         dialog_active.clone(),
     );
-
-    {
-        let app_weak = app.as_weak();
-        let shortcut_registry = shortcut_registry.clone();
-        let command_items = command_items.clone();
-
-        app.on_command_query_changed(move |query| {
-            if app_weak.upgrade().is_some()
-                && let Ok(shortcuts) = shortcut_registry.lock()
-            {
-                set_command_palette_items(&command_items, query.as_str(), &shortcuts);
-            }
-        });
-    }
-
-    {
-        let app_weak = app.as_weak();
-        let shortcut_registry = shortcut_registry.clone();
-        let settings = settings.clone();
-        let command_items = command_items.clone();
-
-        app.on_reset_shortcuts(move || {
-            if let Some(app) = app_weak.upgrade() {
-                if let Ok(mut shortcuts) = shortcut_registry.lock() {
-                    shortcuts.reset();
-                    set_command_palette_items(
-                        &command_items,
-                        app.get_command_query().as_str(),
-                        &shortcuts,
-                    );
-                    persist_shortcuts(&app, &settings, &shortcuts);
-                }
-                cancel_shortcut_capture(&app);
-            }
-        });
-    }
-
-    {
-        let tx = tx.clone();
-        let app_weak = app.as_weak();
-        let shortcut_registry = shortcut_registry.clone();
-        let shortcut_edit = shortcut_edit.clone();
-        let settings = settings.clone();
-        let command_items = command_items.clone();
-
-        app.on_reset_settings(move || {
-            let Some(app) = app_weak.upgrade() else {
-                return;
-            };
-            let defaults = AppSettings::default();
-
-            let Ok(mut shortcuts) = shortcut_registry.lock() else {
-                app.set_error_message("Не удалось получить доступ к горячим клавишам".into());
-                app.set_error_visible(true);
-                return;
-            };
-            let Ok(mut stored_settings) = settings.lock() else {
-                app.set_error_message("Не удалось получить доступ к настройкам".into());
-                app.set_error_visible(true);
-                return;
-            };
-            stored_settings.reset_to_defaults();
-            if let Err(error) = stored_settings.save_if_dirty() {
-                app.set_error_message(format!("Не удалось сбросить настройки: {error}").into());
-                app.set_error_visible(true);
-                return;
-            }
-            shortcuts.reset();
-            set_command_palette_items(&command_items, app.get_command_query().as_str(), &shortcuts);
-            drop(shortcuts);
-            drop(stored_settings);
-
-            if let Ok(mut edit) = shortcut_edit.lock() {
-                edit.discard();
-            }
-            cancel_shortcut_capture(&app);
-
-            app.set_theme_mode(defaults.theme().ui_index());
-            app.set_accent_mode(defaults.accent().ui_index());
-            app.set_volume(defaults.default_volume());
-            app.set_speed(defaults.default_speed());
-            app.set_folder_loop_enabled(defaults.completion_behavior().repeats_playlist());
-            app.set_hardware_decoding_enabled(defaults.hardware_decoding_enabled());
-            app.set_settings_reset_done(true);
-            app.set_reset_settings_prompt_visible(false);
-            app.set_notice_message("Настройки восстановлены".into());
-            app.set_notice_visible(true);
-
-            let _ = tx.send(Command::SetDarkTheme(app.get_dark_theme()));
-            let _ = tx.send(Command::SetVolume(
-                f64::from(defaults.default_volume()) * 100.0,
-            ));
-            let _ = tx.send(Command::SetSpeed(f64::from(defaults.default_speed())));
-            let _ = tx.send(Command::SetFolderLoop(
-                defaults.completion_behavior().repeats_playlist(),
-            ));
-            let _ = tx.send(Command::SetHardwareDecoding(
-                defaults.hardware_decoding_enabled(),
-            ));
-            app.window().request_redraw();
-
-            let notice_app = app.as_weak();
-            slint::Timer::single_shot(std::time::Duration::from_millis(2600), move || {
-                if let Some(app) = notice_app.upgrade() {
-                    app.set_notice_visible(false);
-                }
-            });
-        });
-    }
-
-    {
-        let app_weak = app.as_weak();
-        let shortcut_edit = shortcut_edit.clone();
-        app.on_begin_shortcut_edit(move |action| {
-            if let Some(app) = app_weak.upgrade()
-                && ShortcutAction::from_id(action).is_some()
-                && let Ok(mut edit) = shortcut_edit.lock()
-            {
-                edit.discard();
-                app.set_shortcut_saved_action(-1);
-                clear_shortcut_candidate(&app);
-                app.set_shortcut_capture_phase(ShortcutCapturePhase::Recording);
-                app.set_shortcut_capture_action(action);
-            }
-        });
-    }
-
-    {
-        let app_weak = app.as_weak();
-        let shortcut_registry = shortcut_registry.clone();
-        let shortcut_edit = shortcut_edit.clone();
-        app.on_preview_default_shortcut(move || {
-            if let Some(app) = app_weak.upgrade()
-                && let Some(action) = ShortcutAction::from_id(app.get_shortcut_capture_action())
-                && let Ok(shortcuts) = shortcut_registry.lock()
-                && let Ok(mut edit) = shortcut_edit.lock()
-            {
-                preview_shortcut_edit(
-                    &app,
-                    &mut edit,
-                    &shortcuts,
-                    action,
-                    action.default_bindings(),
-                );
-            }
-        });
-    }
-
-    {
-        let app_weak = app.as_weak();
-        let shortcut_registry = shortcut_registry.clone();
-        let shortcut_edit = shortcut_edit.clone();
-        let settings = settings.clone();
-        let command_items = command_items.clone();
-        app.on_save_shortcut_edit(move |overwrite| {
-            if let Some(app) = app_weak.upgrade()
-                && app.get_command_palette_visible()
-                && (app.get_shortcut_capture_phase() == ShortcutCapturePhase::Valid
-                    || (overwrite
-                        && app.get_shortcut_capture_phase() == ShortcutCapturePhase::Conflict))
-                && let Some(action) = ShortcutAction::from_id(app.get_shortcut_capture_action())
-                && let Ok(mut shortcuts) = shortcut_registry.lock()
-                && let Ok(mut edit) = shortcut_edit.lock()
-                && if overwrite {
-                    edit.overwrite(&mut shortcuts, action)
-                } else {
-                    edit.save(&mut shortcuts, action)
-                }
-            {
-                set_command_palette_items(
-                    &command_items,
-                    app.get_command_query().as_str(),
-                    &shortcuts,
-                );
-                persist_shortcuts(&app, &settings, &shortcuts);
-                cancel_shortcut_capture(&app);
-                app.set_shortcut_saved_action(action as i32);
-
-                let feedback_app = app.as_weak();
-                slint::Timer::single_shot(std::time::Duration::from_millis(1600), move || {
-                    if let Some(app) = feedback_app.upgrade()
-                        && app.get_shortcut_saved_action() == action as i32
-                    {
-                        app.set_shortcut_saved_action(-1);
-                    }
-                });
-            }
-        });
-    }
 
     #[cfg(target_os = "windows")]
     let native_init_error_rx =
@@ -1017,12 +577,16 @@ pub fn run(
 mod tests {
     use std::path::Path;
 
-    use super::{
-        PALETTE_COMMANDS, ShortcutAction, ShortcutBinding, ShortcutEdit, ShortcutRegistry,
-        command_for_dropped_path, command_palette_items, command_palette_items_with_registry,
-    };
+    use super::command_for_dropped_path;
     use crate::ipc::Command;
+    use crate::player::shortcuts::{
+        ShortcutAction, ShortcutBinding, ShortcutEdit, ShortcutRegistry,
+    };
     use crate::settings::ShortcutPreference;
+    use crate::ui::command_catalog::COMMANDS as PALETTE_COMMANDS;
+    use crate::ui::shortcut_controller::{
+        command_palette_items, command_palette_items_with_registry,
+    };
     use slint::winit_030::winit::keyboard::{KeyCode, ModifiersState};
 
     #[test]
