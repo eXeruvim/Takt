@@ -17,6 +17,7 @@ mod system_notification;
 pub mod ui_logic;
 #[cfg(target_os = "windows")]
 mod video_output;
+mod window_event_controller;
 #[cfg(target_os = "windows")]
 mod window_interaction;
 #[cfg(target_os = "windows")]
