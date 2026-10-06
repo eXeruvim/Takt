@@ -24,6 +24,8 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
 
 - `src/ipc.rs` — контракт между UI и проигрывателем;
 - `src/player/mpv.rs` — жизненный цикл libmpv, команды и события;
+- `src/player/mpv_adapter.rs` — создание и начальная настройка libmpv,
+  регистрация наблюдаемых свойств и платформенные значения параметров;
 - `src/player/playback_diagnostics.rs` — опциональные счётчики libmpv,
   включаемые переменной окружения, и владение диагностическим отчётом;
 - `src/player/playlist.rs` — обнаружение и сортировка видео и аудио в папке;
