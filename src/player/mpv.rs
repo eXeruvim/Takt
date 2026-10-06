@@ -1,6 +1,4 @@
 use std::{
-    fs::OpenOptions,
-    io::{BufWriter, Write},
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
@@ -13,6 +11,7 @@ use crate::player::{
     equalizer::EqualizerSettings,
     limits::{PATH_TEXT_BYTES, UI_TEXT_BYTES, bounded_text},
     media_info::{MediaInfo, read_audio_tracks, read_chapters, read_subtitle_tracks},
+    playback_diagnostics::PlaybackDiagnostics,
     playlist::DirectoryPlaylist,
     session_store::SessionStore,
 };
@@ -28,96 +27,12 @@ use libmpv::{
 const PREVIOUS_RESTART_THRESHOLD_SECONDS: f64 = 3.0;
 const MAX_SYNC_DELAY_SECONDS: f64 = 30.0;
 const SESSION_SAVE_INTERVAL: Duration = Duration::from_secs(10);
-const BENCHMARK_DIAGNOSTICS_ENV: &str = "OXIDE_BENCHMARK_DIAGNOSTICS_PATH";
-
 #[derive(Default)]
 struct PlaybackOptions {
     repeat_folder: bool,
     shuffled: bool,
     media_available: bool,
     equalizer: EqualizerSettings,
-}
-
-#[derive(Default)]
-struct PlaybackDiagnostics {
-    decoder: Option<String>,
-    video_sync: Option<String>,
-    frame_drop_count: Option<i64>,
-    decoder_frame_drop_count: Option<i64>,
-    mistimed_frame_count: Option<i64>,
-    vo_delayed_frame_count: Option<i64>,
-    container_fps: Option<f64>,
-    estimated_vf_fps: Option<f64>,
-    display_fps: Option<f64>,
-    estimated_display_fps: Option<f64>,
-    vsync_ratio: Option<f64>,
-    vsync_jitter: Option<f64>,
-    avsync_seconds: Option<f64>,
-    total_avsync_change_seconds: Option<f64>,
-    time_pos_seconds: Option<f64>,
-}
-
-impl PlaybackDiagnostics {
-    fn reset_for_new_media(&mut self) {
-        let video_sync = self.video_sync.take();
-        let display_fps = self.display_fps.take();
-        *self = Self {
-            video_sync,
-            display_fps,
-            ..Self::default()
-        };
-    }
-
-    fn update(&mut self, name: &str, change: &PropertyData<'_>) {
-        match (name, change) {
-            ("hwdec-current", PropertyData::Str(value)) => {
-                self.decoder = Some((*value).to_owned());
-            }
-            ("video-sync", PropertyData::Str(value)) => {
-                self.video_sync = Some((*value).to_owned());
-            }
-            ("frame-drop-count", PropertyData::Int64(value)) => {
-                self.frame_drop_count = Some(*value);
-            }
-            ("decoder-frame-drop-count", PropertyData::Int64(value)) => {
-                self.decoder_frame_drop_count = Some(*value);
-            }
-            ("mistimed-frame-count", PropertyData::Int64(value)) => {
-                self.mistimed_frame_count = Some(*value);
-            }
-            ("vo-delayed-frame-count", PropertyData::Int64(value)) => {
-                self.vo_delayed_frame_count = Some(*value);
-            }
-            ("container-fps", PropertyData::Double(value)) => {
-                self.container_fps = Some(*value);
-            }
-            ("estimated-vf-fps", PropertyData::Double(value)) => {
-                self.estimated_vf_fps = Some(*value);
-            }
-            ("display-fps", PropertyData::Double(value)) => {
-                self.display_fps = Some(*value);
-            }
-            ("estimated-display-fps", PropertyData::Double(value)) => {
-                self.estimated_display_fps = Some(*value);
-            }
-            ("vsync-ratio", PropertyData::Double(value)) => {
-                self.vsync_ratio = Some(*value);
-            }
-            ("vsync-jitter", PropertyData::Double(value)) => {
-                self.vsync_jitter = Some(*value);
-            }
-            ("avsync", PropertyData::Double(value)) => {
-                self.avsync_seconds = Some(*value);
-            }
-            ("total-avsync-change", PropertyData::Double(value)) => {
-                self.total_avsync_change_seconds = Some(*value);
-            }
-            ("time-pos", PropertyData::Double(value)) => {
-                self.time_pos_seconds = Some(*value);
-            }
-            _ => {}
-        }
-    }
 }
 
 fn mpv_error<T>(result: Result<T, libmpv::Error>) -> anyhow::Result<T> {
@@ -172,60 +87,6 @@ fn send_hardware_decoding(mpv: &Mpv, tx: &Sender<Event>) {
         enabled: hwdec_is_enabled(&requested),
         decoder: bounded_text(&decoder, UI_TEXT_BYTES),
     });
-}
-
-fn benchmark_diagnostics_path() -> Option<PathBuf> {
-    let path = PathBuf::from(std::env::var_os(BENCHMARK_DIAGNOSTICS_ENV)?);
-    if !path.is_absolute() || path.extension().and_then(|value| value.to_str()) != Some("json") {
-        eprintln!("Путь диагностического отчёта проигнорирован: требуется абсолютный JSON-путь");
-        return None;
-    }
-    Some(path)
-}
-
-fn write_playback_diagnostics(
-    diagnostics: &PlaybackDiagnostics,
-    path: &Path,
-    media_available: bool,
-) -> anyhow::Result<()> {
-    let report = serde_json::json!({
-        "schema": 1,
-        "kind": "oxide-mpv-playback-diagnostics",
-        "scope": "mpv counters cover current media since load; render_timing declares its own scope",
-        "media_available": media_available,
-        "decoder": diagnostics.decoder,
-        "video_sync": diagnostics.video_sync,
-        "frame_drop_count": diagnostics.frame_drop_count,
-        "decoder_frame_drop_count": diagnostics.decoder_frame_drop_count,
-        "mistimed_frame_count": diagnostics.mistimed_frame_count,
-        "vo_delayed_frame_count": diagnostics.vo_delayed_frame_count,
-        "container_fps": diagnostics.container_fps,
-        "estimated_vf_fps": diagnostics.estimated_vf_fps,
-        "display_fps": diagnostics.display_fps,
-        "estimated_display_fps": diagnostics.estimated_display_fps,
-        "vsync_ratio": diagnostics.vsync_ratio,
-        "vsync_jitter": diagnostics.vsync_jitter,
-        "avsync_seconds": diagnostics.avsync_seconds,
-        "total_avsync_change_seconds": diagnostics.total_avsync_change_seconds,
-        "time_pos_seconds": diagnostics.time_pos_seconds,
-        "render_timing": crate::benchmark_diagnostics::render_timing_summary(),
-    });
-    let file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .with_context(|| {
-            format!(
-                "Не удалось создать диагностический отчёт: {}",
-                path.display()
-            )
-        })?;
-    let mut writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(&mut writer, &report)
-        .context("Не удалось сериализовать диагностический отчёт")?;
-    writer
-        .flush()
-        .context("Не удалось записать диагностический отчёт на диск")
 }
 
 fn send_equalizer(settings: EqualizerSettings, tx: &Sender<Event>) {
@@ -901,8 +762,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     );
     let mut playlist: Option<DirectoryPlaylist> = None;
     let mut options = PlaybackOptions::default();
-    let benchmark_diagnostics_path = benchmark_diagnostics_path();
-    let mut playback_diagnostics = PlaybackDiagnostics::default();
+    let mut playback_diagnostics = PlaybackDiagnostics::from_environment();
     let mut session = SessionStore::load_default();
     if let Some(message) = session.take_storage_notice() {
         eprintln!("{message}");
@@ -943,28 +803,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     ] {
         mpv_error(events.observe_property(name, format, id))?;
     }
-    if benchmark_diagnostics_path.is_some() {
-        for (id, name, format) in [
-            (100, "hwdec-current", Format::String),
-            (101, "video-sync", Format::String),
-            (102, "frame-drop-count", Format::Int64),
-            (103, "decoder-frame-drop-count", Format::Int64),
-            (104, "mistimed-frame-count", Format::Int64),
-            (105, "vo-delayed-frame-count", Format::Int64),
-            (106, "container-fps", Format::Double),
-            (107, "estimated-vf-fps", Format::Double),
-            (108, "display-fps", Format::Double),
-            (109, "estimated-display-fps", Format::Double),
-            (110, "vsync-ratio", Format::Double),
-            (111, "vsync-jitter", Format::Double),
-            (112, "avsync", Format::Double),
-            (113, "total-avsync-change", Format::Double),
-        ] {
-            if let Err(error) = events.observe_property(name, format, id) {
-                eprintln!("Не удалось наблюдать диагностическое свойство {name}: {error:?}");
-            }
-        }
-    }
+    playback_diagnostics.observe_properties(&mut events);
 
     loop {
         let mut dispatched_commands = 0;
@@ -1077,13 +916,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     }
                 }
                 Ok(false) => {
-                    if let Some(path) = benchmark_diagnostics_path.as_deref()
-                        && let Err(error) = write_playback_diagnostics(
-                            &playback_diagnostics,
-                            path,
-                            options.media_available,
-                        )
-                    {
+                    if let Err(error) = playback_diagnostics.write_report(options.media_available) {
                         eprintln!("Не удалось сохранить диагностику воспроизведения: {error:#}");
                     }
                     return Ok(());
@@ -1128,7 +961,6 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
             match event {
                 Ok(MpvEvent::StartFile) => {
                     playback_diagnostics.reset_for_new_media();
-                    crate::benchmark_diagnostics::reset_render_timing();
                 }
                 Ok(MpvEvent::FileLoaded) if options.media_available => {
                     let mut resume_position = None;

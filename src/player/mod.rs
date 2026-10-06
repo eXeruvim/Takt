@@ -4,6 +4,7 @@ pub mod equalizer;
 pub mod limits;
 pub mod media_info;
 pub mod mpv;
+mod playback_diagnostics;
 pub mod playlist;
 pub mod session_store;
 pub mod shortcuts;
