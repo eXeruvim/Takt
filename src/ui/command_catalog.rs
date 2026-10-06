@@ -192,14 +192,6 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         keywords: "convert export transcode ffmpeg конвертация экспорт формат кодек",
         requires_media: true,
     },
-    CommandSpec {
-        action: 29,
-        title: "Сбросить горячие клавиши",
-        description: "Вернуть стандартные сочетания",
-        shortcut: "—",
-        keywords: "reset defaults shortcuts сбросить клавиши сочетания по умолчанию",
-        requires_media: false,
-    },
 ];
 
 pub(crate) fn search(query: &str) -> Vec<&'static CommandSpec> {
@@ -230,7 +222,7 @@ mod tests {
         let found = search("");
         assert_eq!(found.len(), COMMANDS.len());
         assert_eq!(found.first().map(|command| command.action), Some(0));
-        assert_eq!(found.last().map(|command| command.action), Some(29));
+        assert_eq!(found.last().map(|command| command.action), Some(28));
     }
 
     #[test]

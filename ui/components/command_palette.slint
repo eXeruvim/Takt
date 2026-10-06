@@ -188,8 +188,10 @@ export component CommandPaletteOverlay inherits Rectangle {
     in property <[CommandEntry]> commands;
     in property <bool> media-loaded;
     in property <bool> audio-media;
-    in property <int> capture-action: -1;
-    in property <int> saved-action: -1;
+    in property <int> capture-action: 0;
+    in property <bool> capture-active: false;
+    in property <int> saved-action: 0;
+    in property <bool> saved-visible: false;
     in property <string> error-message;
     in-out property <ShortcutCapturePhase> capture-phase: ShortcutCapturePhase.idle;
     in-out property <bool> close-pending: false;
@@ -200,7 +202,7 @@ export component CommandPaletteOverlay inherits Rectangle {
     in property <bool> capture-dirty;
     private property <int> selected-index: 0;
     private property <bool> confirming-reset: false;
-    private property <bool> editing: capture-action >= 0;
+    private property <bool> editing: capture-active;
     private property <bool> recording: capture-phase == ShortcutCapturePhase.recording;
     private property <bool> can-save: capture-phase == ShortcutCapturePhase.valid;
     private property <bool> capture-has-candidate: capture-phase == ShortcutCapturePhase.valid
@@ -226,6 +228,7 @@ export component CommandPaletteOverlay inherits Rectangle {
     callback save(bool);
     callback cancel();
     callback restore-default();
+    callback reset-shortcuts();
     callback close();
     callback prepare-close(float, float, float, float);
     callback capture-focus-changed(bool);
@@ -247,6 +250,10 @@ export component CommandPaletteOverlay inherits Rectangle {
     changed capture-action => {
         root.discard-armed = false;
         root.close-pending = false;
+    }
+    changed capture-active => {
+        root.discard-armed = false;
+        root.close-pending = false;
         if (!root.editing && root.open) { search.focus(); }
     }
     changed preview => { root.discard-armed = false; }
@@ -263,10 +270,8 @@ export component CommandPaletteOverlay inherits Rectangle {
     }
     panel := Rectangle {
         property <float> safe-scale: max(0.1, root.scale-factor);
-        property <length> target-width: min(parent.width - Theme.space-12,
-            root.confirming-reset ? 520px : 780px);
-        property <length> target-height: min(parent.height - Theme.space-12,
-            root.confirming-reset ? 260px : 580px);
+        property <length> target-width: min(parent.width - Theme.space-12, 780px);
+        property <length> target-height: min(parent.height - Theme.space-12, 580px);
         width: Math.floor(target-width / 1px * safe-scale) / safe-scale * 1px;
         height: Math.floor(target-height / 1px * safe-scale) / safe-scale * 1px;
         x: Math.floor((parent.width - self.width) / 2 / 1px * safe-scale)
@@ -285,6 +290,11 @@ export component CommandPaletteOverlay inherits Rectangle {
                     root.close-pending = false;
                     return accept;
                 }
+                if (root.confirming-reset && event.text == Key.Escape) {
+                    root.confirming-reset = false;
+                    search.focus();
+                    return accept;
+                }
                 if (event.text == Key.Tab) {
                     if (root.close-pending) {
                         if (close-cancel.has-focus) { close-confirm.focus(); }
@@ -292,13 +302,15 @@ export component CommandPaletteOverlay inherits Rectangle {
                     } else if (root.confirming-reset) {
                         if (reset-cancel.has-focus) { reset-confirm.focus(); }
                         else { reset-cancel.focus(); }
-                    } else if (!root.editing) { search.focus(); }
+                    } else if (!root.editing) {
+                        if (reset-start.has-focus) { search.focus(); }
+                        else { reset-start.focus(); }
+                    }
                     return accept;
                 }
                 return reject;
             }
             browser := Rectangle {
-                visible: !root.confirming-reset;
                 opacity: root.close-pending ? (root.close-background-ready ? 0 : 0.15) : 1;
                 VerticalLayout {
                     padding: Theme.space-4;
@@ -306,7 +318,7 @@ export component CommandPaletteOverlay inherits Rectangle {
                     UiText { text: "Команды и горячие клавиши"; variant: TextVariant.heading; }
                     search := LineEdit {
                         height: Theme.space-10;
-                        enabled: browser.visible && !root.editing;
+                        enabled: browser.visible && !root.editing && !root.confirming-reset;
                         text <=> root.query;
                         placeholder-text: "Найти команду…";
                         edited(text) => {
@@ -326,18 +338,19 @@ export component CommandPaletteOverlay inherits Rectangle {
                     Divider { }
                     command-list := ScrollView {
                         vertical-stretch: 1;
-                        enabled: browser.visible;
+                        enabled: browser.visible && !root.confirming-reset;
                         changed visible-height => root.reveal-selection();
                         VerticalLayout {
                             spacing: Theme.space-1;
                             for command[index] in root.commands : CommandRow {
                                 entry: command;
                                 selected: index == root.selected-index;
-                                enabled: browser.visible && !root.close-pending;
+                                enabled: browser.visible && !root.close-pending
+                                    && !root.confirming-reset;
                                 blocked: root.close-pending;
                                 active: root.open && root.window-active && !root.close-pending;
                                 editing: root.editing && command.action == root.capture-action;
-                                saved: command.action == root.saved-action;
+                                saved: root.saved-visible && command.action == root.saved-action;
                                 recording: root.recording;
                                 can-save: root.can-save && root.has-unsaved-edit;
                                 candidate-valid: root.can-save;
@@ -386,39 +399,119 @@ export component CommandPaletteOverlay inherits Rectangle {
                         }
                     }
                     Divider { }
-                    // Keep keyboard help stable; edit feedback belongs to the input field.
-                    Rectangle {
-                        height: 72px;
-                        VerticalLayout {
-                            spacing: Theme.space-2;
-                            alignment: center;
-                            UiText {
-                                text: root.editing ? "Введите сочетание; следующее нажатие заменит его."
-                                    : root.commands.length == 0 ? "Попробуйте другое название."
-                                    : !root.can-execute ? (!root.media-loaded ? "Для выполнения откройте файл. Сочетание можно изменить."
-                                        : "Выполнение доступно только для видео. Сочетание можно изменить.")
-                                    : "Клик по строке — выбрать, повторный — выполнить. По сочетанию — изменить.";
-                                variant: TextVariant.caption;
-                                font-size: 13px;
-                                color: Theme.text-secondary;
-                                horizontal-alignment: center;
-                                wrap: word-wrap;
-                            }
-                            HorizontalLayout {
-                                spacing: 20px;
-                                height: 22px;
+                    // Help and reset share one stable footer. Confirmation replaces the
+                    // hints in place instead of covering or resizing the command browser.
+                    footer := Rectangle {
+                        height: 112px;
+                        default-footer := Rectangle {
+                            opacity: root.confirming-reset ? 0 : 1;
+                            visible: self.opacity > 0.01;
+                            animate opacity { duration: Theme.motion-fast; }
+                            VerticalLayout {
+                                spacing: Theme.space-2;
                                 alignment: center;
-                                if !root.editing && root.can-execute : PaletteHint {
-                                    key: "Enter";
-                                    description: "Выполнить";
+                                UiText {
+                                    text: root.editing ? "Введите сочетание; следующее нажатие заменит его."
+                                        : root.commands.length == 0 ? "Попробуйте другое название."
+                                        : !root.can-execute ? (!root.media-loaded ? "Для выполнения откройте файл. Сочетание можно изменить."
+                                            : "Выполнение доступно только для видео. Сочетание можно изменить.")
+                                        : "Клик по строке — выбрать, повторный — выполнить. По сочетанию — изменить.";
+                                    variant: TextVariant.caption;
+                                    font-size: 13px;
+                                    color: Theme.text-secondary;
+                                    horizontal-alignment: center;
+                                    wrap: word-wrap;
                                 }
-                                PaletteHint {
-                                    key: root.editing ? "Tab" : "F2";
-                                    description: root.editing ? "К действиям" : "Изменить";
+                                HorizontalLayout {
+                                    spacing: 16px;
+                                    height: 28px;
+                                    alignment: center;
+                                    if !root.editing && root.can-execute : PaletteHint {
+                                        key: "Enter";
+                                        description: "Выполнить";
+                                    }
+                                    PaletteHint {
+                                        key: root.editing ? "Tab" : "F2";
+                                        description: root.editing ? "К действиям" : "Изменить";
+                                    }
+                                    PaletteHint {
+                                        key: "Esc";
+                                        description: root.editing ? "Отменить ввод" : "Закрыть меню";
+                                    }
                                 }
-                                PaletteHint {
-                                    key: "Esc";
-                                    description: root.editing ? "Отменить ввод" : "Закрыть меню";
+                                HorizontalLayout {
+                                    height: 30px;
+                                    alignment: center;
+                                    reset-start := Button {
+                                        text: "Сбросить клавиши";
+                                        visible: !root.editing;
+                                        width: 176px;
+                                        height: 30px;
+                                        selected: true;
+                                        enabled: !root.editing && !root.close-pending;
+                                        clicked => {
+                                            root.confirming-reset = true;
+                                            reset-cancel.focus();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        reset-footer := Rectangle {
+                            opacity: root.confirming-reset ? 1 : 0;
+                            visible: self.opacity > 0.01;
+                            border-radius: Theme.radius-medium;
+                            background: Theme.surface-control;
+                            border-width: 1px;
+                            border-color: Theme.border-default;
+                            animate opacity { duration: Theme.motion-fast; }
+                            VerticalLayout {
+                                padding-top: 10px;
+                                padding-bottom: 10px;
+                                padding-left: Theme.space-4;
+                                padding-right: Theme.space-4;
+                                spacing: Theme.space-2;
+                                alignment: center;
+                                VerticalLayout {
+                                    alignment: center;
+                                    UiText {
+                                        text: "Вернуть стандартные сочетания?";
+                                        variant: TextVariant.label;
+                                        horizontal-alignment: center;
+                                    }
+                                    UiText {
+                                        text: "Ваши назначения будут удалены.";
+                                        variant: TextVariant.caption;
+                                        color: Theme.text-secondary;
+                                        horizontal-alignment: center;
+                                    }
+                                }
+                                HorizontalLayout {
+                                    height: 36px;
+                                    spacing: Theme.space-2;
+                                    alignment: center;
+                                    reset-cancel := Button {
+                                        text: "Отмена";
+                                        width: 112px;
+                                        height: 36px;
+                                        enabled: root.confirming-reset;
+                                        clicked => {
+                                            root.confirming-reset = false;
+                                            search.focus();
+                                        }
+                                    }
+                                    reset-confirm := Button {
+                                        text: "Сбросить";
+                                        width: 120px;
+                                        height: 36px;
+                                        primary: true;
+                                        enabled: root.confirming-reset;
+                                        clicked => {
+                                            root.confirming-reset = false;
+                                            root.reset-shortcuts();
+                                            search.focus();
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -493,32 +586,6 @@ export component CommandPaletteOverlay inherits Rectangle {
                     }
                 }
             }
-            reset-dialog := Rectangle {
-                visible: root.confirming-reset;
-                VerticalLayout {
-                    padding: Theme.space-6;
-                    spacing: Theme.space-4;
-                    UiText { text: "Сбросить все сочетания?"; variant: TextVariant.heading; }
-                    UiText {
-                        text: "Все ваши назначения будут заменены стандартными. Для изменения одной команды нажмите её сочетание в списке.";
-                        wrap: word-wrap;
-                        vertical-stretch: 1;
-                    }
-                    HorizontalLayout {
-                        spacing: Theme.space-3;
-                        reset-cancel := Button {
-                            text: "Отмена";
-                            enabled: reset-dialog.visible;
-                            clicked => { root.confirming-reset = false; search.focus(); }
-                        }
-                        reset-confirm := Button {
-                            text: "Сбросить все";
-                            enabled: reset-dialog.visible;
-                            clicked => { root.confirming-reset = false; root.execute(29); }
-                        }
-                    }
-                }
-            }
         }
     }
     function move-selection(delta: int) {
@@ -579,8 +646,7 @@ export component CommandPaletteOverlay inherits Rectangle {
     }
     function activate-selected() {
         if (!editing && can-execute) {
-            if (selected-command.action == 29) { confirming-reset = true; reset-cancel.focus(); }
-            else { execute(selected-command.action); }
+            execute(selected-command.action);
         }
     }
 }

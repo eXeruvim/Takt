@@ -78,7 +78,7 @@ impl ShortcutController {
         }
 
         let capture_action = app.get_shortcut_capture_action();
-        if capture_action >= 0 && app.get_command_palette_visible() {
+        if app.get_shortcut_capture_active() && app.get_command_palette_visible() {
             if code == KeyCode::Escape {
                 cancel_shortcut_capture(app);
                 return Some(EventResult::PreventDefault);
@@ -315,15 +315,17 @@ impl ShortcutController {
             && let Ok(mut edit) = self.edit.lock()
         {
             edit.discard();
-            app.set_shortcut_saved_action(-1);
+            app.set_shortcut_saved_visible(false);
             clear_shortcut_candidate(app);
             app.set_shortcut_capture_phase(ShortcutCapturePhase::Recording);
             app.set_shortcut_capture_action(action);
+            app.set_shortcut_capture_active(true);
         }
     }
 
     fn preview_default(&self, app: &AppWindow) {
-        if let Some(action) = ShortcutAction::from_id(app.get_shortcut_capture_action())
+        if app.get_shortcut_capture_active()
+            && let Some(action) = ShortcutAction::from_id(app.get_shortcut_capture_action())
             && let Ok(shortcuts) = self.registry.lock()
             && let Ok(mut edit) = self.edit.lock()
         {
@@ -343,6 +345,9 @@ impl ShortcutController {
                 && !(overwrite
                     && app.get_shortcut_capture_phase() == ShortcutCapturePhase::Conflict))
         {
+            return;
+        }
+        if !app.get_shortcut_capture_active() {
             return;
         }
         let Some(action) = ShortcutAction::from_id(app.get_shortcut_capture_action()) else {
@@ -371,13 +376,15 @@ impl ShortcutController {
         persist_shortcuts(app, &self.settings, &shortcuts);
         cancel_shortcut_capture(app);
         app.set_shortcut_saved_action(action as i32);
+        app.set_shortcut_saved_visible(true);
 
         let feedback_app = app.as_weak();
         slint::Timer::single_shot(Duration::from_millis(1600), move || {
             if let Some(app) = feedback_app.upgrade()
+                && app.get_shortcut_saved_visible()
                 && app.get_shortcut_saved_action() == action as i32
             {
-                app.set_shortcut_saved_action(-1);
+                app.set_shortcut_saved_visible(false);
             }
         });
     }
@@ -421,7 +428,7 @@ fn clear_shortcut_candidate(app: &AppWindow) {
 }
 
 fn cancel_shortcut_capture(app: &AppWindow) {
-    app.set_shortcut_capture_action(-1);
+    app.set_shortcut_capture_active(false);
     app.set_shortcut_capture_focused(false);
     clear_shortcut_candidate(app);
 }

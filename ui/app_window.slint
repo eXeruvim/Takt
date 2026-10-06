@@ -115,7 +115,8 @@ export component AppWindow inherits Window {
     out property <bool> window_minimized: self.minimized;
     out property <bool> window_maximized: self.maximized;
     out property <bool> edge_to_edge: self.maximized || self.fullscreen_mode;
-    in-out property <int> shortcut_capture_action: -1;
+    in-out property <int> shortcut_capture_action: 0;
+    in-out property <bool> shortcut_capture_active: false;
     in-out property <string> shortcut_capture_error: "";
     in-out property <ShortcutCapturePhase> shortcut_capture_phase: ShortcutCapturePhase.idle;
     in-out property <bool> shortcut_capture_focused: false;
@@ -130,7 +131,8 @@ export component AppWindow inherits Window {
     finish_shortcut_close => command-palette.finish-close();
     in-out property <bool> shortcut_capture_dirty: false;
     in-out property <string> shortcut_capture_preview: "";
-    in-out property <int> shortcut_saved_action: -1;
+    in-out property <int> shortcut_saved_action: 0;
+    in-out property <bool> shortcut_saved_visible: false;
     in-out property <bool> command_palette_visible: false;
     in-out property <string> command_query: "";
     in property <[CommandEntry]> command_items;
@@ -1025,7 +1027,9 @@ export component AppWindow inherits Window {
                 media-loaded: root.media_loaded;
                 audio-media: root.audio_media;
                 capture-action: root.shortcut_capture_action;
+                capture-active: root.shortcut_capture_active;
                 saved-action: root.shortcut_saved_action;
+                saved-visible: root.shortcut_saved_visible;
                 window-active: root.window_active;
                 error-message: root.shortcut_capture_error;
                 capture-phase <=> root.shortcut_capture_phase;
@@ -1043,8 +1047,9 @@ export component AppWindow inherits Window {
                 }
                 save(overwrite) => root.save_shortcut_edit(overwrite);
                 restore-default => root.preview_default_shortcut();
+                reset-shortcuts => root.reset_shortcuts();
                 cancel => {
-                    root.shortcut_capture_action = -1;
+                    root.shortcut_capture_active = false;
                     root.shortcut_capture_phase = ShortcutCapturePhase.idle;
                     root.shortcut_capture_focused = false;
                     root.shortcut_capture_dirty = false;
@@ -1054,7 +1059,7 @@ export component AppWindow inherits Window {
                 close => {
                     root.command_palette_visible = false;
                     root.command_query = "";
-                    root.shortcut_capture_action = -1;
+                    root.shortcut_capture_active = false;
                     root.shortcut_capture_phase = ShortcutCapturePhase.idle;
                     root.shortcut_capture_focused = false;
                     root.shortcut_capture_dirty = false;
@@ -1204,7 +1209,7 @@ export component AppWindow inherits Window {
     }
 
     function run-palette-command(action: int) {
-        shortcut_capture_action = -1;
+        shortcut_capture_active = false;
         shortcut_capture_phase = ShortcutCapturePhase.idle;
         shortcut_capture_focused = false;
         shortcut_capture_dirty = false;
@@ -1235,6 +1240,5 @@ export component AppWindow inherits Window {
         else if (action == 26) { step_frame(1); }
         else if (action == 27) { toggle_picture_in_picture(); }
         else if (action == 28) { open_converter(); }
-        else if (action == 29) { reset_shortcuts(); }
     }
 }

@@ -47,8 +47,9 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
 - `src/ui/player_command_controller.rs` — перевод файловых, транспортных,
   аудио- и playlist-действий Slint в типизированные команды player thread;
 - `src/ui/shortcut_controller.rs` — UI-состояние Command Palette и редактора
-  сочетаний: capture физических клавиш, dispatch, модель поиска, сохранение и
-  согласованный сброс настроек;
+  сочетаний: явные состояния активного редактирования и feedback сохранения,
+  capture физических клавиш, dispatch, модель поиска, сохранение и согласованный
+  сброс настроек;
 - `src/ui/window_event_controller.rs` — маршрутизация нативных событий окна:
   focus и системная тема, move/resize, drag-and-drop, жесты Inspector, модальные
   клавиши и передача физических сочетаний контроллеру shortcuts;
