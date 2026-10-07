@@ -84,10 +84,6 @@ impl PlaybackState {
         self.generation
     }
 
-    pub(super) fn accepts_metadata(&self, generation: u64) -> bool {
-        self.generation == generation
-    }
-
     fn set_expected_path(&mut self, path: Option<PathBuf>) {
         if path.is_some() {
             self.generation = self.generation.wrapping_add(1);
@@ -170,10 +166,10 @@ mod tests {
 
         state.begin_media_change(Some(PathBuf::from("first.mp3")));
         let first = state.generation();
-        assert!(state.accepts_metadata(first));
+        assert_eq!(state.generation(), first);
 
         state.expect_resume_for(Some(PathBuf::from("second.mp3")));
-        assert!(!state.accepts_metadata(first));
+        assert_ne!(state.generation(), first);
         assert_eq!(state.generation(), first + 1);
     }
 }

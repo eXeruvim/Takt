@@ -1,4 +1,5 @@
 pub mod audio_metadata;
+mod background_jobs;
 pub mod commands;
 pub mod equalizer;
 mod latest_worker;

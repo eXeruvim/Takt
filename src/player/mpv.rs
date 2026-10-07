@@ -6,11 +6,12 @@ use std::{
 
 use crate::ipc::{Command, Event, FrameStepDirection, RecentFileInfo};
 use crate::player::{
+    background_jobs::{BackgroundJobs, ReadyPlaylist},
     commands::{CommandReceiver, DISPATCH_BUDGET},
     equalizer::EqualizerSettings,
     limits::{PATH_TEXT_BYTES, UI_TEXT_BYTES, bounded_text},
     media_info::{MediaInfo, read_audio_tracks, read_chapters, read_subtitle_tracks},
-    metadata_worker::{MetadataResult, MetadataWorker},
+    metadata_worker::MetadataResult,
     mpv_adapter::{
         automatic_hwdec_mode, create as create_mpv, hwdec_is_enabled, mpv_error,
         observe_playback_properties, set_loaded_media_paused, video_background_color,
@@ -18,7 +19,6 @@ use crate::player::{
     playback_diagnostics::PlaybackDiagnostics,
     playback_state::PlaybackState,
     playlist::DirectoryPlaylist,
-    playlist_worker::{PlaylistRequest, PlaylistWorker},
     session_store::SessionStore,
 };
 use crate::render::mpv_opengl::MpvRenderSource;
@@ -680,10 +680,8 @@ fn send_property_change(tx: &Sender<Event>, name: &str, change: PropertyData<'_>
 
 pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     let mpv = create_mpv()?;
-    let metadata_wake = Arc::clone(&mpv);
-    let metadata_worker = MetadataWorker::new(move || metadata_wake.wakeup())?;
-    let playlist_wake = Arc::clone(&mpv);
-    let playlist_worker = PlaylistWorker::new(move || playlist_wake.wakeup())?;
+    let background_wake = Arc::clone(&mpv);
+    let background_jobs = BackgroundJobs::new(move || background_wake.wakeup())?;
     let mut playlist: Option<DirectoryPlaylist> = None;
     let mut options = PlaybackOptions::default();
     let mut playback_diagnostics = PlaybackDiagnostics::from_environment();
@@ -711,12 +709,6 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     playback_diagnostics.observe_properties(&mut events);
 
     loop {
-        if let Some(result) = metadata_worker.take_result()
-            && playback_state.accepts_metadata(result.generation)
-            && playlist.as_ref().and_then(DirectoryPlaylist::current_path) == Some(&result.path)
-        {
-            send_audio_metadata(result, &tx);
-        }
         let mut dispatched_commands = 0;
         for _ in 0..DISPATCH_BUDGET {
             let Some(command) = rx.try_recv(true) else {
@@ -725,8 +717,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
             dispatched_commands += 1;
             let command = match command {
                 Command::OpenFile(path) => {
-                    playlist_worker.cancel();
-                    metadata_worker.cancel();
+                    background_jobs.cancel_all();
                     match DirectoryPlaylist::from_file(&path).and_then(|next_playlist| {
                         activate_playlist(&mpv, &tx, &mut playlist, next_playlist, options.shuffled)
                     }) {
@@ -737,7 +728,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                                 .and_then(DirectoryPlaylist::current_path)
                                 .cloned();
                             playback_state.begin_media_change(current_path);
-                            playlist_worker.expand_file(playback_state.generation(), path);
+                            background_jobs.expand_file(playback_state.generation(), path);
                         }
                         Err(error) => {
                             options.media_available = false;
@@ -748,7 +739,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     continue;
                 }
                 Command::OpenFolder(path) => {
-                    playlist_worker.open_directory(path);
+                    background_jobs.open_directory(path);
                     continue;
                 }
                 command => command,
@@ -818,7 +809,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     | Command::RemoveIndex(_)
             );
             if changes_media || matches!(&command, Command::Stop) {
-                playlist_worker.cancel();
+                background_jobs.cancel_playlist();
             }
             if matches!(&command, Command::Stop) {
                 playback_state.cancel_resume();
@@ -843,7 +834,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                             .then_some(current_media_path)
                             .flatten();
                         if expected_resume_path.is_some() {
-                            metadata_worker.cancel();
+                            background_jobs.cancel_metadata();
                         }
                         playback_state.begin_media_change(expected_resume_path);
                     }
@@ -857,7 +848,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                 Err(error) => {
                     eprintln!("Ошибка команды mpv: {error:#}");
                     if changes_media {
-                        metadata_worker.cancel();
+                        background_jobs.cancel_metadata();
                         playback_state.media_change_failed();
                         options.media_available = false;
                         send_playback_failed(&tx, error.to_string());
@@ -868,34 +859,33 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
             }
         }
 
-        if let Some(result) = playlist_worker.take_result() {
-            match result.request {
-                PlaylistRequest::FileExpansion { generation, path } => {
-                    if playback_state.accepts_metadata(generation)
-                        && playlist.as_ref().and_then(DirectoryPlaylist::current_path)
-                            == Some(&path)
-                    {
-                        match result.playlist {
-                            Ok(next_playlist) => replace_playlist_without_reload(
-                                &tx,
-                                &mut playlist,
-                                next_playlist,
-                                options.shuffled,
-                            ),
-                            Err(error) => {
-                                let _ = tx.send(Event::Error(bounded_text(
-                                    &format!("Не удалось дополнить очередь: {error:#}"),
-                                    UI_TEXT_BYTES,
-                                )));
-                            }
-                        }
+        let current_path = playlist
+            .as_ref()
+            .and_then(DirectoryPlaylist::current_path)
+            .map(|path| path.as_path());
+        let ready_background =
+            background_jobs.take_ready(playback_state.generation(), current_path);
+        if let Some(result) = ready_background.playlist {
+            match result {
+                ReadyPlaylist::FileExpansion(result) => match result {
+                    Ok(next_playlist) => replace_playlist_without_reload(
+                        &tx,
+                        &mut playlist,
+                        next_playlist,
+                        options.shuffled,
+                    ),
+                    Err(error) => {
+                        let _ = tx.send(Event::Error(bounded_text(
+                            &format!("Не удалось дополнить очередь: {error:#}"),
+                            UI_TEXT_BYTES,
+                        )));
                     }
-                }
-                PlaylistRequest::Directory(_) => match result.playlist.and_then(|next_playlist| {
+                },
+                ReadyPlaylist::Directory(result) => match result.and_then(|next_playlist| {
                     activate_playlist(&mpv, &tx, &mut playlist, next_playlist, options.shuffled)
                 }) {
                     Ok(()) => {
-                        metadata_worker.cancel();
+                        background_jobs.cancel_metadata();
                         options.media_available = true;
                         playback_state.begin_media_change(
                             playlist
@@ -905,13 +895,16 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                         );
                     }
                     Err(error) => {
-                        metadata_worker.cancel();
+                        background_jobs.cancel_metadata();
                         options.media_available = false;
                         playback_state.media_change_failed();
                         send_playback_failed(&tx, error.to_string());
                     }
                 },
             }
+        }
+        if let Some(result) = ready_background.metadata {
+            send_audio_metadata(result, &tx);
         }
 
         // With no command to dispatch, block until mpv has work, a producer
@@ -980,7 +973,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                         && let Some(path) =
                             playlist.as_ref().and_then(DirectoryPlaylist::current_path)
                     {
-                        metadata_worker.request(playback_state.generation(), path.clone());
+                        background_jobs.request_metadata(playback_state.generation(), path.clone());
                     }
                     if let Some(position) = resume_position {
                         let _ = tx.send(Event::ResumeAvailable(position));
@@ -994,7 +987,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     match load_adjacent(&mpv, &tx, &mut playlist, true, options.repeat_folder) {
                         Ok(true) => {
                             options.media_available = true;
-                            metadata_worker.cancel();
+                            background_jobs.cancel_metadata();
                             playback_state.expect_resume_for(
                                 playlist
                                     .as_ref()
@@ -1016,7 +1009,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     match skip_failed_current(&mpv, &tx, &mut playlist, options.repeat_folder) {
                         Ok(true) => {
                             options.media_available = true;
-                            metadata_worker.cancel();
+                            background_jobs.cancel_metadata();
                             playback_state.expect_resume_for(
                                 playlist
                                     .as_ref()
