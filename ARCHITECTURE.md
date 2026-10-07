@@ -28,6 +28,8 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
   регистрация наблюдаемых свойств и платформенные значения параметров;
 - `src/player/playback_diagnostics.rs` — опциональные счётчики libmpv,
   включаемые переменной окружения, и владение диагностическим отчётом;
+- `src/player/playback_state.rs` — явные переходы ожидания позиции продолжения
+  и подавления повторной записи очищенной истории;
 - `src/player/playlist.rs` — обнаружение и сортировка видео и аудио в папке;
 - `src/player/media_info.rs` — чтение свойств медиа;
 - `src/player/session_store.rs` — модель истории/позиций и один ограниченный

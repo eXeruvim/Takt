@@ -16,6 +16,7 @@ use crate::player::{
         observe_playback_properties, set_loaded_media_paused, video_background_color,
     },
     playback_diagnostics::PlaybackDiagnostics,
+    playback_state::PlaybackState,
     playlist::DirectoryPlaylist,
     session_store::SessionStore,
 };
@@ -699,17 +700,11 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
         let _ = tx.send(Event::Error(message));
     }
     let mut last_session_save = Instant::now();
-    let mut pending_resume_path: Option<PathBuf> = None;
-    let mut pending_resume: Option<(PathBuf, f64)> = None;
-    // Clearing local data must not be undone a few milliseconds later by a
-    // time-pos event from the media that was already playing. A newly loaded
-    // item starts a fresh history session and lifts this suppression.
-    let mut position_recording_suppressed_for: Option<PathBuf> = None;
+    let mut playback_state = PlaybackState::default();
     let mut events = mpv.create_event_context();
     // Windows starts with vid=no, so audio and metadata probing do not require
-    // a render target. A real video track asks the UI for one and RenderApiReady
-    // enables vid=auto afterwards.
-    let mut output_ready = true;
+    // a render target. Media commands therefore do not wait for RenderApiReady;
+    // a real video track asks the UI for one and enables vid=auto afterwards.
 
     let wake_mpv = Arc::clone(&mpv);
     rx.install_waker(move || wake_mpv.wakeup());
@@ -725,16 +720,15 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     loop {
         let mut dispatched_commands = 0;
         for _ in 0..DISPATCH_BUDGET {
-            let Some(command) = rx.try_recv(output_ready) else {
+            let Some(command) = rx.try_recv(true) else {
                 break;
             };
             dispatched_commands += 1;
             if let Command::ResolveResume(continue_saved) = &command {
                 let resolution = (|| -> anyhow::Result<()> {
-                    let Some((path, position)) = pending_resume.take() else {
+                    let Some((path, position)) = playback_state.take_resume_choice() else {
                         return Ok(());
                     };
-                    pending_resume_path = None;
                     let current_path = playlist.as_ref().and_then(DirectoryPlaylist::current_path);
                     if current_path != Some(&path) {
                         return Ok(());
@@ -761,12 +755,12 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
             }
 
             if matches!(&command, Command::ClearPlaybackData) {
-                pending_resume = None;
-                pending_resume_path = None;
-                position_recording_suppressed_for = playlist
-                    .as_ref()
-                    .and_then(DirectoryPlaylist::current_path)
-                    .cloned();
+                playback_state.suppress_position_recording_for(
+                    playlist
+                        .as_ref()
+                        .and_then(DirectoryPlaylist::current_path)
+                        .cloned(),
+                );
                 match session.clear_playback_data() {
                     Ok(()) => {
                         send_recent_files(&tx, &session);
@@ -800,8 +794,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     | Command::RemoveIndex(_)
             );
             if matches!(&command, Command::Stop) {
-                pending_resume = None;
-                pending_resume_path = None;
+                playback_state.cancel_resume();
                 if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path) {
                     session.clear_position(path);
                     save_session(&tx, &mut session);
@@ -811,25 +804,18 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                 flush_session(&tx, &mut session);
             }
 
-            let makes_output_ready = matches!(
-                &command,
-                Command::RenderApiReady | Command::SetVideoWindow(_)
-            );
             match handle_command(command, &mpv, &tx, &mut playlist, &mut options) {
                 Ok(true) => {
                     if changes_media {
-                        position_recording_suppressed_for = None;
-                        pending_resume = None;
                         let current_media_path = playlist
                             .as_ref()
                             .and_then(DirectoryPlaylist::current_path)
                             .cloned();
-                        if reloads_selected_file || current_media_path != previous_media_path {
-                            pending_resume_path = current_media_path;
-                        }
-                    }
-                    if makes_output_ready && !output_ready {
-                        output_ready = true;
+                        let expected_resume_path = (reloads_selected_file
+                            || current_media_path != previous_media_path)
+                            .then_some(current_media_path)
+                            .flatten();
+                        playback_state.begin_media_change(expected_resume_path);
                     }
                 }
                 Ok(false) => {
@@ -841,8 +827,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                 Err(error) => {
                     eprintln!("Ошибка команды mpv: {error:#}");
                     if changes_media {
-                        pending_resume = None;
-                        pending_resume_path = None;
+                        playback_state.media_change_failed();
                         options.media_available = false;
                         send_playback_failed(&tx, error.to_string());
                     } else {
@@ -883,20 +868,17 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     let mut resume_position = None;
                     if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path)
                     {
-                        if position_recording_suppressed_for.as_deref() != Some(path) {
-                            position_recording_suppressed_for = None;
-                        }
+                        playback_state.file_loaded(path);
                         let duration = mpv.get_property::<f64>("duration").unwrap_or_default();
                         if let Some(position) = session.resume_position(path, duration)
                             && set_loaded_media_paused(&mpv, true).is_ok()
                         {
-                            pending_resume = Some((path.clone(), position));
+                            playback_state.offer_resume(path.clone(), position);
                             resume_position = Some(position);
                         }
                     }
                     if resume_position.is_none() {
-                        pending_resume_path = None;
-                        pending_resume = None;
+                        playback_state.finish_loading_without_resume();
                         // pause is a persistent mpv property and can survive a
                         // stopped, paused, or completed item. A newly selected
                         // file must autoplay unless Oxide is deliberately
@@ -907,8 +889,8 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                             )));
                         }
                     }
-                    if playlist.as_ref().and_then(DirectoryPlaylist::current_path)
-                        != position_recording_suppressed_for.as_ref()
+                    if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path)
+                        && playback_state.should_record_media(path)
                     {
                         record_current_media(&tx, &playlist, &mut session);
                     }
@@ -935,11 +917,12 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     match load_adjacent(&mpv, &tx, &mut playlist, true, options.repeat_folder) {
                         Ok(true) => {
                             options.media_available = true;
-                            pending_resume = None;
-                            pending_resume_path = playlist
-                                .as_ref()
-                                .and_then(DirectoryPlaylist::current_path)
-                                .cloned();
+                            playback_state.expect_resume_for(
+                                playlist
+                                    .as_ref()
+                                    .and_then(DirectoryPlaylist::current_path)
+                                    .cloned(),
+                            );
                         }
                         Ok(false) => {
                             options.media_available = false;
@@ -955,11 +938,12 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     match skip_failed_current(&mpv, &tx, &mut playlist, options.repeat_folder) {
                         Ok(true) => {
                             options.media_available = true;
-                            pending_resume = None;
-                            pending_resume_path = playlist
-                                .as_ref()
-                                .and_then(DirectoryPlaylist::current_path)
-                                .cloned();
+                            playback_state.expect_resume_for(
+                                playlist
+                                    .as_ref()
+                                    .and_then(DirectoryPlaylist::current_path)
+                                    .cloned(),
+                            );
                         }
                         Ok(false) => {
                             options.media_available = false;
@@ -988,8 +972,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                         let duration = mpv.get_property::<f64>("duration").unwrap_or_default();
                         if let Some(path) =
                             playlist.as_ref().and_then(DirectoryPlaylist::current_path)
-                            && pending_resume_path.as_deref() != Some(path)
-                            && position_recording_suppressed_for.as_deref() != Some(path)
+                            && playback_state.should_record_position(path)
                         {
                             session.record_position(path, position, duration);
                         }
