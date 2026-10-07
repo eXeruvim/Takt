@@ -12,6 +12,7 @@ Slint UI -> ipc::Command -> player::mpv -> libmpv
 Slint UI <- ipc::Event   <- player::mpv <- libmpv events
 
 player::mpv -> bounded session snapshot -> storage writer
+player::mpv -> latest metadata request -> cancellable metadata worker
 
 Slint UI -> converter::ConverterCommand -> converter -> FFmpeg process
 Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
@@ -32,6 +33,8 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
   и подавления повторной записи очищенной истории;
 - `src/player/playlist.rs` — обнаружение и сортировка видео и аудио в папке;
 - `src/player/media_info.rs` — чтение свойств медиа;
+- `src/player/metadata_worker.rs` — один ограниченный worker чтения аудиотегов
+  и обложки с отменой текущей работы и заменой ожидающей заявки;
 - `src/player/session_store.rs` — модель истории/позиций и один ограниченный
   фоновый writer; очистка и shutdown используют подтверждённый flush;
 - `src/player/shortcuts.rs` — типизированные действия, физические сочетания,

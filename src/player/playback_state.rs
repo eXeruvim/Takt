@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 pub(super) struct PlaybackState {
     resume: ResumeState,
     position_recording_suppressed_for: Option<PathBuf>,
+    generation: u64,
 }
 
 #[derive(Debug, Default)]
@@ -22,9 +23,7 @@ enum ResumeState {
 impl PlaybackState {
     pub(super) fn begin_media_change(&mut self, expected_path: Option<PathBuf>) {
         self.position_recording_suppressed_for = None;
-        self.resume = expected_path
-            .map(ResumeState::Loading)
-            .unwrap_or(ResumeState::Inactive);
+        self.set_expected_path(expected_path);
     }
 
     pub(super) fn media_change_failed(&mut self) {
@@ -32,9 +31,7 @@ impl PlaybackState {
     }
 
     pub(super) fn expect_resume_for(&mut self, path: Option<PathBuf>) {
-        self.resume = path
-            .map(ResumeState::Loading)
-            .unwrap_or(ResumeState::Inactive);
+        self.set_expected_path(path);
     }
 
     pub(super) fn offer_resume(&mut self, path: PathBuf, position: f64) {
@@ -81,6 +78,23 @@ impl PlaybackState {
             ResumeState::Inactive => false,
         };
         !resume_blocks_path && self.should_record_media(path)
+    }
+
+    pub(super) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub(super) fn accepts_metadata(&self, generation: u64) -> bool {
+        self.generation == generation
+    }
+
+    fn set_expected_path(&mut self, path: Option<PathBuf>) {
+        if path.is_some() {
+            self.generation = self.generation.wrapping_add(1);
+        }
+        self.resume = path
+            .map(ResumeState::Loading)
+            .unwrap_or(ResumeState::Inactive);
     }
 }
 
@@ -144,5 +158,22 @@ mod tests {
 
         assert!(!state.should_record_position(&current));
         assert!(state.should_record_position(&next));
+    }
+
+    #[test]
+    fn generation_changes_only_when_a_file_load_is_expected() {
+        let mut state = PlaybackState::default();
+        assert_eq!(state.generation(), 0);
+
+        state.begin_media_change(None);
+        assert_eq!(state.generation(), 0);
+
+        state.begin_media_change(Some(PathBuf::from("first.mp3")));
+        let first = state.generation();
+        assert!(state.accepts_metadata(first));
+
+        state.expect_resume_for(Some(PathBuf::from("second.mp3")));
+        assert!(!state.accepts_metadata(first));
+        assert_eq!(state.generation(), first + 1);
     }
 }

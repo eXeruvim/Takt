@@ -2,6 +2,10 @@ use std::{
     fs::File,
     io::{self, BufReader, Cursor, Read, Seek, SeekFrom},
     path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use image::{ImageReader, Limits};
@@ -25,19 +29,42 @@ use crate::player::limits::{UI_TEXT_BYTES, bounded_text};
 struct ReadBudget<R> {
     inner: R,
     remaining: u64,
+    cancelled: Option<Arc<AtomicBool>>,
 }
 
 impl<R> ReadBudget<R> {
+    #[cfg(test)]
     fn new(inner: R, limit: u64) -> Self {
         Self {
             inner,
             remaining: limit,
+            cancelled: None,
         }
+    }
+
+    fn cancellable(inner: R, limit: u64, cancelled: Arc<AtomicBool>) -> Self {
+        Self {
+            inner,
+            remaining: limit,
+            cancelled: Some(cancelled),
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled
+            .as_ref()
+            .is_some_and(|cancelled| cancelled.load(Ordering::Acquire))
     }
 }
 
 impl<R: Read> Read for ReadBudget<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.is_cancelled() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "Чтение метаданных отменено",
+            ));
+        }
         if buffer.is_empty() {
             return Ok(0);
         }
@@ -56,6 +83,12 @@ impl<R: Read> Read for ReadBudget<R> {
 
 impl<R: Seek> Seek for ReadBudget<R> {
     fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        if self.is_cancelled() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "Чтение метаданных отменено",
+            ));
+        }
         self.inner.seek(position)
     }
 }
@@ -76,7 +109,10 @@ pub struct DecodedArtwork {
 }
 
 impl AudioMetadata {
-    pub fn read(path: &Path) -> Self {
+    pub(super) fn read_cancellable(path: &Path, cancelled: Arc<AtomicBool>) -> Option<Self> {
+        if cancelled.load(Ordering::Acquire) {
+            return None;
+        }
         // Lofty's allocation limit is per tag item and thread-local. The reader
         // budget additionally limits cumulative bytes consumed across all items.
         apply_global_options(
@@ -86,19 +122,27 @@ impl AudioMetadata {
                 .use_custom_resolvers(false),
         );
         let Ok(file) = File::open(path) else {
-            return Self::default();
+            return Some(Self::default());
         };
-        let reader = BufReader::new(ReadBudget::new(file, METADATA_READ_MAX_BYTES));
+        let reader = BufReader::new(ReadBudget::cancellable(
+            file,
+            METADATA_READ_MAX_BYTES,
+            Arc::clone(&cancelled),
+        ));
         let probe = Probe::new(reader);
         let Ok(probe) = probe.guess_file_type() else {
-            return Self::default();
+            return (!cancelled.load(Ordering::Acquire)).then(Self::default);
         };
         let Ok(tagged_file) = probe
             .options(ParseOptions::new().read_properties(false))
             .read()
         else {
-            return Self::default();
+            return (!cancelled.load(Ordering::Acquire)).then(Self::default);
         };
+
+        if cancelled.load(Ordering::Acquire) {
+            return None;
+        }
 
         let tag = tagged_file
             .primary_tag()
@@ -117,12 +161,13 @@ impl AudioMetadata {
             .unwrap_or_default();
         let artwork = select_artwork(tagged_file.tags()).and_then(decode_artwork);
 
-        Self {
+        let metadata = Self {
             title,
             artist,
             album,
             artwork,
-        }
+        };
+        (!cancelled.load(Ordering::Acquire)).then_some(metadata)
     }
 }
 
@@ -189,6 +234,21 @@ mod tests {
         assert_eq!(
             reader.read(&mut bytes).unwrap_err().kind(),
             io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn cancelled_reader_stops_before_reading_or_seeking() {
+        let cancelled = Arc::new(AtomicBool::new(true));
+        let mut reader = ReadBudget::cancellable(Cursor::new(*b"0123"), 4, cancelled);
+        let mut byte = [0; 1];
+        assert_eq!(
+            reader.read(&mut byte).unwrap_err().kind(),
+            io::ErrorKind::Interrupted
+        );
+        assert_eq!(
+            reader.seek(SeekFrom::Start(0)).unwrap_err().kind(),
+            io::ErrorKind::Interrupted
         );
     }
 

@@ -3,6 +3,7 @@ pub mod commands;
 pub mod equalizer;
 pub mod limits;
 pub mod media_info;
+mod metadata_worker;
 pub mod mpv;
 mod mpv_adapter;
 mod playback_diagnostics;

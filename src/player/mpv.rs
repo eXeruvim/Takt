@@ -6,11 +6,11 @@ use std::{
 
 use crate::ipc::{Command, Event, FrameStepDirection, RecentFileInfo};
 use crate::player::{
-    audio_metadata::AudioMetadata,
     commands::{CommandReceiver, DISPATCH_BUDGET},
     equalizer::EqualizerSettings,
     limits::{PATH_TEXT_BYTES, UI_TEXT_BYTES, bounded_text},
     media_info::{MediaInfo, read_audio_tracks, read_chapters, read_subtitle_tracks},
+    metadata_worker::{MetadataResult, MetadataWorker},
     mpv_adapter::{
         automatic_hwdec_mode, create as create_mpv, hwdec_is_enabled, mpv_error,
         observe_playback_properties, set_loaded_media_paused, video_background_color,
@@ -211,8 +211,8 @@ fn send_media_ready(mpv: &Mpv, tx: &Sender<Event>) -> MediaInfo {
     info
 }
 
-fn send_audio_metadata(path: &Path, tx: &Sender<Event>) {
-    let metadata = AudioMetadata::read(path);
+fn send_audio_metadata(result: MetadataResult, tx: &Sender<Event>) {
+    let metadata = result.metadata;
     let (artwork_rgba, artwork_width, artwork_height) = metadata
         .artwork
         .map(|artwork| (artwork.rgba, artwork.width, artwork.height))
@@ -691,6 +691,8 @@ fn send_property_change(tx: &Sender<Event>, name: &str, change: PropertyData<'_>
 
 pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     let mpv = create_mpv()?;
+    let metadata_wake = Arc::clone(&mpv);
+    let metadata_worker = MetadataWorker::new(move || metadata_wake.wakeup())?;
     let mut playlist: Option<DirectoryPlaylist> = None;
     let mut options = PlaybackOptions::default();
     let mut playback_diagnostics = PlaybackDiagnostics::from_environment();
@@ -718,6 +720,12 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     playback_diagnostics.observe_properties(&mut events);
 
     loop {
+        if let Some(result) = metadata_worker.take_result()
+            && playback_state.accepts_metadata(result.generation)
+            && playlist.as_ref().and_then(DirectoryPlaylist::current_path) == Some(&result.path)
+        {
+            send_audio_metadata(result, &tx);
+        }
         let mut dispatched_commands = 0;
         for _ in 0..DISPATCH_BUDGET {
             let Some(command) = rx.try_recv(true) else {
@@ -815,6 +823,9 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                             || current_media_path != previous_media_path)
                             .then_some(current_media_path)
                             .flatten();
+                        if expected_resume_path.is_some() {
+                            metadata_worker.cancel();
+                        }
                         playback_state.begin_media_change(expected_resume_path);
                     }
                 }
@@ -827,6 +838,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                 Err(error) => {
                     eprintln!("Ошибка команды mpv: {error:#}");
                     if changes_media {
+                        metadata_worker.cancel();
                         playback_state.media_change_failed();
                         options.media_available = false;
                         send_playback_failed(&tx, error.to_string());
@@ -903,7 +915,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                         && let Some(path) =
                             playlist.as_ref().and_then(DirectoryPlaylist::current_path)
                     {
-                        send_audio_metadata(path, &tx);
+                        metadata_worker.request(playback_state.generation(), path.clone());
                     }
                     if let Some(position) = resume_position {
                         let _ = tx.send(Event::ResumeAvailable(position));
@@ -917,6 +929,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     match load_adjacent(&mpv, &tx, &mut playlist, true, options.repeat_folder) {
                         Ok(true) => {
                             options.media_available = true;
+                            metadata_worker.cancel();
                             playback_state.expect_resume_for(
                                 playlist
                                     .as_ref()
@@ -938,6 +951,7 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                     match skip_failed_current(&mpv, &tx, &mut playlist, options.repeat_folder) {
                         Ok(true) => {
                             options.media_available = true;
+                            metadata_worker.cancel();
                             playback_state.expect_resume_for(
                                 playlist
                                     .as_ref()
