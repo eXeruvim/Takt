@@ -2,6 +2,7 @@ use std::{
     cmp::Ordering,
     fs,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -52,7 +53,32 @@ pub struct DirectoryPlaylist {
 }
 
 impl DirectoryPlaylist {
-    pub fn load_from_path(path: &Path) -> Result<Self> {
+    pub(super) fn from_file(path: &Path) -> Result<Self> {
+        if !path.is_file() {
+            bail!("Файл не найден: {}", path.display());
+        }
+        if !is_media_file(path) {
+            bail!("Неподдерживаемый формат медиа: {}", path.display());
+        }
+        let mut files = PlaylistAccumulator::new(PLAYLIST_LIMITS);
+        if !files.push(path.to_path_buf()) {
+            bail!("Путь открываемого файла превышает безопасный размер очереди");
+        }
+        let files = files.finish();
+        Ok(Self {
+            files: files.files,
+            current_index: 0,
+            omitted_count: files.omitted_count,
+        })
+    }
+
+    pub(super) fn load_from_path_cancellable(
+        path: &Path,
+        cancelled: &AtomicBool,
+    ) -> Result<Option<Self>> {
+        if cancelled.load(AtomicOrdering::Acquire) {
+            return Ok(None);
+        }
         if !path.is_file() {
             bail!("Файл не найден: {}", path.display());
         }
@@ -66,21 +92,30 @@ impl DirectoryPlaylist {
         let PlaylistFiles {
             files,
             omitted_count,
-        } = read_media_files(directory, Some(path))?;
+        } = match read_media_files(directory, Some(path), cancelled)? {
+            Some(files) => files,
+            None => return Ok(None),
+        };
 
         let current_index = files
             .iter()
             .position(|candidate| candidate == path)
             .context("Открытый файл отсутствует в сформированном плейлисте")?;
 
-        Ok(Self {
+        Ok(Some(Self {
             files,
             current_index,
             omitted_count,
-        })
+        }))
     }
 
-    pub fn load_from_directory(directory: &Path) -> Result<Self> {
+    pub(super) fn load_from_directory_cancellable(
+        directory: &Path,
+        cancelled: &AtomicBool,
+    ) -> Result<Option<Self>> {
+        if cancelled.load(AtomicOrdering::Acquire) {
+            return Ok(None);
+        }
         if !directory.is_dir() {
             bail!("Папка не найдена: {}", directory.display());
         }
@@ -88,7 +123,10 @@ impl DirectoryPlaylist {
         let PlaylistFiles {
             files,
             omitted_count,
-        } = read_media_files(directory, None)?;
+        } = match read_media_files(directory, None, cancelled)? {
+            Some(files) => files,
+            None => return Ok(None),
+        };
         if files.is_empty() {
             bail!(
                 "В папке нет поддерживаемых видео или аудио: {}",
@@ -96,11 +134,11 @@ impl DirectoryPlaylist {
             );
         }
 
-        Ok(Self {
+        Ok(Some(Self {
             files,
             current_index: 0,
             omitted_count,
-        })
+        }))
     }
 
     pub fn current_path(&self) -> Option<&PathBuf> {
@@ -299,11 +337,19 @@ impl PlaylistAccumulator {
     }
 }
 
-fn read_media_files(directory: &Path, priority: Option<&Path>) -> Result<PlaylistFiles> {
-    Ok(scan_media_files(directory, priority)?.finish())
+fn read_media_files(
+    directory: &Path,
+    priority: Option<&Path>,
+    cancelled: &AtomicBool,
+) -> Result<Option<PlaylistFiles>> {
+    Ok(scan_media_files(directory, priority, cancelled)?.map(PlaylistAccumulator::finish))
 }
 
-fn scan_media_files(directory: &Path, priority: Option<&Path>) -> Result<PlaylistAccumulator> {
+fn scan_media_files(
+    directory: &Path,
+    priority: Option<&Path>,
+    cancelled: &AtomicBool,
+) -> Result<Option<PlaylistAccumulator>> {
     let mut files = PlaylistAccumulator::new(PLAYLIST_LIMITS);
     if let Some(priority) = priority
         && !files.push(priority.to_path_buf())
@@ -315,6 +361,9 @@ fn scan_media_files(directory: &Path, priority: Option<&Path>) -> Result<Playlis
         .with_context(|| format!("Не удалось прочитать папку: {}", directory.display()))?
         .flatten()
     {
+        if cancelled.load(AtomicOrdering::Acquire) {
+            return Ok(None);
+        }
         let candidate = entry.path();
         if priority.is_some_and(|priority| candidate == priority) {
             continue;
@@ -330,7 +379,10 @@ fn scan_media_files(directory: &Path, priority: Option<&Path>) -> Result<Playlis
         }
     }
 
-    Ok(files)
+    if cancelled.load(AtomicOrdering::Acquire) {
+        return Ok(None);
+    }
+    Ok(Some(files))
 }
 
 fn playlist_labels(files: &[PathBuf]) -> Vec<String> {
@@ -354,7 +406,9 @@ fn sort_paths_naturally(files: &mut [PathBuf]) {
 #[cfg(feature = "benchmark-tools")]
 #[allow(dead_code)]
 pub(crate) fn benchmark_scan_media_files(directory: &Path) -> Result<(Vec<PathBuf>, usize)> {
-    let files = scan_media_files(directory, None)?;
+    let cancelled = AtomicBool::new(false);
+    let files = scan_media_files(directory, None, &cancelled)?
+        .context("Benchmark scan was unexpectedly cancelled")?;
     Ok((files.files, files.omitted_count))
 }
 
@@ -586,8 +640,14 @@ mod tests {
             fs::write(directory.join(name), []).expect("temporary file must be created");
         }
 
-        let playlist = DirectoryPlaylist::load_from_directory(&directory)
-            .expect("directory with videos must produce a playlist");
+        let single = DirectoryPlaylist::from_file(&directory.join("video10.mp4"))
+            .expect("an existing supported file must open immediately");
+        assert_eq!(single.items(), ["video10.mp4"]);
+
+        let playlist =
+            DirectoryPlaylist::load_from_directory_cancellable(&directory, &AtomicBool::new(false))
+                .expect("directory with videos must produce a playlist")
+                .expect("ordinary test scan must not be cancelled");
 
         assert_eq!(
             playlist.items(),
@@ -602,6 +662,17 @@ mod tests {
         );
 
         fs::remove_dir_all(directory).expect("temporary playlist directory must be removed");
+    }
+
+    #[test]
+    fn cancelled_scan_returns_without_touching_the_directory() {
+        let cancelled = AtomicBool::new(true);
+        let result = DirectoryPlaylist::load_from_directory_cancellable(
+            Path::new("directory-that-must-not-be-read"),
+            &cancelled,
+        )
+        .expect("cancellation is not a filesystem error");
+        assert!(result.is_none());
     }
 
     #[test]

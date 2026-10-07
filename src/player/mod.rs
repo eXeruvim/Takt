@@ -9,5 +9,6 @@ mod mpv_adapter;
 mod playback_diagnostics;
 mod playback_state;
 pub mod playlist;
+mod playlist_worker;
 pub mod session_store;
 pub mod shortcuts;

@@ -1,5 +1,5 @@
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -18,6 +18,7 @@ use crate::player::{
     playback_diagnostics::PlaybackDiagnostics,
     playback_state::PlaybackState,
     playlist::DirectoryPlaylist,
+    playlist_worker::{PlaylistRequest, PlaylistWorker},
     session_store::SessionStore,
 };
 use crate::render::mpv_opengl::MpvRenderSource;
@@ -239,28 +240,6 @@ fn load_file_in_mpv(mpv: &Mpv, path: &Path) -> anyhow::Result<()> {
         .with_context(|| format!("Не удалось открыть медиафайл: {}", path.display()))
 }
 
-fn load_path(
-    mpv: &Mpv,
-    tx: &Sender<Event>,
-    playlist: &mut Option<DirectoryPlaylist>,
-    path: PathBuf,
-    shuffled: bool,
-) -> anyhow::Result<()> {
-    let next_playlist = DirectoryPlaylist::load_from_path(&path)?;
-    activate_playlist(mpv, tx, playlist, next_playlist, shuffled)
-}
-
-fn load_directory(
-    mpv: &Mpv,
-    tx: &Sender<Event>,
-    playlist: &mut Option<DirectoryPlaylist>,
-    directory: &Path,
-    shuffled: bool,
-) -> anyhow::Result<()> {
-    let next_playlist = DirectoryPlaylist::load_from_directory(directory)?;
-    activate_playlist(mpv, tx, playlist, next_playlist, shuffled)
-}
-
 fn activate_playlist(
     mpv: &Mpv,
     tx: &Sender<Event>,
@@ -276,6 +255,21 @@ fn activate_playlist(
         let _ = tx.send(Event::Error(message));
     }
     Ok(())
+}
+
+fn replace_playlist_without_reload(
+    tx: &Sender<Event>,
+    playlist: &mut Option<DirectoryPlaylist>,
+    mut next_playlist: DirectoryPlaylist,
+    shuffled: bool,
+) {
+    let limit_notice = next_playlist.limit_notice();
+    next_playlist.set_shuffled(shuffled);
+    send_playlist(tx, &next_playlist);
+    *playlist = Some(next_playlist);
+    if let Some(message) = limit_notice {
+        let _ = tx.send(Event::Error(message));
+    }
 }
 
 fn load_current(mpv: &Mpv, tx: &Sender<Event>, playlist: &DirectoryPlaylist) -> anyhow::Result<()> {
@@ -394,13 +388,8 @@ fn handle_command(
     options: &mut PlaybackOptions,
 ) -> anyhow::Result<bool> {
     match command {
-        Command::OpenFile(path) => {
-            load_path(mpv, tx, playlist, path, options.shuffled)?;
-            options.media_available = true;
-        }
-        Command::OpenFolder(path) => {
-            load_directory(mpv, tx, playlist, &path, options.shuffled)?;
-            options.media_available = true;
+        Command::OpenFile(_) | Command::OpenFolder(_) => {
+            anyhow::bail!("Команда открытия не была передана worker формирования очереди");
         }
         Command::TogglePlay => {
             if !options.media_available {
@@ -693,6 +682,8 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     let mpv = create_mpv()?;
     let metadata_wake = Arc::clone(&mpv);
     let metadata_worker = MetadataWorker::new(move || metadata_wake.wakeup())?;
+    let playlist_wake = Arc::clone(&mpv);
+    let playlist_worker = PlaylistWorker::new(move || playlist_wake.wakeup())?;
     let mut playlist: Option<DirectoryPlaylist> = None;
     let mut options = PlaybackOptions::default();
     let mut playback_diagnostics = PlaybackDiagnostics::from_environment();
@@ -732,6 +723,36 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                 break;
             };
             dispatched_commands += 1;
+            let command = match command {
+                Command::OpenFile(path) => {
+                    playlist_worker.cancel();
+                    metadata_worker.cancel();
+                    match DirectoryPlaylist::from_file(&path).and_then(|next_playlist| {
+                        activate_playlist(&mpv, &tx, &mut playlist, next_playlist, options.shuffled)
+                    }) {
+                        Ok(()) => {
+                            options.media_available = true;
+                            let current_path = playlist
+                                .as_ref()
+                                .and_then(DirectoryPlaylist::current_path)
+                                .cloned();
+                            playback_state.begin_media_change(current_path);
+                            playlist_worker.expand_file(playback_state.generation(), path);
+                        }
+                        Err(error) => {
+                            options.media_available = false;
+                            playback_state.media_change_failed();
+                            send_playback_failed(&tx, error.to_string());
+                        }
+                    }
+                    continue;
+                }
+                Command::OpenFolder(path) => {
+                    playlist_worker.open_directory(path);
+                    continue;
+                }
+                command => command,
+            };
             if let Command::ResolveResume(continue_saved) = &command {
                 let resolution = (|| -> anyhow::Result<()> {
                     let Some((path, position)) = playback_state.take_resume_choice() else {
@@ -788,19 +809,17 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                 .as_ref()
                 .and_then(DirectoryPlaylist::current_path)
                 .cloned();
-            let reloads_selected_file = matches!(
-                &command,
-                Command::OpenFile(_) | Command::OpenFolder(_) | Command::PlayIndex(_)
-            );
+            let reloads_selected_file = matches!(&command, Command::PlayIndex(_));
             let changes_media = matches!(
                 &command,
-                Command::OpenFile(_)
-                    | Command::OpenFolder(_)
-                    | Command::NextVideo
+                Command::NextVideo
                     | Command::PreviousVideo
                     | Command::PlayIndex(_)
                     | Command::RemoveIndex(_)
             );
+            if changes_media || matches!(&command, Command::Stop) {
+                playlist_worker.cancel();
+            }
             if matches!(&command, Command::Stop) {
                 playback_state.cancel_resume();
                 if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path) {
@@ -846,6 +865,52 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
                         let _ = tx.send(Event::Error(error.to_string()));
                     }
                 }
+            }
+        }
+
+        if let Some(result) = playlist_worker.take_result() {
+            match result.request {
+                PlaylistRequest::FileExpansion { generation, path } => {
+                    if playback_state.accepts_metadata(generation)
+                        && playlist.as_ref().and_then(DirectoryPlaylist::current_path)
+                            == Some(&path)
+                    {
+                        match result.playlist {
+                            Ok(next_playlist) => replace_playlist_without_reload(
+                                &tx,
+                                &mut playlist,
+                                next_playlist,
+                                options.shuffled,
+                            ),
+                            Err(error) => {
+                                let _ = tx.send(Event::Error(bounded_text(
+                                    &format!("Не удалось дополнить очередь: {error:#}"),
+                                    UI_TEXT_BYTES,
+                                )));
+                            }
+                        }
+                    }
+                }
+                PlaylistRequest::Directory(_) => match result.playlist.and_then(|next_playlist| {
+                    activate_playlist(&mpv, &tx, &mut playlist, next_playlist, options.shuffled)
+                }) {
+                    Ok(()) => {
+                        metadata_worker.cancel();
+                        options.media_available = true;
+                        playback_state.begin_media_change(
+                            playlist
+                                .as_ref()
+                                .and_then(DirectoryPlaylist::current_path)
+                                .cloned(),
+                        );
+                    }
+                    Err(error) => {
+                        metadata_worker.cancel();
+                        options.media_available = false;
+                        playback_state.media_change_failed();
+                        send_playback_failed(&tx, error.to_string());
+                    }
+                },
             }
         }
 
