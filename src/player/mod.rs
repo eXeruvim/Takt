@@ -1,6 +1,7 @@
 pub mod audio_metadata;
 pub mod commands;
 pub mod equalizer;
+mod latest_worker;
 pub mod limits;
 pub mod media_info;
 mod metadata_worker;

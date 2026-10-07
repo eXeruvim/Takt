@@ -2,18 +2,14 @@
 
 use std::{
     path::PathBuf,
-    sync::{
-        Arc, Condvar, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread::{self, JoinHandle},
+    sync::{Arc, atomic::AtomicBool},
 };
 
-use anyhow::Context;
+use crate::player::{
+    latest_worker::{LatestWorker, WakeCallback},
+    playlist::DirectoryPlaylist,
+};
 
-use crate::player::playlist::DirectoryPlaylist;
-
-type WakeCallback = Arc<dyn Fn() + Send + Sync + 'static>;
 type PlaylistLoader = Arc<
     dyn Fn(&PlaylistRequest, Arc<AtomicBool>) -> anyhow::Result<Option<DirectoryPlaylist>>
         + Send
@@ -31,22 +27,8 @@ pub(super) struct PlaylistResult {
     pub(super) playlist: anyhow::Result<DirectoryPlaylist>,
 }
 
-#[derive(Default)]
-struct WorkerState {
-    pending: Option<PlaylistRequest>,
-    completed: Option<PlaylistResult>,
-    active_cancel: Option<Arc<AtomicBool>>,
-    shutdown: bool,
-}
-
-struct Shared {
-    state: Mutex<WorkerState>,
-    ready: Condvar,
-}
-
 pub(super) struct PlaylistWorker {
-    shared: Arc<Shared>,
-    thread: Option<JoinHandle<()>>,
+    worker: LatestWorker<PlaylistRequest, PlaylistResult>,
 }
 
 impl PlaylistWorker {
@@ -65,18 +47,26 @@ impl PlaylistWorker {
     }
 
     fn with_loader(wake: WakeCallback, loader: PlaylistLoader) -> anyhow::Result<Self> {
-        let shared = Arc::new(Shared {
-            state: Mutex::new(WorkerState::default()),
-            ready: Condvar::new(),
-        });
-        let worker_shared = Arc::clone(&shared);
-        let thread = thread::Builder::new()
-            .name("oxide-playlist".to_owned())
-            .spawn(move || run_worker(worker_shared, wake, loader))
-            .context("Не удалось запустить поток формирования очереди")?;
         Ok(Self {
-            shared,
-            thread: Some(thread),
+            worker: LatestWorker::new(
+                "oxide-playlist",
+                "Не удалось запустить поток формирования очереди",
+                "Поток формирования очереди завершился с паникой",
+                wake,
+                Arc::new(move |request: PlaylistRequest, cancelled| {
+                    match loader(&request, cancelled) {
+                        Ok(Some(playlist)) => Some(PlaylistResult {
+                            request,
+                            playlist: Ok(playlist),
+                        }),
+                        Ok(None) => None,
+                        Err(error) => Some(PlaylistResult {
+                            request,
+                            playlist: Err(error),
+                        }),
+                    }
+                }),
+            )?,
         })
     }
 
@@ -89,132 +79,15 @@ impl PlaylistWorker {
     }
 
     pub(super) fn cancel(&self) {
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        cancel_state(&mut state);
+        self.worker.cancel();
     }
 
     pub(super) fn take_result(&self) -> Option<PlaylistResult> {
-        self.shared
-            .state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .completed
-            .take()
+        self.worker.take_result()
     }
 
     fn submit(&self, request: PlaylistRequest) {
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if state.shutdown {
-            return;
-        }
-        if let Some(cancelled) = state.active_cancel.as_ref() {
-            cancelled.store(true, Ordering::Release);
-        }
-        state.pending = Some(request);
-        state.completed = None;
-        self.shared.ready.notify_one();
-    }
-}
-
-impl Drop for PlaylistWorker {
-    fn drop(&mut self) {
-        {
-            let mut state = self
-                .shared
-                .state
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            state.shutdown = true;
-            cancel_state(&mut state);
-            self.shared.ready.notify_one();
-        }
-        if let Some(thread) = self.thread.take()
-            && thread.join().is_err()
-        {
-            eprintln!("Поток формирования очереди завершился с паникой");
-        }
-    }
-}
-
-fn cancel_state(state: &mut WorkerState) {
-    if let Some(cancelled) = state.active_cancel.as_ref() {
-        cancelled.store(true, Ordering::Release);
-    }
-    state.pending = None;
-    state.completed = None;
-}
-
-fn run_worker(shared: Arc<Shared>, wake: WakeCallback, loader: PlaylistLoader) {
-    loop {
-        let (request, cancelled) = {
-            let mut state = shared
-                .state
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            while state.pending.is_none() && !state.shutdown {
-                state = shared
-                    .ready
-                    .wait(state)
-                    .unwrap_or_else(|error| error.into_inner());
-            }
-            if state.shutdown {
-                return;
-            }
-            let request = state.pending.take().expect("pending request checked");
-            let cancelled = Arc::new(AtomicBool::new(false));
-            state.active_cancel = Some(Arc::clone(&cancelled));
-            (request, cancelled)
-        };
-
-        let result = loader(&request, Arc::clone(&cancelled));
-        let should_wake = {
-            let mut state = shared
-                .state
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            if state
-                .active_cancel
-                .as_ref()
-                .is_some_and(|active| Arc::ptr_eq(active, &cancelled))
-            {
-                state.active_cancel = None;
-            }
-            if state.shutdown {
-                return;
-            }
-            if cancelled.load(Ordering::Acquire) || state.pending.is_some() {
-                false
-            } else {
-                match result {
-                    Ok(Some(playlist)) => {
-                        state.completed = Some(PlaylistResult {
-                            request,
-                            playlist: Ok(playlist),
-                        });
-                        true
-                    }
-                    Ok(None) => false,
-                    Err(error) => {
-                        state.completed = Some(PlaylistResult {
-                            request,
-                            playlist: Err(error),
-                        });
-                        true
-                    }
-                }
-            }
-        };
-        if should_wake {
-            wake();
-        }
+        self.worker.submit(request);
     }
 }
 
