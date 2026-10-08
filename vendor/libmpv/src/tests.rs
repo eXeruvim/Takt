@@ -127,7 +127,7 @@ fn events() {
         None,
     )])
     .unwrap();
-    assert_event_occurs!(ev_ctx, 10., Ok(Event::StartFile));
+    assert_event_occurs!(ev_ctx, 10., Ok(Event::StartFile { .. }));
     assert_event_occurs!(
         ev_ctx,
         10.,
@@ -137,7 +137,15 @@ fn events() {
             reply_userdata: 1,
         })
     );
-    assert_event_occurs!(ev_ctx, 20., Err(Error::Raw(mpv_error::UnknownFormat)));
+    assert_event_occurs!(
+        ev_ctx,
+        20.,
+        Ok(Event::EndFile {
+            reason: mpv_end_file_reason::Error,
+            error: mpv_error::UnknownFormat,
+            ..
+        })
+    );
     assert!(ev_ctx.wait_event(3.).is_none());
 
     mpv.playlist_load_files(&[(
@@ -146,7 +154,7 @@ fn events() {
         None,
     )])
     .unwrap();
-    assert_event_occurs!(ev_ctx, 10., Ok(Event::StartFile));
+    assert_event_occurs!(ev_ctx, 10., Ok(Event::StartFile { .. }));
     assert_event_occurs!(
         ev_ctx,
         3.,

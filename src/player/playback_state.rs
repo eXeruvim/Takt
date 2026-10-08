@@ -7,6 +7,9 @@ pub(super) struct PlaybackState {
     resume: ResumeState,
     position_recording_suppressed_for: Option<PathBuf>,
     generation: u64,
+    expected_playlist_entry_id: Option<i64>,
+    awaiting_start: bool,
+    active_playlist_entry_id: Option<i64>,
 }
 
 #[derive(Debug, Default)]
@@ -21,17 +24,28 @@ enum ResumeState {
 }
 
 impl PlaybackState {
-    pub(super) fn begin_media_change(&mut self, expected_path: Option<PathBuf>) {
+    pub(super) fn begin_media_change(
+        &mut self,
+        expected_path: Option<PathBuf>,
+        playlist_entry_id: Option<i64>,
+    ) {
         self.position_recording_suppressed_for = None;
-        self.set_expected_path(expected_path);
+        self.set_expected_path(expected_path, playlist_entry_id);
     }
 
     pub(super) fn media_change_failed(&mut self) {
         self.resume = ResumeState::Inactive;
+        self.expected_playlist_entry_id = None;
+        self.awaiting_start = false;
+        self.active_playlist_entry_id = None;
     }
 
-    pub(super) fn expect_resume_for(&mut self, path: Option<PathBuf>) {
-        self.set_expected_path(path);
+    pub(super) fn expect_resume_for(
+        &mut self,
+        path: Option<PathBuf>,
+        playlist_entry_id: Option<i64>,
+    ) {
+        self.set_expected_path(path, playlist_entry_id);
     }
 
     pub(super) fn offer_resume(&mut self, path: PathBuf, position: f64) {
@@ -84,9 +98,41 @@ impl PlaybackState {
         self.generation
     }
 
-    fn set_expected_path(&mut self, path: Option<PathBuf>) {
+    pub(super) fn start_file(&mut self, playlist_entry_id: i64) -> bool {
+        if self.awaiting_start {
+            if self
+                .expected_playlist_entry_id
+                .is_some_and(|expected| expected != playlist_entry_id)
+            {
+                return false;
+            }
+            self.expected_playlist_entry_id = None;
+            self.awaiting_start = false;
+            self.active_playlist_entry_id = Some(playlist_entry_id);
+            return true;
+        }
+
+        self.active_playlist_entry_id == Some(playlist_entry_id)
+    }
+
+    pub(super) fn end_file(&mut self, playlist_entry_id: i64) -> bool {
+        if self.active_playlist_entry_id != Some(playlist_entry_id) {
+            return false;
+        }
+        self.active_playlist_entry_id = None;
+        true
+    }
+
+    pub(super) fn has_active_media(&self) -> bool {
+        self.active_playlist_entry_id.is_some()
+    }
+
+    fn set_expected_path(&mut self, path: Option<PathBuf>, playlist_entry_id: Option<i64>) {
         if path.is_some() {
             self.generation = self.generation.wrapping_add(1);
+            self.expected_playlist_entry_id = playlist_entry_id;
+            self.awaiting_start = true;
+            self.active_playlist_entry_id = None;
         }
         self.resume = path
             .map(ResumeState::Loading)
@@ -105,7 +151,7 @@ mod tests {
         let path = PathBuf::from("video.mp4");
         let mut state = PlaybackState::default();
 
-        state.begin_media_change(Some(path.clone()));
+        state.begin_media_change(Some(path.clone()), Some(1));
         assert!(!state.should_record_position(&path));
 
         state.offer_resume(path.clone(), 42.5);
@@ -119,7 +165,7 @@ mod tests {
         let path = PathBuf::from("audio.flac");
         let mut state = PlaybackState::default();
 
-        state.expect_resume_for(Some(path.clone()));
+        state.expect_resume_for(Some(path.clone()), Some(1));
         assert_eq!(state.take_resume_choice(), None);
         assert!(!state.should_record_position(&path));
 
@@ -149,7 +195,7 @@ mod tests {
         let mut state = PlaybackState::default();
 
         state.suppress_position_recording_for(Some(current.clone()));
-        state.expect_resume_for(Some(next.clone()));
+        state.expect_resume_for(Some(next.clone()), Some(2));
         state.media_change_failed();
 
         assert!(!state.should_record_position(&current));
@@ -161,15 +207,40 @@ mod tests {
         let mut state = PlaybackState::default();
         assert_eq!(state.generation(), 0);
 
-        state.begin_media_change(None);
+        state.begin_media_change(None, None);
         assert_eq!(state.generation(), 0);
 
-        state.begin_media_change(Some(PathBuf::from("first.mp3")));
+        state.begin_media_change(Some(PathBuf::from("first.mp3")), Some(1));
         let first = state.generation();
         assert_eq!(state.generation(), first);
 
-        state.expect_resume_for(Some(PathBuf::from("second.mp3")));
+        state.expect_resume_for(Some(PathBuf::from("second.mp3")), Some(2));
         assert_ne!(state.generation(), first);
         assert_eq!(state.generation(), first + 1);
+    }
+
+    #[test]
+    fn only_latest_pending_start_becomes_active() {
+        let mut state = PlaybackState::default();
+        state.begin_media_change(Some(PathBuf::from("first.mp4")), Some(10));
+        state.begin_media_change(Some(PathBuf::from("second.mp4")), Some(11));
+
+        assert!(!state.start_file(10));
+        assert!(!state.has_active_media());
+        assert!(state.start_file(11));
+        assert!(state.has_active_media());
+        assert!(!state.end_file(10));
+        assert!(state.has_active_media());
+        assert!(state.end_file(11));
+        assert!(!state.has_active_media());
+    }
+
+    #[test]
+    fn repeated_start_for_active_loop_is_accepted_without_pending_load() {
+        let mut state = PlaybackState::default();
+        state.begin_media_change(Some(PathBuf::from("loop.mp3")), Some(42));
+        assert!(state.start_file(42));
+        assert!(state.start_file(42));
+        assert!(!state.start_file(43));
     }
 }

@@ -240,6 +240,13 @@ fn load_file_in_mpv(mpv: &Mpv, path: &Path) -> anyhow::Result<()> {
         .with_context(|| format!("Не удалось открыть медиафайл: {}", path.display()))
 }
 
+fn current_playlist_entry_id(mpv: &Mpv) -> Option<i64> {
+    // Oxide replaces mpv's internal playlist with exactly one item per load.
+    // The entry ID is assigned by the synchronous playlist manipulation even
+    // though actual loading and its events happen asynchronously afterwards.
+    mpv.get_property::<i64>("playlist/0/id").ok()
+}
+
 fn activate_playlist(
     mpv: &Mpv,
     tx: &Sender<Event>,
@@ -678,6 +685,36 @@ fn send_property_change(tx: &Sender<Event>, name: &str, change: PropertyData<'_>
     }
 }
 
+fn property_change_requires_active_media(name: &str) -> bool {
+    matches!(
+        name,
+        "time-pos"
+            | "duration"
+            | "pause"
+            | "audio-delay"
+            | "sub-delay"
+            | "chapter"
+            | "hwdec-current"
+            | "video-sync"
+            | "frame-drop-count"
+            | "decoder-frame-drop-count"
+            | "mistimed-frame-count"
+            | "vo-delayed-frame-count"
+            | "container-fps"
+            | "estimated-vf-fps"
+            | "display-fps"
+            | "estimated-display-fps"
+            | "vsync-ratio"
+            | "vsync-jitter"
+            | "avsync"
+            | "total-avsync-change"
+            | "demuxer-cache-duration"
+            | "cache-speed"
+            | "paused-for-cache"
+            | "seeking"
+    )
+}
+
 pub fn run(
     rx: CommandReceiver,
     tx: Sender<Event>,
@@ -734,7 +771,8 @@ pub fn run(
                                 .as_ref()
                                 .and_then(DirectoryPlaylist::current_path)
                                 .cloned();
-                            playback_state.begin_media_change(current_path);
+                            playback_state
+                                .begin_media_change(current_path, current_playlist_entry_id(&mpv));
                             background_jobs.expand_file(playback_state.generation(), path);
                         }
                         Err(error) => {
@@ -843,7 +881,10 @@ pub fn run(
                         if expected_resume_path.is_some() {
                             background_jobs.cancel_metadata();
                         }
-                        playback_state.begin_media_change(expected_resume_path);
+                        let entry_id = expected_resume_path
+                            .as_ref()
+                            .and_then(|_| current_playlist_entry_id(&mpv));
+                        playback_state.begin_media_change(expected_resume_path, entry_id);
                     }
                 }
                 Ok(false) => {
@@ -899,6 +940,7 @@ pub fn run(
                                 .as_ref()
                                 .and_then(DirectoryPlaylist::current_path)
                                 .cloned(),
+                            current_playlist_entry_id(&mpv),
                         );
                     }
                     Err(error) => {
@@ -938,10 +980,14 @@ pub fn run(
                 break;
             };
             match event {
-                Ok(MpvEvent::StartFile) => {
-                    playback_diagnostics.reset_for_new_media();
+                Ok(MpvEvent::StartFile { playlist_entry_id }) => {
+                    if playback_state.start_file(playlist_entry_id) {
+                        playback_diagnostics.reset_for_new_media();
+                    }
                 }
-                Ok(MpvEvent::FileLoaded) if options.media_available => {
+                Ok(MpvEvent::FileLoaded)
+                    if options.media_available && playback_state.has_active_media() =>
+                {
                     let mut resume_position = None;
                     if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path)
                     {
@@ -986,65 +1032,85 @@ pub fn run(
                         let _ = tx.send(Event::ResumeAvailable(position));
                     }
                 }
-                Ok(MpvEvent::EndFile(reason)) if reason == mpv_end_file_reason::Eof => {
-                    if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path)
-                    {
-                        session.clear_position(path);
-                    }
-                    match load_adjacent(&mpv, &tx, &mut playlist, true, options.repeat_folder) {
-                        Ok(true) => {
-                            options.media_available = true;
-                            background_jobs.cancel_metadata();
-                            playback_state.expect_resume_for(
-                                playlist
-                                    .as_ref()
-                                    .and_then(DirectoryPlaylist::current_path)
-                                    .cloned(),
-                            );
+                Ok(MpvEvent::EndFile {
+                    reason,
+                    error: _,
+                    playlist_entry_id,
+                }) if playback_state.end_file(playlist_entry_id) => match reason {
+                    mpv_end_file_reason::Eof => {
+                        if let Some(path) =
+                            playlist.as_ref().and_then(DirectoryPlaylist::current_path)
+                        {
+                            session.clear_position(path);
                         }
-                        Ok(false) => {
-                            options.media_available = false;
-                            send_playback_finished(&tx);
-                        }
-                        Err(error) => {
-                            options.media_available = false;
-                            send_playback_failed(&tx, error.to_string());
-                        }
-                    }
-                }
-                Ok(MpvEvent::EndFile(reason)) if reason == mpv_end_file_reason::Error => {
-                    match skip_failed_current(&mpv, &tx, &mut playlist, options.repeat_folder) {
-                        Ok(true) => {
-                            options.media_available = true;
-                            background_jobs.cancel_metadata();
-                            playback_state.expect_resume_for(
-                                playlist
-                                    .as_ref()
-                                    .and_then(DirectoryPlaylist::current_path)
-                                    .cloned(),
-                            );
-                        }
-                        Ok(false) => {
-                            options.media_available = false;
-                            send_playback_failed(
-                                &tx,
-                                "Не удалось воспроизвести медиафайл; очередь завершена".to_owned(),
-                            );
-                        }
-                        Err(error) => {
-                            options.media_available = false;
-                            send_playback_failed(&tx, error.to_string());
+                        match load_adjacent(&mpv, &tx, &mut playlist, true, options.repeat_folder) {
+                            Ok(true) => {
+                                options.media_available = true;
+                                background_jobs.cancel_metadata();
+                                playback_state.expect_resume_for(
+                                    playlist
+                                        .as_ref()
+                                        .and_then(DirectoryPlaylist::current_path)
+                                        .cloned(),
+                                    current_playlist_entry_id(&mpv),
+                                );
+                            }
+                            Ok(false) => {
+                                options.media_available = false;
+                                send_playback_finished(&tx);
+                            }
+                            Err(error) => {
+                                options.media_available = false;
+                                send_playback_failed(&tx, error.to_string());
+                            }
                         }
                     }
-                }
-                Ok(MpvEvent::VideoReconfig) if options.media_available => {
+                    mpv_end_file_reason::Error => {
+                        match skip_failed_current(&mpv, &tx, &mut playlist, options.repeat_folder) {
+                            Ok(true) => {
+                                options.media_available = true;
+                                background_jobs.cancel_metadata();
+                                playback_state.expect_resume_for(
+                                    playlist
+                                        .as_ref()
+                                        .and_then(DirectoryPlaylist::current_path)
+                                        .cloned(),
+                                    current_playlist_entry_id(&mpv),
+                                );
+                            }
+                            Ok(false) => {
+                                options.media_available = false;
+                                send_playback_failed(
+                                    &tx,
+                                    "Не удалось воспроизвести медиафайл; очередь завершена"
+                                        .to_owned(),
+                                );
+                            }
+                            Err(error) => {
+                                options.media_available = false;
+                                send_playback_failed(&tx, error.to_string());
+                            }
+                        }
+                    }
+                    _ => {}
+                },
+                Ok(MpvEvent::VideoReconfig)
+                    if options.media_available && playback_state.has_active_media() =>
+                {
                     let _ = send_media_ready(&mpv, &tx);
                     let _ = tx.send(Event::VideoOutputReady);
                 }
-                Ok(MpvEvent::AudioReconfig) if options.media_available => {
+                Ok(MpvEvent::AudioReconfig)
+                    if options.media_available && playback_state.has_active_media() =>
+                {
                     let _ = send_media_ready(&mpv, &tx);
                 }
                 Ok(MpvEvent::PropertyChange { name, change, .. }) => {
+                    if property_change_requires_active_media(name)
+                        && !playback_state.has_active_media()
+                    {
+                        continue;
+                    }
                     playback_diagnostics.update(name, &change);
                     if name == "time-pos" {
                         let position = mpv.get_property::<f64>("time-pos").unwrap_or_default();
@@ -1078,8 +1144,8 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::{
-        adjusted_delay, audio_metadata_is_relevant, loop_value_is_enabled, quote_mpv_command_arg,
-        should_restart_current,
+        adjusted_delay, audio_metadata_is_relevant, loop_value_is_enabled,
+        property_change_requires_active_media, quote_mpv_command_arg, should_restart_current,
     };
     use crate::ipc::AspectRatio;
     use crate::player::media_info::MediaInfo;
@@ -1137,5 +1203,22 @@ mod tests {
             ..MediaInfo::default()
         }));
         assert!(!audio_metadata_is_relevant(&MediaInfo::default()));
+    }
+
+    #[test]
+    fn media_properties_wait_for_the_current_mpv_entry() {
+        for property in [
+            "time-pos",
+            "duration",
+            "pause",
+            "chapter",
+            "demuxer-cache-duration",
+            "seeking",
+        ] {
+            assert!(property_change_requires_active_media(property));
+        }
+        for property in ["volume", "mute", "speed", "loop-file"] {
+            assert!(!property_change_requires_active_media(property));
+        }
     }
 }

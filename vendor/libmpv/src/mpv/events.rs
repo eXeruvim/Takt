@@ -126,10 +126,16 @@ pub enum Event<'a> {
     SetPropertyReply(u64),
     /// Received when using command_async
     CommandReply(u64),
-    /// Event received when a new file is playing
-    StartFile,
-    /// Event received when the file being played currently has stopped, for an error or not
-    EndFile(EndFileReason),
+    /// Event received when a new file is playing.
+    StartFile {
+        playlist_entry_id: i64,
+    },
+    /// Event received when the file being played currently has stopped, for an error or not.
+    EndFile {
+        reason: EndFileReason,
+        error: i32,
+        playlist_entry_id: i64,
+    },
     /// Event received when a file has been *loaded*, but has not been started
     FileLoaded,
     ClientMessage(Vec<&'a str>),
@@ -223,7 +229,9 @@ impl<'parent> EventContext<'parent> {
     ///
     /// Returns `Some(Err(...))` if there was invalid utf-8, or if either an
     /// `MPV_EVENT_GET_PROPERTY_REPLY`, `MPV_EVENT_SET_PROPERTY_REPLY`, `MPV_EVENT_COMMAND_REPLY`,
-    /// or `MPV_EVENT_PROPERTY_CHANGE` event failed, or if `MPV_EVENT_END_FILE` reported an error.
+    /// or `MPV_EVENT_PROPERTY_CHANGE` event failed. `MPV_EVENT_END_FILE` keeps its
+    /// entry ID and raw file error inside [`Event::EndFile`] so callers can match
+    /// an asynchronous failure to the file that actually ended.
     pub fn wait_event(&mut self, timeout: f64) -> Option<Result<Event<'_>>> {
         let event = unsafe { *libmpv_sys::mpv_wait_event(self.ctx.as_ptr(), timeout) };
         if event.event_id != mpv_event_id::None {
@@ -272,15 +280,19 @@ impl<'parent> EventContext<'parent> {
                 Event::CommandReply(event.reply_userdata),
                 event.error,
             )),
-            mpv_event_id::StartFile => Some(Ok(Event::StartFile)),
+            mpv_event_id::StartFile => {
+                let start_file = unsafe { *(event.data as *mut libmpv_sys::mpv_event_start_file) };
+                Some(Ok(Event::StartFile {
+                    playlist_entry_id: start_file.playlist_entry_id,
+                }))
+            }
             mpv_event_id::EndFile => {
                 let end_file = unsafe { *(event.data as *mut libmpv_sys::mpv_event_end_file) };
-
-                if let Err(e) = mpv_err((), end_file.error) {
-                    Some(Err(e))
-                } else {
-                    Some(Ok(Event::EndFile(end_file.reason as _)))
-                }
+                Some(Ok(Event::EndFile {
+                    reason: end_file.reason as _,
+                    error: end_file.error,
+                    playlist_entry_id: end_file.playlist_entry_id,
+                }))
             }
             mpv_event_id::FileLoaded => Some(Ok(Event::FileLoaded)),
             mpv_event_id::ClientMessage => {
