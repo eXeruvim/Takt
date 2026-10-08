@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'paused', 'minimized', 'large-playlist', 'large-artwork', 'artwork-release')]
+    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'hdd-video', 'paused', 'minimized', 'large-playlist', 'large-artwork', 'artwork-release')]
     [string]$Scenario,
 
     [ValidateRange(10, 3600)]
@@ -23,6 +23,9 @@ param(
 
     [ValidateSet('system', 'dark', 'light')]
     [string]$Theme = 'system',
+
+    [ValidateSet('baseline', 'balanced')]
+    [string]$LocalCacheMode = 'baseline',
 
     [string]$MediaPath = '',
 
@@ -564,9 +567,12 @@ if ($executablePath -ne $expectedExecutable) {
 if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
     throw "Сборка не найдена. Выполните: cargo build --profile profiling --locked --offline"
 }
-$videoScenario = $Scenario -eq 'video-1080p' -or $Scenario -eq 'video-4k'
+$videoScenario = $Scenario -in @('video-1080p', 'video-4k', 'hdd-video')
 if ($videoScenario -and ($DecoderMode -eq 'not-recorded' -or $RendererBackend -eq 'not-recorded')) {
     throw 'Для video-сценария явно укажите -DecoderMode и -RendererBackend.'
+}
+if ($LocalCacheMode -ne 'baseline' -and -not $videoScenario) {
+    throw '-LocalCacheMode balanced разрешён только для video-сценариев.'
 }
 if ($AutomaticIdle -and $Scenario -ne 'idle') {
     throw '-AutomaticIdle разрешён только для сценария idle: медиа-сценарии требуют ручной проверки состояния перед замером.'
@@ -698,6 +704,7 @@ $instructions = switch ($Scenario) {
     'audio' { 'Откройте обычный аудиофайл, запустите воспроизведение и дождитесь появления обложки.' }
     'video-1080p' { 'Откройте 1080p-видео, включите нужный режим декодирования и запустите воспроизведение.' }
     'video-4k' { 'Откройте 4K-видео, включите нужный режим декодирования и запустите воспроизведение.' }
+    'hdd-video' { 'Откройте видео именно с HDD. После начала замера: пауза на 5 секунд, продолжение, через 10 секунд одна перемотка и затем обычное воспроизведение.' }
     'paused' { 'Откройте медиафайл, поставьте воспроизведение на паузу и не двигайте мышью.' }
     'minimized' { 'Откройте медиафайл, запустите воспроизведение и сверните Oxide на панель задач.' }
     'large-playlist' { 'Откройте подготовленную большую папку и оставьте очередь открытой на время замера.' }
@@ -713,6 +720,7 @@ else {
 }
 $diagnosticsVariable = 'OXIDE_BENCHMARK_DIAGNOSTICS_PATH'
 $renderGateVariable = 'OXIDE_BENCHMARK_RENDER_GATE'
+$localCacheVariable = 'OXIDE_BENCHMARK_LOCAL_CACHE'
 $renderGateName = if ($null -ne $playbackDiagnosticsPath) {
     "Local\OxideBenchmarkRender-$([Guid]::NewGuid().ToString('N'))"
 }
@@ -737,6 +745,10 @@ $oldRenderGateName = [Environment]::GetEnvironmentVariable(
     $renderGateVariable,
     [EnvironmentVariableTarget]::Process
 )
+$oldLocalCacheMode = [Environment]::GetEnvironmentVariable(
+    $localCacheVariable,
+    [EnvironmentVariableTarget]::Process
+)
 try {
     [Environment]::SetEnvironmentVariable(
         $diagnosticsVariable,
@@ -746,6 +758,11 @@ try {
     [Environment]::SetEnvironmentVariable(
         $renderGateVariable,
         $renderGateName,
+        [EnvironmentVariableTarget]::Process
+    )
+    [Environment]::SetEnvironmentVariable(
+        $localCacheVariable,
+        $(if ($LocalCacheMode -eq 'balanced') { 'balanced' } else { $null }),
         [EnvironmentVariableTarget]::Process
     )
     $process = Start-Process -FilePath $executablePath -WorkingDirectory $repository -WindowStyle Normal -PassThru
@@ -759,6 +776,11 @@ finally {
     [Environment]::SetEnvironmentVariable(
         $renderGateVariable,
         $oldRenderGateName,
+        [EnvironmentVariableTarget]::Process
+    )
+    [Environment]::SetEnvironmentVariable(
+        $localCacheVariable,
+        $oldLocalCacheMode,
         [EnvironmentVariableTarget]::Process
     )
 }
@@ -932,6 +954,7 @@ $summary = [ordered]@{
         renderer_backend = $RendererBackend
         window_mode = $WindowMode
         theme = $Theme
+        local_cache_mode = $LocalCacheMode
         media = $mediaDescriptor
         comparison_media = $comparisonMediaDescriptor
         workload = $workloadDescriptor
@@ -1115,6 +1138,11 @@ if ($null -ne $playbackDiagnosticsPath) {
                 $playbackDiagnostics.decoder_frame_drop_count, `
                 $playbackDiagnostics.mistimed_frame_count, `
                 $playbackDiagnostics.vo_delayed_frame_count)
+            Write-Host ("I/O mpv: cache pauses={0}, total={1} ms, max={2} ms; seeking max={3} ms." -f `
+                $playbackDiagnostics.demuxer_cache.pause_count, `
+                $playbackDiagnostics.demuxer_cache.pause_total_ms, `
+                $playbackDiagnostics.demuxer_cache.pause_max_ms, `
+                $playbackDiagnostics.seeking.max_ms)
         }
         catch {
             Write-Warning "Не удалось добавить диагностику кадров в сводку: $($_.Exception.Message)"

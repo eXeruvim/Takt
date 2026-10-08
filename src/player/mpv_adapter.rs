@@ -1,9 +1,11 @@
 //! Narrow libmpv setup and property adapter used by the player state machine.
 
-use std::sync::Arc;
+use std::{ffi::OsStr, sync::Arc};
 
 use anyhow::Context;
 use libmpv::{Format, Mpv, events::EventContext};
+
+const BENCHMARK_LOCAL_CACHE_ENV: &str = "OXIDE_BENCHMARK_LOCAL_CACHE";
 
 pub(super) fn mpv_error<T>(result: Result<T, libmpv::Error>) -> anyhow::Result<T> {
     result.map_err(|error| anyhow::anyhow!("{error:?}"))
@@ -21,6 +23,10 @@ pub(super) fn create() -> anyhow::Result<Arc<Mpv>> {
         // Software decoding is the reliable default. Hardware decoding can
         // be enabled at runtime for demanding files on compatible drivers.
         initializer.set_property("hwdec", "no".to_owned())?;
+        configure_benchmark_local_cache(
+            &initializer,
+            std::env::var_os(BENCHMARK_LOCAL_CACHE_ENV).as_deref(),
+        )?;
         initializer.set_property(
             "reset-on-next-file",
             "audio-delay,sub-delay,video-aspect-override".to_owned(),
@@ -40,6 +46,25 @@ pub(super) fn create() -> anyhow::Result<Arc<Mpv>> {
     })
     .map(Arc::new)
     .map_err(|error| anyhow::anyhow!("{error:?}"))
+}
+
+fn configure_benchmark_local_cache(
+    initializer: &libmpv::MpvInitializer,
+    profile: Option<&OsStr>,
+) -> Result<(), libmpv::Error> {
+    if profile != Some(OsStr::new("balanced")) {
+        return Ok(());
+    }
+
+    // This opt-in profile exists only for a measured HDD A/B. It deliberately
+    // caps the extra packet cache instead of turning the whole local file into
+    // an in-memory cache.
+    initializer.set_property("cache", "yes")?;
+    initializer.set_property("cache-secs", 8.0)?;
+    initializer.set_property("demuxer-max-bytes", "32MiB")?;
+    initializer.set_property("demuxer-max-back-bytes", "8MiB")?;
+    initializer.set_property("cache-pause", true)?;
+    initializer.set_property("cache-pause-wait", 1.0)
 }
 
 pub(super) fn observe_playback_properties(events: &mut EventContext<'_>) -> anyhow::Result<()> {
@@ -103,8 +128,8 @@ fn configure_seek_osd(initializer: &libmpv::MpvInitializer) -> Result<(), libmpv
 #[cfg(test)]
 mod tests {
     use super::{
-        automatic_hwdec_mode, configure_seek_osd, hwdec_is_enabled, set_loaded_media_paused,
-        video_background_color,
+        automatic_hwdec_mode, configure_benchmark_local_cache, configure_seek_osd,
+        hwdec_is_enabled, set_loaded_media_paused, video_background_color,
     };
 
     #[test]
@@ -122,6 +147,32 @@ mod tests {
         assert!(!mpv.get_property::<bool>("osd-bar").unwrap());
         assert_eq!(mpv.get_property::<String>("osd-on-seek").unwrap(), "no");
         assert!(mpv.get_property::<bool>("sub-visibility").unwrap());
+    }
+
+    #[test]
+    fn balanced_benchmark_cache_is_bounded() {
+        let mpv = libmpv::Mpv::with_initializer(|initializer| {
+            initializer.set_property("config", "no")?;
+            initializer.set_property("load-scripts", "no")?;
+            initializer.set_property("terminal", "no")?;
+            initializer.set_property("vo", "null")?;
+            initializer.set_property("ao", "null")?;
+            configure_benchmark_local_cache(&initializer, Some("balanced".as_ref()))
+        })
+        .expect("headless mpv must accept bounded cache options");
+
+        assert_eq!(mpv.get_property::<String>("cache").unwrap(), "yes");
+        assert_eq!(mpv.get_property::<f64>("cache-secs").unwrap(), 8.0);
+        assert_eq!(
+            mpv.get_property::<i64>("demuxer-max-bytes").unwrap(),
+            32 * 1024 * 1024
+        );
+        assert_eq!(
+            mpv.get_property::<i64>("demuxer-max-back-bytes").unwrap(),
+            8 * 1024 * 1024
+        );
+        assert!(mpv.get_property::<bool>("cache-pause").unwrap());
+        assert_eq!(mpv.get_property::<f64>("cache-pause-wait").unwrap(), 1.0);
     }
 
     #[test]

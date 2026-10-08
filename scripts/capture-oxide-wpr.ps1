@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'paused', 'minimized')]
+    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'hdd-video', 'paused', 'minimized')]
     [string]$Scenario,
 
     [ValidateSet(
@@ -81,7 +81,7 @@ if (-not $resultRoot.StartsWith(
 )) {
     throw "Каталог WPR-результатов оказался вне репозитория: $resultRoot"
 }
-$videoScenario = $Scenario -eq 'video-1080p' -or $Scenario -eq 'video-4k'
+$videoScenario = $Scenario -in @('video-1080p', 'video-4k', 'hdd-video')
 if ($videoScenario -and ($DecoderMode -eq 'not-recorded' -or $RendererBackend -eq 'not-recorded')) {
     throw 'Для video-сценария явно укажите -DecoderMode и -RendererBackend.'
 }
@@ -212,6 +212,7 @@ try {
             'audio' { 'Запустите аудиофайл и дождитесь стабильного воспроизведения.' }
             'video-1080p' { 'Запустите видео 1080p и дождитесь стабильного воспроизведения.' }
             'video-4k' { 'Запустите видео 4K и дождитесь стабильного воспроизведения.' }
+            'hdd-video' { 'Откройте видео именно с HDD. Во время записи: пауза на 5 секунд, продолжение, через 10 секунд одна перемотка и затем обычное воспроизведение.' }
             'paused' { 'Запустите медиафайл, поставьте воспроизведение на паузу и не двигайте мышь.' }
             'minimized' { 'Запустите медиафайл и сверните окно Oxide на панель задач.' }
         }
@@ -233,7 +234,12 @@ try {
         $startedAt = [DateTimeOffset]::UtcNow
     }
     $scenarioStartedAt = [DateTimeOffset]::UtcNow
-    Write-Host "WPR $Profile записывает $DurationSeconds с. Не взаимодействуйте с компьютером."
+    if ($Scenario -eq 'hdd-video') {
+        Write-Host "WPR $Profile записывает $DurationSeconds с. Выполните указанные действия в Oxide."
+    }
+    else {
+        Write-Host "WPR $Profile записывает $DurationSeconds с. Не взаимодействуйте с компьютером."
+    }
     Start-Sleep -Seconds $DurationSeconds
     $stopRequestedAt = [DateTimeOffset]::UtcNow
     $stopOutput = Invoke-CheckedWpr -Arguments @(

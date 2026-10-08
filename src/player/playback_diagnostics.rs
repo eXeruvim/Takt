@@ -4,6 +4,7 @@ use std::{
     fs::OpenOptions,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 use anyhow::Context;
@@ -13,6 +14,39 @@ use libmpv::{
 };
 
 const BENCHMARK_DIAGNOSTICS_ENV: &str = "OXIDE_BENCHMARK_DIAGNOSTICS_PATH";
+
+#[derive(Default)]
+struct IntervalStats {
+    active_since: Option<Instant>,
+    count: u64,
+    completed: Duration,
+    longest: Duration,
+}
+
+impl IntervalStats {
+    fn update(&mut self, active: bool) {
+        match (active, self.active_since) {
+            (true, None) => {
+                self.count += 1;
+                self.active_since = Some(Instant::now());
+            }
+            (false, Some(started)) => {
+                let elapsed = started.elapsed();
+                self.completed += elapsed;
+                self.longest = self.longest.max(elapsed);
+                self.active_since = None;
+            }
+            _ => {}
+        }
+    }
+
+    fn durations(&self) -> (Duration, Duration) {
+        let pending = self
+            .active_since
+            .map_or(Duration::ZERO, |started| started.elapsed());
+        (self.completed + pending, self.longest.max(pending))
+    }
+}
 
 #[derive(Default)]
 pub(super) struct PlaybackDiagnostics {
@@ -32,6 +66,13 @@ pub(super) struct PlaybackDiagnostics {
     avsync_seconds: Option<f64>,
     total_avsync_change_seconds: Option<f64>,
     time_pos_seconds: Option<f64>,
+    demuxer_cache_duration_seconds: Option<f64>,
+    demuxer_cache_duration_min_seconds: Option<f64>,
+    demuxer_cache_duration_max_seconds: Option<f64>,
+    cache_read_rate_bytes_per_second: Option<i64>,
+    cache_read_rate_max_bytes_per_second: Option<i64>,
+    cache_pauses: IntervalStats,
+    seeking: IntervalStats,
 }
 
 impl PlaybackDiagnostics {
@@ -61,6 +102,10 @@ impl PlaybackDiagnostics {
             (111, "vsync-jitter", Format::Double),
             (112, "avsync", Format::Double),
             (113, "total-avsync-change", Format::Double),
+            (114, "demuxer-cache-duration", Format::Double),
+            (115, "cache-speed", Format::Int64),
+            (116, "paused-for-cache", Format::Flag),
+            (117, "seeking", Format::Flag),
         ] {
             if let Err(error) = events.observe_property(name, format, id) {
                 eprintln!("Не удалось наблюдать диагностическое свойство {name}: {error:?}");
@@ -128,6 +173,32 @@ impl PlaybackDiagnostics {
             ("time-pos", PropertyData::Double(value)) => {
                 self.time_pos_seconds = Some(*value);
             }
+            ("demuxer-cache-duration", PropertyData::Double(value))
+                if value.is_finite() && *value >= 0.0 =>
+            {
+                self.demuxer_cache_duration_seconds = Some(*value);
+                self.demuxer_cache_duration_min_seconds = Some(
+                    self.demuxer_cache_duration_min_seconds
+                        .map_or(*value, |current| current.min(*value)),
+                );
+                self.demuxer_cache_duration_max_seconds = Some(
+                    self.demuxer_cache_duration_max_seconds
+                        .map_or(*value, |current| current.max(*value)),
+                );
+            }
+            ("cache-speed", PropertyData::Int64(value)) if *value >= 0 => {
+                self.cache_read_rate_bytes_per_second = Some(*value);
+                self.cache_read_rate_max_bytes_per_second = Some(
+                    self.cache_read_rate_max_bytes_per_second
+                        .map_or(*value, |current| current.max(*value)),
+                );
+            }
+            ("paused-for-cache", PropertyData::Flag(value)) => {
+                self.cache_pauses.update(*value);
+            }
+            ("seeking", PropertyData::Flag(value)) => {
+                self.seeking.update(*value);
+            }
             _ => {}
         }
     }
@@ -154,6 +225,8 @@ fn write_report(
     path: &Path,
     media_available: bool,
 ) -> anyhow::Result<()> {
+    let (cache_pause_total, cache_pause_longest) = diagnostics.cache_pauses.durations();
+    let (seeking_total, seeking_longest) = diagnostics.seeking.durations();
     let report = serde_json::json!({
         "schema": 1,
         "kind": "oxide-mpv-playback-diagnostics",
@@ -174,6 +247,21 @@ fn write_report(
         "avsync_seconds": diagnostics.avsync_seconds,
         "total_avsync_change_seconds": diagnostics.total_avsync_change_seconds,
         "time_pos_seconds": diagnostics.time_pos_seconds,
+        "demuxer_cache": {
+            "duration_seconds": diagnostics.demuxer_cache_duration_seconds,
+            "duration_min_seconds": diagnostics.demuxer_cache_duration_min_seconds,
+            "duration_max_seconds": diagnostics.demuxer_cache_duration_max_seconds,
+            "read_rate_bytes_per_second": diagnostics.cache_read_rate_bytes_per_second,
+            "read_rate_max_bytes_per_second": diagnostics.cache_read_rate_max_bytes_per_second,
+            "pause_count": diagnostics.cache_pauses.count,
+            "pause_total_ms": duration_ms(cache_pause_total),
+            "pause_max_ms": duration_ms(cache_pause_longest),
+        },
+        "seeking": {
+            "count": diagnostics.seeking.count,
+            "total_ms": duration_ms(seeking_total),
+            "max_ms": duration_ms(seeking_longest),
+        },
         "render_timing": crate::benchmark_diagnostics::render_timing_summary(),
     });
     let file = OpenOptions::new()
@@ -194,11 +282,17 @@ fn write_report(
         .context("Не удалось записать диагностический отчёт на диск")
 }
 
+fn duration_ms(duration: Duration) -> f64 {
+    (duration.as_secs_f64() * 1000.0 * 1000.0).round() / 1000.0
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
 
-    use super::diagnostics_path_from;
+    use std::time::{Duration, Instant};
+
+    use super::{IntervalStats, diagnostics_path_from};
 
     #[test]
     fn diagnostics_path_requires_absolute_json_file() {
@@ -213,5 +307,25 @@ mod tests {
             diagnostics_path_from(Some(expected.clone().into_os_string())),
             Some(expected)
         );
+    }
+
+    #[test]
+    fn interval_stats_count_transitions_once_and_include_active_time() {
+        let mut stats = IntervalStats::default();
+        stats.update(true);
+        stats.update(true);
+        stats.active_since = Some(Instant::now() - Duration::from_millis(25));
+
+        let (active_total, active_longest) = stats.durations();
+        assert_eq!(stats.count, 1);
+        assert!(active_total >= Duration::from_millis(25));
+        assert!(active_longest >= Duration::from_millis(25));
+
+        stats.update(false);
+        stats.update(false);
+        let (finished_total, finished_longest) = stats.durations();
+        assert_eq!(stats.count, 1);
+        assert!(finished_total >= Duration::from_millis(25));
+        assert_eq!(finished_total, finished_longest);
     }
 }
