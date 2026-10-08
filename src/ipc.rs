@@ -1,4 +1,3 @@
-use crate::render::mpv_opengl::MpvRenderSource;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -169,7 +168,6 @@ pub struct RecentFileInfo {
 
 #[derive(Debug)]
 pub enum Event {
-    RenderSource(MpvRenderSource),
     VideoRendererRequired,
     TimePos(f64),
     Duration(f64),

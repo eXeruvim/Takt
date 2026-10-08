@@ -3,6 +3,7 @@
 
 use std::{
     cell::RefCell,
+    io,
     rc::Rc,
     sync::{
         Arc, Mutex,
@@ -29,7 +30,10 @@ use crate::{
 };
 
 use super::{
-    native_frame, ui_logic::AppWindow, window_interaction::native_window_handle,
+    event_delivery::{self, Bridge},
+    native_frame,
+    ui_logic::AppWindow,
+    window_interaction::native_window_handle,
     window_modes::WindowModeController,
 };
 
@@ -40,11 +44,37 @@ pub(super) struct VideoOutputEventHandle {
 }
 
 impl VideoOutputEventHandle {
-    pub(super) fn set_render_source(&self, app: &AppWindow, source: MpvRenderSource) {
+    fn set_render_source(&self, app: &AppWindow, source: MpvRenderSource) {
         if let Ok(mut target) = self.render_source.lock() {
             *target = Some(source);
         }
         app.window().request_redraw();
+    }
+
+    pub(super) fn spawn_source_bridge(
+        &self,
+        app: &AppWindow,
+        rx: Receiver<MpvRenderSource>,
+    ) -> io::Result<Bridge> {
+        let weak = app.as_weak();
+        let output = self.clone();
+        event_delivery::spawn(
+            rx,
+            |_, _| true,
+            move |mut sources, completion| {
+                let weak = weak.clone();
+                let output = output.clone();
+                slint::invoke_from_event_loop(move || {
+                    let _completion = completion;
+                    if let Some(app) = weak.upgrade()
+                        && let Some(source) = sources.pop()
+                    {
+                        output.set_render_source(&app, source);
+                    }
+                })
+                .is_ok()
+            },
+        )
     }
 
     pub(super) fn request_renderer(&self, app: &AppWindow, player_tx: &CommandSender) {

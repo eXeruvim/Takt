@@ -678,7 +678,11 @@ fn send_property_change(tx: &Sender<Event>, name: &str, change: PropertyData<'_>
     }
 }
 
-pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
+pub fn run(
+    rx: CommandReceiver,
+    tx: Sender<Event>,
+    render_source_tx: Sender<MpvRenderSource>,
+) -> anyhow::Result<()> {
     let mpv = create_mpv()?;
     let background_wake = Arc::clone(&mpv);
     let background_jobs = BackgroundJobs::new(move || background_wake.wakeup())?;
@@ -700,7 +704,10 @@ pub fn run(rx: CommandReceiver, tx: Sender<Event>) -> anyhow::Result<()> {
     let wake_mpv = Arc::clone(&mpv);
     rx.install_waker(move || wake_mpv.wakeup());
 
-    let _ = tx.send(Event::RenderSource(MpvRenderSource::new(Arc::clone(&mpv))));
+    render_source_tx
+        .send(MpvRenderSource::new(Arc::clone(&mpv)))
+        .map_err(|_| anyhow::anyhow!("UI отключился до передачи render-source"))?;
+    drop(render_source_tx);
     send_equalizer(options.equalizer, &tx);
     send_recent_files(&tx, &session);
 

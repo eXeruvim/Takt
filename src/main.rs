@@ -95,6 +95,7 @@ fn main() -> anyhow::Result<()> {
             .map_err(|error| anyhow::anyhow!(error.message()))?;
     }
     let (player_tx, ui_rx) = bounded::<ipc::Event>(PLAYER_EVENT_CAPACITY);
+    let (render_source_tx, render_source_rx) = bounded::<render::mpv_opengl::MpvRenderSource>(1);
     let (converter_tx, converter_rx) =
         bounded::<converter::ConverterCommand>(converter::COMMAND_CAPACITY);
     let (converter_event_tx, converter_event_rx) =
@@ -102,7 +103,7 @@ fn main() -> anyhow::Result<()> {
 
     let player_thread = thread::spawn(move || {
         let error_tx = player_tx.clone();
-        if let Err(err) = player::mpv::run(player_rx, player_tx) {
+        if let Err(err) = player::mpv::run(player_rx, player_tx, render_source_tx) {
             eprintln!("Player error: {err}");
             let _ = error_tx.send(ipc::Event::PlaybackFailed(format!(
                 "Не удалось запустить проигрыватель: {err}"
@@ -126,6 +127,7 @@ fn main() -> anyhow::Result<()> {
     let ui_result = ui::ui_logic::run(
         ui_tx.clone(),
         ui_rx,
+        render_source_rx,
         command_errors,
         converter_tx.clone(),
         converter_event_rx,

@@ -8,6 +8,7 @@ use crossbeam_channel::{Receiver, Sender};
 use crate::converter::{ConverterCommand, ConverterEvent};
 use crate::ipc::{Command, Event};
 use crate::player::commands::{CommandSender, SendError as PlayerCommandError};
+use crate::render::mpv_opengl::MpvRenderSource;
 use crate::settings::AppSettings;
 use crate::ui::player_event_controller::PlayerEventController;
 use crate::ui::shortcut_controller::ShortcutController;
@@ -28,6 +29,7 @@ slint::include_modules!();
 pub fn run(
     tx: CommandSender,
     rx: Receiver<Event>,
+    render_source_rx: Receiver<MpvRenderSource>,
     command_errors: Receiver<PlayerCommandError>,
     converter_tx: Sender<ConverterCommand>,
     converter_rx: Receiver<ConverterEvent>,
@@ -87,12 +89,14 @@ pub fn run(
     #[cfg(target_os = "windows")]
     let video_output = VideoOutputController::default();
     #[cfg(target_os = "windows")]
+    let video_output_events = video_output.event_handle();
+    #[cfg(target_os = "windows")]
     let window_modes = WindowModeController::default();
     #[cfg(target_os = "windows")]
     let window_drag_state = Arc::new(Mutex::new(WindowDragState::default()));
     let player_events = PlayerEventController::new(
         #[cfg(target_os = "windows")]
-        video_output.event_handle(),
+        video_output_events.clone(),
         #[cfg(target_os = "windows")]
         tx.clone(),
     );
@@ -162,6 +166,11 @@ pub fn run(
     let native_init_error_rx =
         video_output.register_rendering(&app, tx.clone(), window_modes.clone())?;
 
+    #[cfg(target_os = "windows")]
+    let render_source_bridge = video_output_events.spawn_source_bridge(&app, render_source_rx)?;
+    #[cfg(not(target_os = "windows"))]
+    drop(render_source_rx);
+
     let player_bridge = player_events.spawn_bridge(&app, rx)?;
 
     let converter_bridge = super::conversion_controller::spawn_event_bridge(&app, converter_rx)?;
@@ -200,6 +209,8 @@ pub fn run(
     let run_result = slint::run_event_loop();
     let hide_result = app.hide();
     drop(player_bridge);
+    #[cfg(target_os = "windows")]
+    drop(render_source_bridge);
     drop(converter_bridge);
     drop(command_error_bridge);
     #[cfg(target_os = "windows")]

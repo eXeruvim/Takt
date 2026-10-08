@@ -10,6 +10,7 @@ rendering notifier, пока OpenGL-контекст окна активен.
 ```text
 Slint UI -> ipc::Command -> player::mpv -> libmpv
 Slint UI <- ipc::Event   <- player::mpv <- libmpv events
+player::mpv -> one-shot MpvRenderSource -> ui::video_output
 
 player::mpv -> bounded session snapshot -> storage writer
 player::mpv -> latest metadata request -> cancellable metadata worker
@@ -24,7 +25,7 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
 
 ## Модули
 
-- `src/ipc.rs` — контракт между UI и проигрывателем;
+- `src/ipc.rs` — продуктовые команды и события между UI и проигрывателем;
 - `src/player/mpv.rs` — жизненный цикл libmpv, команды и события;
 - `src/player/mpv_adapter.rs` — создание и начальная настройка libmpv,
   регистрация наблюдаемых свойств и платформенные значения параметров;

@@ -83,12 +83,6 @@ impl PlayerEventController {
 
     fn apply(&self, app: &AppWindow, event: Event) {
         match event {
-            #[cfg(target_os = "windows")]
-            Event::RenderSource(source) => self.video_output.set_render_source(app, source),
-
-            #[cfg(not(target_os = "windows"))]
-            Event::RenderSource(_) => {}
-
             Event::VideoRendererRequired => {
                 #[cfg(target_os = "windows")]
                 self.video_output.request_renderer(app, &self.player_tx);
