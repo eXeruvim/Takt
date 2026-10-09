@@ -84,6 +84,7 @@ export component AppWindow inherits Window {
     in-out property <bool> integrated_video_renderer: false;
     in-out property <bool> audio_media: false;
     in-out property <PlayerPhase> player_phase: PlayerPhase.empty;
+    in-out property <string> loading_title: "Открываем медиафайл";
     out property <string> player_phase_label: media_transitioning ? "Переключение"
         : player_phase == PlayerPhase.loading ? "Загрузка"
         : player_phase == PlayerPhase.playing ? "Воспроизведение"
@@ -693,7 +694,7 @@ export component AppWindow inherits Window {
 
                     Spinner { spinner-color: Theme.accent; }
                     UiText {
-                        text: "Открываем медиафайл";
+                        text: root.loading_title;
                         variant: TextVariant.heading;
                         horizontal-alignment: center;
                     }

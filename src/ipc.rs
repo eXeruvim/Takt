@@ -174,6 +174,7 @@ pub enum Event {
 
     PlaybackState(bool),
     LoadStarted(String),
+    FolderLoadStarted(String),
     PlaybackStopped,
     PlaybackFinished,
     PlaybackFailed(String),

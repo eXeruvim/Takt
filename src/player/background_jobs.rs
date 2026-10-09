@@ -10,7 +10,10 @@ use crate::player::{
 
 pub(super) enum ReadyPlaylist {
     FileExpansion(anyhow::Result<DirectoryPlaylist>),
-    Directory(anyhow::Result<DirectoryPlaylist>),
+    Directory {
+        result: anyhow::Result<DirectoryPlaylist>,
+        elapsed: std::time::Duration,
+    },
 }
 
 #[derive(Default)]
@@ -70,13 +73,16 @@ impl BackgroundJobs {
                     is_current(generation, &path, current_generation, current_path)
                         .then_some(ReadyPlaylist::FileExpansion(result.playlist))
                 }
-                PlaylistRequest::Directory(_) => Some(ReadyPlaylist::Directory(result.playlist)),
+                PlaylistRequest::Directory(_) => Some(ReadyPlaylist::Directory {
+                    result: result.playlist,
+                    elapsed: result.elapsed,
+                }),
             });
 
         // A completed directory request replaces the current media in this
         // same dispatch cycle. Do not briefly publish metadata belonging to
         // the item that is about to be replaced.
-        let replaces_media = matches!(playlist, Some(ReadyPlaylist::Directory(_)));
+        let replaces_media = matches!(playlist, Some(ReadyPlaylist::Directory { .. }));
         let metadata = self.metadata.take_result().and_then(|result| {
             metadata_is_current(
                 replaces_media,

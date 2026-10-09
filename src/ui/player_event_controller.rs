@@ -89,6 +89,7 @@ impl PlayerEventController {
             }
 
             Event::LoadStarted(name) => {
+                app.set_loading_title("Открываем медиафайл".into());
                 app.set_resume_prompt_visible(false);
                 let preserve_media_surface = app.get_media_presented();
                 app.set_audio_display_name(media_name_without_extension(&name).into());
@@ -114,6 +115,22 @@ impl PlayerEventController {
                 if !preserve_media_surface {
                     app.set_audio_media(false);
                     app.set_media_loaded(false);
+                    app.set_player_phase(PlayerPhase::Loading);
+                }
+                app.set_error_visible(false);
+                app.set_error_message("".into());
+            }
+
+            Event::FolderLoadStarted(name) => {
+                app.set_loading_title("Ищем медиафайлы в папке".into());
+                app.set_resume_prompt_visible(false);
+                let preserve_media_surface = app.get_media_presented();
+                if !preserve_media_surface {
+                    app.set_file_name(name.into());
+                    app.set_waiting_for_video_surface(false);
+                    app.set_audio_media(false);
+                    app.set_media_loaded(false);
+                    app.set_is_playing(false);
                     app.set_player_phase(PlayerPhase::Loading);
                 }
                 app.set_error_visible(false);

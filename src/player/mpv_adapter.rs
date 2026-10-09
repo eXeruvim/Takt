@@ -23,6 +23,7 @@ pub(super) fn create() -> anyhow::Result<Arc<Mpv>> {
         // Software decoding is the reliable default. Hardware decoding can
         // be enabled at runtime for demanding files on compatible drivers.
         initializer.set_property("hwdec", "no".to_owned())?;
+        configure_local_readahead(&initializer)?;
         configure_benchmark_local_cache(
             &initializer,
             std::env::var_os(BENCHMARK_LOCAL_CACHE_ENV).as_deref(),
@@ -46,6 +47,17 @@ pub(super) fn create() -> anyhow::Result<Arc<Mpv>> {
     })
     .map(Arc::new)
     .map_err(|error| anyhow::anyhow!("{error:?}"))
+}
+
+fn configure_local_readahead(
+    initializer: &libmpv::MpvInitializer,
+) -> Result<(), libmpv::Error> {
+    // mpv defaults local files to roughly one second of demuxer read-ahead.
+    // That is easy to exhaust when an older HDD pauses for a short seek or
+    // background I/O burst. Buffer by media time rather than reserving a fixed
+    // large byte cache: ordinary low-bitrate files stay cheap, while demanding
+    // files may use more of mpv's existing bounded packet budget.
+    initializer.set_property("demuxer-readahead-secs", 8.0)
 }
 
 fn configure_benchmark_local_cache(
@@ -128,9 +140,29 @@ fn configure_seek_osd(initializer: &libmpv::MpvInitializer) -> Result<(), libmpv
 #[cfg(test)]
 mod tests {
     use super::{
-        automatic_hwdec_mode, configure_benchmark_local_cache, configure_seek_osd,
-        hwdec_is_enabled, set_loaded_media_paused, video_background_color,
+        automatic_hwdec_mode, configure_benchmark_local_cache, configure_local_readahead,
+        configure_seek_osd, hwdec_is_enabled, set_loaded_media_paused, video_background_color,
     };
+
+    #[test]
+    fn local_readahead_covers_short_storage_stalls_without_enabling_full_cache() {
+        let mpv = libmpv::Mpv::with_initializer(|initializer| {
+            initializer.set_property("config", "no")?;
+            initializer.set_property("load-scripts", "no")?;
+            initializer.set_property("terminal", "no")?;
+            initializer.set_property("vo", "null")?;
+            initializer.set_property("ao", "null")?;
+            configure_local_readahead(&initializer)
+        })
+        .expect("headless mpv must accept bounded local read-ahead");
+
+        assert_eq!(
+            mpv.get_property::<f64>("demuxer-readahead-secs")
+                .unwrap(),
+            8.0
+        );
+        assert_ne!(mpv.get_property::<String>("cache").unwrap(), "yes");
+    }
 
     #[test]
     fn native_seek_overlay_is_disabled_without_hiding_subtitles() {

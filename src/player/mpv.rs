@@ -1,5 +1,5 @@
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -732,6 +732,7 @@ pub fn run(
         let _ = tx.send(Event::Error(message));
     }
     let mut last_session_save = Instant::now();
+    let mut pending_folder_media_load = None::<(PathBuf, Instant)>;
     let mut playback_state = PlaybackState::default();
     let mut events = mpv.create_event_context();
     // Windows starts with vid=no, so audio and metadata probing do not require
@@ -761,6 +762,7 @@ pub fn run(
             dispatched_commands += 1;
             let command = match command {
                 Command::OpenFile(path) => {
+                    pending_folder_media_load = None;
                     background_jobs.cancel_all();
                     match DirectoryPlaylist::from_file(&path).and_then(|next_playlist| {
                         activate_playlist(&mpv, &tx, &mut playlist, next_playlist, options.shuffled)
@@ -784,6 +786,15 @@ pub fn run(
                     continue;
                 }
                 Command::OpenFolder(path) => {
+                    pending_folder_media_load = None;
+                    let folder_name = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| path.to_string_lossy().into_owned());
+                    let _ = tx.send(Event::FolderLoadStarted(bounded_text(
+                        &folder_name,
+                        UI_TEXT_BYTES,
+                    )));
                     background_jobs.open_directory(path);
                     continue;
                 }
@@ -929,27 +940,45 @@ pub fn run(
                         )));
                     }
                 },
-                ReadyPlaylist::Directory(result) => match result.and_then(|next_playlist| {
-                    activate_playlist(&mpv, &tx, &mut playlist, next_playlist, options.shuffled)
-                }) {
+                ReadyPlaylist::Directory { result, elapsed } => {
+                    eprintln!(
+                        "Очередь папки подготовлена за {:.1} мс",
+                        elapsed.as_secs_f64() * 1_000.0
+                    );
+                    let media_load_started = Instant::now();
+                    match result.and_then(|next_playlist| {
+                        activate_playlist(
+                            &mpv,
+                            &tx,
+                            &mut playlist,
+                            next_playlist,
+                            options.shuffled,
+                        )
+                    }) {
                     Ok(()) => {
                         background_jobs.cancel_metadata();
                         options.media_available = true;
+                        let current_path = playlist
+                            .as_ref()
+                            .and_then(DirectoryPlaylist::current_path)
+                            .cloned();
+                        pending_folder_media_load = current_path
+                            .as_ref()
+                            .map(|path| (path.clone(), media_load_started));
                         playback_state.begin_media_change(
-                            playlist
-                                .as_ref()
-                                .and_then(DirectoryPlaylist::current_path)
-                                .cloned(),
+                            current_path,
                             current_playlist_entry_id(&mpv),
                         );
                     }
                     Err(error) => {
+                        pending_folder_media_load = None;
                         background_jobs.cancel_metadata();
                         options.media_available = false;
                         playback_state.media_change_failed();
                         send_playback_failed(&tx, error.to_string());
                     }
-                },
+                    }
+                }
             }
         }
         if let Some(result) = ready_background.metadata {
@@ -991,6 +1020,17 @@ pub fn run(
                     let mut resume_position = None;
                     if let Some(path) = playlist.as_ref().and_then(DirectoryPlaylist::current_path)
                     {
+                        if pending_folder_media_load
+                            .as_ref()
+                            .is_some_and(|(expected, _)| expected == path)
+                            && let Some((_, started)) = pending_folder_media_load.take()
+                        {
+                            eprintln!(
+                                "Первый файл папки открыт mpv за {:.1} мс: {}",
+                                started.elapsed().as_secs_f64() * 1_000.0,
+                                path.display()
+                            );
+                        }
                         playback_state.file_loaded(path);
                         let duration = mpv.get_property::<f64>("duration").unwrap_or_default();
                         if let Some(position) = session.resume_position(path, duration)

@@ -3,6 +3,7 @@
 use std::{
     path::PathBuf,
     sync::{Arc, atomic::AtomicBool},
+    time::{Duration, Instant},
 };
 
 use crate::player::{
@@ -25,6 +26,7 @@ pub(super) enum PlaylistRequest {
 pub(super) struct PlaylistResult {
     pub(super) request: PlaylistRequest,
     pub(super) playlist: anyhow::Result<DirectoryPlaylist>,
+    pub(super) elapsed: Duration,
 }
 
 pub(super) struct PlaylistWorker {
@@ -54,15 +56,20 @@ impl PlaylistWorker {
                 "Поток формирования очереди завершился с паникой",
                 wake,
                 Arc::new(move |request: PlaylistRequest, cancelled| {
-                    match loader(&request, cancelled) {
+                    let started = Instant::now();
+                    let loaded = loader(&request, cancelled);
+                    let elapsed = started.elapsed();
+                    match loaded {
                         Ok(Some(playlist)) => Some(PlaylistResult {
                             request,
                             playlist: Ok(playlist),
+                            elapsed,
                         }),
                         Ok(None) => None,
                         Err(error) => Some(PlaylistResult {
                             request,
                             playlist: Err(error),
+                            elapsed,
                         }),
                     }
                 }),
