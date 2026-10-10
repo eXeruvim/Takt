@@ -110,11 +110,14 @@ pub(super) fn hwdec_is_enabled(value: &str) -> bool {
 }
 
 pub(super) fn automatic_hwdec_mode() -> &'static str {
-    // Oxide's Windows renderer presents libmpv frames through OpenGL. Copy-back
-    // avoids driver-specific D3D11VA/OpenGL interop corruption while keeping the
-    // decode stage on the GPU. Other platforms can use direct safe interop.
+    // Oxide's Windows renderer presents libmpv frames through OpenGL, so only
+    // copy-back decoders are compatible without a separate D3D11/ANGLE render
+    // path. Prefer mpv's recommended NVIDIA decoder: the generic auto-copy
+    // selection picked d3d11va-copy on the reference NVIDIA system, where the
+    // driver produced visible corruption. The comma-separated list falls back
+    // to mpv's safe cross-vendor copy-back selection and ultimately software.
     if cfg!(target_os = "windows") {
-        "auto-copy-safe"
+        "nvdec-copy,auto-copy"
     } else {
         "auto-safe"
     }
@@ -232,14 +235,33 @@ mod tests {
     }
 
     #[test]
-    fn chooses_copy_back_hardware_decoding_for_windows_opengl() {
+    fn prefers_nvdec_copy_before_cross_vendor_fallback_on_windows_opengl() {
         assert_eq!(
             automatic_hwdec_mode(),
             if cfg!(target_os = "windows") {
-                "auto-copy-safe"
+                "nvdec-copy,auto-copy"
             } else {
                 "auto-safe"
             }
+        );
+    }
+
+    #[test]
+    fn libmpv_accepts_the_automatic_hardware_decoder_fallback_list() {
+        let mpv = libmpv::Mpv::with_initializer(|initializer| {
+            initializer.set_property("config", "no")?;
+            initializer.set_property("load-scripts", "no")?;
+            initializer.set_property("terminal", "no")?;
+            initializer.set_property("vo", "null")?;
+            initializer.set_property("ao", "null")
+        })
+        .expect("headless mpv must initialize");
+
+        mpv.set_property("hwdec", automatic_hwdec_mode().to_owned())
+            .expect("bundled libmpv must accept the ordered hardware decoder list");
+        assert_eq!(
+            mpv.get_property::<String>("hwdec").unwrap(),
+            automatic_hwdec_mode()
         );
     }
 

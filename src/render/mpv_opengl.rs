@@ -81,17 +81,33 @@ type GlBlendFuncSeparate = unsafe extern "system" fn(u32, u32, u32, u32);
 type GlClearColor = unsafe extern "system" fn(f32, f32, f32, f32);
 type GlIsEnabled = unsafe extern "system" fn(u32) -> u8;
 type GlSetCapability = unsafe extern "system" fn(u32);
+type GlActiveTexture = unsafe extern "system" fn(u32);
+type GlBindBuffer = unsafe extern "system" fn(u32, u32);
+type GlBindTexture = unsafe extern "system" fn(u32, u32);
+type GlBindVertexArray = unsafe extern "system" fn(u32);
+type GlColorMask = unsafe extern "system" fn(u8, u8, u8, u8);
+type GlDepthMask = unsafe extern "system" fn(u8);
+type GlStencilMask = unsafe extern "system" fn(u32);
+type GlUseProgram = unsafe extern "system" fn(u32);
 
+const GL_ARRAY_BUFFER: u32 = 0x8892;
 const GL_BLEND: u32 = 0x0BE2;
 const GL_BLEND_DST_ALPHA: u32 = 0x80CA;
 const GL_BLEND_DST_RGB: u32 = 0x80C8;
 const GL_BLEND_SRC_ALPHA: u32 = 0x80CB;
 const GL_BLEND_SRC_RGB: u32 = 0x80C9;
 const GL_COLOR_CLEAR_VALUE: u32 = 0x0C22;
+const GL_CULL_FACE: u32 = 0x0B44;
+const GL_DEPTH_TEST: u32 = 0x0B71;
 const GL_DITHER: u32 = 0x0BD0;
+const GL_ONE: u32 = 1;
 const GL_SCISSOR_TEST: u32 = 0x0C11;
 const GL_SCISSOR_BOX: u32 = 0x0C10;
+const GL_STENCIL_TEST: u32 = 0x0B90;
+const GL_TEXTURE0: u32 = 0x84C0;
+const GL_TEXTURE_2D: u32 = 0x0DE1;
 const GL_VIEWPORT: u32 = 0x0BA2;
+const GL_ZERO: u32 = 0;
 const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
 const GL_READ_FRAMEBUFFER: u32 = 0x8CA8;
 const GL_DRAW_FRAMEBUFFER_BINDING: u32 = 0x8CA6;
@@ -108,6 +124,14 @@ struct GlStateApi {
     is_enabled: GlIsEnabled,
     enable: GlSetCapability,
     disable: GlSetCapability,
+    active_texture: GlActiveTexture,
+    bind_buffer: GlBindBuffer,
+    bind_texture: GlBindTexture,
+    bind_vertex_array: GlBindVertexArray,
+    color_mask: GlColorMask,
+    depth_mask: GlDepthMask,
+    stencil_mask: GlStencilMask,
+    use_program: GlUseProgram,
 }
 
 impl GlStateApi {
@@ -164,7 +188,74 @@ impl GlStateApi {
             disable: unsafe {
                 std::mem::transmute::<*const c_void, GlSetCapability>(load(c"glDisable")?)
             },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
+            active_texture: unsafe {
+                std::mem::transmute::<*const c_void, GlActiveTexture>(load(c"glActiveTexture")?)
+            },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
+            bind_buffer: unsafe {
+                std::mem::transmute::<*const c_void, GlBindBuffer>(load(c"glBindBuffer")?)
+            },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
+            bind_texture: unsafe {
+                std::mem::transmute::<*const c_void, GlBindTexture>(load(c"glBindTexture")?)
+            },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
+            bind_vertex_array: unsafe {
+                std::mem::transmute::<*const c_void, GlBindVertexArray>(load(c"glBindVertexArray")?)
+            },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
+            color_mask: unsafe {
+                std::mem::transmute::<*const c_void, GlColorMask>(load(c"glColorMask")?)
+            },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
+            depth_mask: unsafe {
+                std::mem::transmute::<*const c_void, GlDepthMask>(load(c"glDepthMask")?)
+            },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
+            stencil_mask: unsafe {
+                std::mem::transmute::<*const c_void, GlStencilMask>(load(c"glStencilMask")?)
+            },
+            // SAFETY: Same checked loader and OpenGL ABI contract as above.
+            use_program: unsafe {
+                std::mem::transmute::<*const c_void, GlUseProgram>(load(c"glUseProgram")?)
+            },
         })
+    }
+
+    fn prepare_for_mpv(&self, size: Option<(i32, i32)>) {
+        // FemtoVG and libmpv share one implicit OpenGL context. FemtoVG leaves
+        // blending enabled and texture unit 1 active after flushing the Slint
+        // background, while libmpv's render API explicitly requires standard
+        // OpenGL defaults on entry. Hardware copy-back frames exposed the
+        // mismatch as visible corruption even though software frames happened
+        // to tolerate it. The surrounding snapshot restores the exceptional
+        // state that Slint needs after mpv returns.
+        //
+        // SAFETY: Every function belongs to the current Slint OpenGL context.
+        // The calls use only standard default values and retain no Rust memory.
+        unsafe {
+            (self.use_program)(0);
+            (self.bind_vertex_array)(0);
+            (self.bind_buffer)(GL_ARRAY_BUFFER, 0);
+            (self.active_texture)(GL_TEXTURE0);
+            (self.bind_texture)(GL_TEXTURE_2D, 0);
+            (self.disable)(GL_BLEND);
+            (self.disable)(GL_CULL_FACE);
+            (self.disable)(GL_DEPTH_TEST);
+            (self.disable)(GL_SCISSOR_TEST);
+            (self.disable)(GL_STENCIL_TEST);
+            (self.disable)(GL_DITHER);
+            (self.blend_func_separate)(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
+            (self.color_mask)(1, 1, 1, 1);
+            (self.depth_mask)(1);
+            (self.stencil_mask)(u32::MAX);
+            (self.clear_color)(0.0, 0.0, 0.0, 0.0);
+            if let Some((width, height)) = size {
+                (self.viewport)(0, 0, width, height);
+                (self.scissor)(0, 0, width, height);
+            }
+        }
     }
 
     fn capture(&self) -> GlStateSnapshot<'_> {
@@ -353,6 +444,7 @@ impl MpvOpenGlRenderer {
             // clear color, and dithering from its state-reset guarantee. This
             // guard also protects Slint from initialization-time changes.
             let _state = gl_state.capture();
+            gl_state.prepare_for_mpv(None);
             // SAFETY: The caller upholds the current-context requirement. Every
             // parameter and the loader context remain valid until the synchronous
             // create call returns, and the array is terminated by INVALID.
@@ -401,6 +493,7 @@ impl MpvOpenGlRenderer {
         let _state = self.gl_state.capture();
         let width = c_int::try_from(size.0).unwrap_or(c_int::MAX).max(1);
         let height = c_int::try_from(size.1).unwrap_or(c_int::MAX).max(1);
+        self.gl_state.prepare_for_mpv(Some((width, height)));
         let mut framebuffer = mpv_opengl_fbo {
             fbo: 0,
             w: width,
@@ -457,6 +550,7 @@ impl Drop for MpvOpenGlRenderer {
         // mpv can touch the same excluded OpenGL state while releasing GPU
         // resources. Preserve it for the Slint teardown path as well.
         let _state = self.gl_state.capture();
+        self.gl_state.prepare_for_mpv(None);
         // SAFETY: The type is !Send and Oxide drops it only from Slint's
         // RenderingTeardown (or a render failure), where Slint keeps the same
         // OpenGL context current. The callback is removed first. The Box stays
