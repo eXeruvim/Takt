@@ -115,20 +115,18 @@ pub(super) fn automatic_hwdec_mode() -> &'static str {
 }
 
 fn automatic_hwdec_mode_for(benchmark_override: Option<&OsStr>) -> &'static str {
-    // Direct NVDEC is deliberately benchmark-only. libmpv can load CUDA/OpenGL
-    // interop for its render API, but this path is NVIDIA-specific and needs a
-    // measured compatibility/memory result before it can become product policy.
+    // An explicit benchmark override keeps strict NVDEC measurements from
+    // silently falling back to a copy-back decoder.
     if cfg!(target_os = "windows") && benchmark_override == Some(OsStr::new("nvdec")) {
         return "nvdec";
     }
 
-    // The product setting remains cross-vendor copy-back. Prefer mpv's
-    // recommended NVIDIA decoder: the generic auto-copy selection picked
-    // d3d11va-copy on the reference NVIDIA system, where the driver previously
-    // exposed a shared-OpenGL-state bug. The fallback preserves support for
-    // AMD/Intel and ultimately returns to software if hardware is unavailable.
+    // Prefer direct CUDA/OpenGL interop on NVIDIA: the measured path avoids the
+    // system-memory copy and substantially reduces RAM and GPU-memory pressure.
+    // NVDEC copy-back remains the NVIDIA compatibility fallback; auto-copy then
+    // preserves AMD/Intel support. mpv returns to software if none can start.
     if cfg!(target_os = "windows") {
-        "nvdec-copy,auto-copy"
+        "nvdec,nvdec-copy,auto-copy"
     } else {
         "auto-safe"
     }
@@ -246,11 +244,11 @@ mod tests {
     }
 
     #[test]
-    fn prefers_nvdec_copy_before_cross_vendor_fallback_on_windows_opengl() {
+    fn prefers_direct_nvdec_before_compatible_fallbacks_on_windows_opengl() {
         assert_eq!(
             automatic_hwdec_mode_for(None),
             if cfg!(target_os = "windows") {
-                "nvdec-copy,auto-copy"
+                "nvdec,nvdec-copy,auto-copy"
             } else {
                 "auto-safe"
             }
@@ -258,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn direct_nvdec_is_available_only_as_an_explicit_benchmark_override() {
+    fn explicit_nvdec_benchmark_override_disables_automatic_fallbacks() {
         let direct = automatic_hwdec_mode_for(Some(std::ffi::OsStr::new("nvdec")));
         if cfg!(target_os = "windows") {
             assert_eq!(direct, "nvdec");
