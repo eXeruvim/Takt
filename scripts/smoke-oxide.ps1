@@ -97,6 +97,7 @@ try {
     # earlier profiling session in the caller's terminal.
     [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_DIAGNOSTICS_PATH')
     [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_RENDER_GATE')
+    [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_HWDEC')
     if ($null -ne $resolvedMediaPath) {
         [void]$startInfo.ArgumentList.Add($resolvedMediaPath)
     }

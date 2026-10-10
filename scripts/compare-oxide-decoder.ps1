@@ -137,7 +137,7 @@ $hardware = Read-Measurement -Path $HardwareResultPath
 if ([string]$software.data.run_configuration.decoder_mode -ne 'software') {
     throw "Первый результат имеет decoder_mode '$($software.data.run_configuration.decoder_mode)', ожидался software."
 }
-$hardwareDecoderModes = @('hardware-auto-copy', 'nvdec-copy', 'd3d11va-copy')
+$hardwareDecoderModes = @('hardware-auto-copy', 'nvdec', 'nvdec-copy', 'd3d11va-copy')
 if ([string]$hardware.data.run_configuration.decoder_mode -notin $hardwareDecoderModes) {
     throw "Второй результат имеет decoder_mode '$($hardware.data.run_configuration.decoder_mode)', ожидался аппаратный copy-back режим."
 }
@@ -239,7 +239,7 @@ if ($null -ne $softwareDiagnostics -and $null -ne $hardwareDiagnostics) {
         throw "Аппаратный результат фактически использовал программный декодер ('$($hardwareDiagnostics.decoder)'). Включите аппаратное декодирование и повторите замер."
     }
     $requestedHardwareDecoder = [string]$hardware.data.run_configuration.decoder_mode
-    if ($requestedHardwareDecoder -in @('nvdec-copy', 'd3d11va-copy') `
+    if ($requestedHardwareDecoder -in @('nvdec', 'nvdec-copy', 'd3d11va-copy') `
         -and $hardwareActualDecoder -ne $requestedHardwareDecoder) {
         throw "Аппаратный результат запросил '$requestedHardwareDecoder', но mpv выбрал '$($hardwareDiagnostics.decoder)'."
     }

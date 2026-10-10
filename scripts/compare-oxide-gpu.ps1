@@ -97,7 +97,7 @@ $hardware = Read-GpuSummary -Path $HardwareSummaryPath
 if ([string]$software.data.decoder_mode -ne 'software') {
     throw "Первая сводка имеет decoder_mode '$($software.data.decoder_mode)', ожидался software."
 }
-$hardwareDecoderModes = @('hardware-auto-copy', 'nvdec-copy', 'd3d11va-copy')
+$hardwareDecoderModes = @('hardware-auto-copy', 'nvdec', 'nvdec-copy', 'd3d11va-copy')
 if ([string]$hardware.data.decoder_mode -notin $hardwareDecoderModes) {
     throw "Вторая сводка имеет decoder_mode '$($hardware.data.decoder_mode)', ожидался аппаратный copy-back режим."
 }

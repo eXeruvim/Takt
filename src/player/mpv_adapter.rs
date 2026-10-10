@@ -6,6 +6,7 @@ use anyhow::Context;
 use libmpv::{Format, Mpv, events::EventContext};
 
 const BENCHMARK_LOCAL_CACHE_ENV: &str = "OXIDE_BENCHMARK_LOCAL_CACHE";
+const BENCHMARK_HWDEC_ENV: &str = "OXIDE_BENCHMARK_HWDEC";
 
 pub(super) fn mpv_error<T>(result: Result<T, libmpv::Error>) -> anyhow::Result<T> {
     result.map_err(|error| anyhow::anyhow!("{error:?}"))
@@ -110,12 +111,22 @@ pub(super) fn hwdec_is_enabled(value: &str) -> bool {
 }
 
 pub(super) fn automatic_hwdec_mode() -> &'static str {
-    // Oxide's Windows renderer presents libmpv frames through OpenGL, so only
-    // copy-back decoders are compatible without a separate D3D11/ANGLE render
-    // path. Prefer mpv's recommended NVIDIA decoder: the generic auto-copy
-    // selection picked d3d11va-copy on the reference NVIDIA system, where the
-    // driver produced visible corruption. The comma-separated list falls back
-    // to mpv's safe cross-vendor copy-back selection and ultimately software.
+    automatic_hwdec_mode_for(std::env::var_os(BENCHMARK_HWDEC_ENV).as_deref())
+}
+
+fn automatic_hwdec_mode_for(benchmark_override: Option<&OsStr>) -> &'static str {
+    // Direct NVDEC is deliberately benchmark-only. libmpv can load CUDA/OpenGL
+    // interop for its render API, but this path is NVIDIA-specific and needs a
+    // measured compatibility/memory result before it can become product policy.
+    if cfg!(target_os = "windows") && benchmark_override == Some(OsStr::new("nvdec")) {
+        return "nvdec";
+    }
+
+    // The product setting remains cross-vendor copy-back. Prefer mpv's
+    // recommended NVIDIA decoder: the generic auto-copy selection picked
+    // d3d11va-copy on the reference NVIDIA system, where the driver previously
+    // exposed a shared-OpenGL-state bug. The fallback preserves support for
+    // AMD/Intel and ultimately returns to software if hardware is unavailable.
     if cfg!(target_os = "windows") {
         "nvdec-copy,auto-copy"
     } else {
@@ -141,7 +152,7 @@ fn configure_seek_osd(initializer: &libmpv::MpvInitializer) -> Result<(), libmpv
 #[cfg(test)]
 mod tests {
     use super::{
-        automatic_hwdec_mode, configure_benchmark_local_cache, configure_local_readahead,
+        automatic_hwdec_mode_for, configure_benchmark_local_cache, configure_local_readahead,
         configure_seek_osd, hwdec_is_enabled, set_loaded_media_paused, video_background_color,
     };
 
@@ -237,12 +248,26 @@ mod tests {
     #[test]
     fn prefers_nvdec_copy_before_cross_vendor_fallback_on_windows_opengl() {
         assert_eq!(
-            automatic_hwdec_mode(),
+            automatic_hwdec_mode_for(None),
             if cfg!(target_os = "windows") {
                 "nvdec-copy,auto-copy"
             } else {
                 "auto-safe"
             }
+        );
+    }
+
+    #[test]
+    fn direct_nvdec_is_available_only_as_an_explicit_benchmark_override() {
+        let direct = automatic_hwdec_mode_for(Some(std::ffi::OsStr::new("nvdec")));
+        if cfg!(target_os = "windows") {
+            assert_eq!(direct, "nvdec");
+        } else {
+            assert_eq!(direct, "auto-safe");
+        }
+        assert_eq!(
+            automatic_hwdec_mode_for(Some(std::ffi::OsStr::new("unexpected"))),
+            automatic_hwdec_mode_for(None)
         );
     }
 
@@ -257,11 +282,11 @@ mod tests {
         })
         .expect("headless mpv must initialize");
 
-        mpv.set_property("hwdec", automatic_hwdec_mode().to_owned())
+        mpv.set_property("hwdec", automatic_hwdec_mode_for(None).to_owned())
             .expect("bundled libmpv must accept the ordered hardware decoder list");
         assert_eq!(
             mpv.get_property::<String>("hwdec").unwrap(),
-            automatic_hwdec_mode()
+            automatic_hwdec_mode_for(None)
         );
     }
 

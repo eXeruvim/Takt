@@ -20,7 +20,7 @@ param(
 
     [string]$MediaPath = '',
 
-    [ValidateSet('not-recorded', 'software', 'hardware-auto-copy', 'nvdec-copy', 'd3d11va-copy')]
+    [ValidateSet('not-recorded', 'software', 'hardware-auto-copy', 'nvdec', 'nvdec-copy', 'd3d11va-copy')]
     [string]$DecoderMode = 'not-recorded',
 
     [ValidateSet('not-recorded', 'integrated-opengl', 'native-hwnd-fallback')]
@@ -201,11 +201,30 @@ try {
         Write-Host "WPR $Profile запущен до Oxide, чтобы увидеть стартовые выделения."
     }
 
-    $process = Start-Process `
-        -FilePath $executablePath `
-        -WorkingDirectory $repository `
-        -WindowStyle Normal `
-        -PassThru
+    $hardwareDecoderVariable = 'OXIDE_BENCHMARK_HWDEC'
+    $oldHardwareDecoder = [Environment]::GetEnvironmentVariable(
+        $hardwareDecoderVariable,
+        [EnvironmentVariableTarget]::Process
+    )
+    try {
+        [Environment]::SetEnvironmentVariable(
+            $hardwareDecoderVariable,
+            $(if ($DecoderMode -eq 'nvdec') { 'nvdec' } else { $null }),
+            [EnvironmentVariableTarget]::Process
+        )
+        $process = Start-Process `
+            -FilePath $executablePath `
+            -WorkingDirectory $repository `
+            -WindowStyle Normal `
+            -PassThru
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable(
+            $hardwareDecoderVariable,
+            $oldHardwareDecoder,
+            [EnvironmentVariableTarget]::Process
+        )
+    }
     Write-Host "Oxide запущен с PID $($process.Id)."
     if ($Scenario -ne 'idle') {
         $scenarioInstruction = switch ($Scenario) {

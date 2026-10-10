@@ -180,7 +180,7 @@ $copyObserved = @($systemEngines | Where-Object {
     $_.engine_type -match '(?i)copy|transfer|blt'
 }).Count -gt 0
 $warnings = [System.Collections.Generic.List[string]]::new()
-$hardwareDecoderModes = @('hardware-auto-copy', 'nvdec-copy', 'd3d11va-copy')
+$hardwareDecoderModes = @('hardware-auto-copy', 'nvdec', 'nvdec-copy', 'd3d11va-copy')
 if ([string]$metadata.decoder_mode -in $hardwareDecoderModes -and -not $decodeObserved) {
     $warnings.Add(
         'Паспорт заявляет аппаратный copy-back режим, но GPU-таблица не содержит Video Decode. ' +

@@ -12,7 +12,7 @@ param(
 
     [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\oxide.exe'),
 
-    [ValidateSet('not-recorded', 'software', 'hardware-auto-copy', 'nvdec-copy', 'd3d11va-copy')]
+    [ValidateSet('not-recorded', 'software', 'hardware-auto-copy', 'nvdec', 'nvdec-copy', 'd3d11va-copy')]
     [string]$DecoderMode = 'not-recorded',
 
     [ValidateSet('not-recorded', 'integrated-opengl', 'native-hwnd-fallback')]
@@ -111,7 +111,7 @@ function Get-DecoderValidationError {
     if ($actual -in $softwareDecoders) {
         return "Запрошено аппаратное декодирование '$RequestedMode', но mpv использовал программный декодер ('$ActualDecoder'). Включите аппаратное декодирование и повторите замер."
     }
-    if ($RequestedMode -in @('nvdec-copy', 'd3d11va-copy') -and $actual -ne $RequestedMode) {
+    if ($RequestedMode -in @('nvdec', 'nvdec-copy', 'd3d11va-copy') -and $actual -ne $RequestedMode) {
         return "Запрошен декодер '$RequestedMode', но mpv выбрал '$ActualDecoder'. Повторите замер с указанным декодером или используйте режим hardware-auto-copy."
     }
     return $null
@@ -753,6 +753,7 @@ else {
 $diagnosticsVariable = 'OXIDE_BENCHMARK_DIAGNOSTICS_PATH'
 $renderGateVariable = 'OXIDE_BENCHMARK_RENDER_GATE'
 $localCacheVariable = 'OXIDE_BENCHMARK_LOCAL_CACHE'
+$hardwareDecoderVariable = 'OXIDE_BENCHMARK_HWDEC'
 $renderGateName = if ($null -ne $playbackDiagnosticsPath) {
     "Local\OxideBenchmarkRender-$([Guid]::NewGuid().ToString('N'))"
 }
@@ -781,6 +782,10 @@ $oldLocalCacheMode = [Environment]::GetEnvironmentVariable(
     $localCacheVariable,
     [EnvironmentVariableTarget]::Process
 )
+$oldHardwareDecoder = [Environment]::GetEnvironmentVariable(
+    $hardwareDecoderVariable,
+    [EnvironmentVariableTarget]::Process
+)
 try {
     [Environment]::SetEnvironmentVariable(
         $diagnosticsVariable,
@@ -795,6 +800,11 @@ try {
     [Environment]::SetEnvironmentVariable(
         $localCacheVariable,
         $(if ($LocalCacheMode -eq 'balanced') { 'balanced' } else { $null }),
+        [EnvironmentVariableTarget]::Process
+    )
+    [Environment]::SetEnvironmentVariable(
+        $hardwareDecoderVariable,
+        $(if ($DecoderMode -eq 'nvdec') { 'nvdec' } else { $null }),
         [EnvironmentVariableTarget]::Process
     )
     $process = Start-Process -FilePath $executablePath -WorkingDirectory $repository -WindowStyle Normal -PassThru
@@ -813,6 +823,11 @@ finally {
     [Environment]::SetEnvironmentVariable(
         $localCacheVariable,
         $oldLocalCacheMode,
+        [EnvironmentVariableTarget]::Process
+    )
+    [Environment]::SetEnvironmentVariable(
+        $hardwareDecoderVariable,
+        $oldHardwareDecoder,
         [EnvironmentVariableTarget]::Process
     )
 }
