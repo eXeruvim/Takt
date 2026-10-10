@@ -449,56 +449,70 @@ fn shuffle_paths(files: &mut [PathBuf], mut state: u64) {
 fn natural_cmp(left: &str, right: &str) -> Ordering {
     let left = left.to_lowercase();
     let right = right.to_lowercase();
-    let mut left_chars = left.chars().peekable();
-    let mut right_chars = right.chars().peekable();
-
-    loop {
-        match (left_chars.peek(), right_chars.peek()) {
-            (Some(left_char), Some(right_char))
-                if left_char.is_ascii_digit() && right_char.is_ascii_digit() =>
-            {
-                let left_number = take_digits(&mut left_chars);
-                let right_number = take_digits(&mut right_chars);
-                let ordering = compare_digit_runs(&left_number, &right_number);
-                if ordering != Ordering::Equal {
-                    return ordering;
-                }
-            }
-            (Some(_), Some(_)) => {
-                let ordering = left_chars.next().cmp(&right_chars.next());
-                if ordering != Ordering::Equal {
-                    return ordering;
-                }
-            }
-            (None, None) => return Ordering::Equal,
-            (None, Some(_)) => return Ordering::Less,
-            (Some(_), None) => return Ordering::Greater,
-        }
-    }
+    natural_cmp_folded(&left, &right)
 }
 
-fn take_digits(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
-    let mut digits = String::new();
-    while chars.peek().is_some_and(char::is_ascii_digit) {
-        if let Some(character) = chars.next() {
-            digits.push(character);
+fn natural_cmp_folded(left: &str, right: &str) -> Ordering {
+    let left_bytes = left.as_bytes();
+    let right_bytes = right.as_bytes();
+    let mut left_index = 0;
+    let mut right_index = 0;
+
+    while left_index < left_bytes.len() && right_index < right_bytes.len() {
+        if left_bytes[left_index].is_ascii_digit() && right_bytes[right_index].is_ascii_digit() {
+            let left_end = digit_run_end(left_bytes, left_index);
+            let right_end = digit_run_end(right_bytes, right_index);
+            let ordering = compare_digit_runs(
+                &left_bytes[left_index..left_end],
+                &right_bytes[right_index..right_end],
+            );
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+            left_index = left_end;
+            right_index = right_end;
+            continue;
         }
+
+        let left_char = left[left_index..]
+            .chars()
+            .next()
+            .expect("index remains on a UTF-8 boundary");
+        let right_char = right[right_index..]
+            .chars()
+            .next()
+            .expect("index remains on a UTF-8 boundary");
+        let ordering = left_char.cmp(&right_char);
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+        left_index += left_char.len_utf8();
+        right_index += right_char.len_utf8();
     }
-    digits
+
+    left_bytes.len().cmp(&right_bytes.len())
 }
 
-fn compare_digit_runs(left: &str, right: &str) -> Ordering {
-    let left_trimmed = left.trim_start_matches('0');
-    let right_trimmed = right.trim_start_matches('0');
-    let left_significant = if left_trimmed.is_empty() {
-        "0"
+fn digit_run_end(bytes: &[u8], start: usize) -> usize {
+    let mut end = start;
+    while end < bytes.len() && bytes[end].is_ascii_digit() {
+        end += 1;
+    }
+    end
+}
+
+fn compare_digit_runs(left: &[u8], right: &[u8]) -> Ordering {
+    let left_trimmed = left.iter().position(|byte| *byte != b'0');
+    let right_trimmed = right.iter().position(|byte| *byte != b'0');
+    let left_significant = if let Some(index) = left_trimmed {
+        &left[index..]
     } else {
-        left_trimmed
+        b"0"
     };
-    let right_significant = if right_trimmed.is_empty() {
-        "0"
+    let right_significant = if let Some(index) = right_trimmed {
+        &right[index..]
     } else {
-        right_trimmed
+        b"0"
     };
 
     left_significant

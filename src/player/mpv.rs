@@ -10,7 +10,9 @@ use crate::player::{
     commands::{CommandReceiver, DISPATCH_BUDGET},
     equalizer::EqualizerSettings,
     limits::{PATH_TEXT_BYTES, UI_TEXT_BYTES, bounded_text},
-    media_info::{MediaInfo, read_audio_tracks, read_chapters, read_subtitle_tracks},
+    media_info::{
+        MediaInfo, MediaSnapshot, read_audio_tracks, read_chapters, read_subtitle_tracks,
+    },
     metadata_worker::MetadataResult,
     mpv_adapter::{
         automatic_hwdec_mode, create as create_mpv, hwdec_is_enabled, mpv_error,
@@ -194,13 +196,14 @@ fn audio_metadata_is_relevant(info: &MediaInfo) -> bool {
 }
 
 fn send_media_ready(mpv: &Mpv, tx: &Sender<Event>) -> MediaInfo {
-    let info = MediaInfo::read(mpv);
+    let snapshot = MediaSnapshot::read(mpv);
+    let info = snapshot.info;
     send_media_info(&info, tx);
     if info.video_track_count > 0 {
         let _ = tx.send(Event::VideoRendererRequired);
     }
-    let _ = tx.send(Event::AudioTracks(read_audio_tracks(mpv)));
-    let _ = tx.send(Event::SubtitleTracks(read_subtitle_tracks(mpv)));
+    let _ = tx.send(Event::AudioTracks(snapshot.audio_tracks));
+    let _ = tx.send(Event::SubtitleTracks(snapshot.subtitle_tracks));
     let _ = tx.send(Event::Chapters {
         items: read_chapters(mpv),
         current_index: mpv.get_property::<i64>("chapter").unwrap_or(-1),

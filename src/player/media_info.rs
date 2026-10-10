@@ -25,15 +25,26 @@ pub struct MediaInfo {
 
 impl MediaInfo {
     pub fn read(mpv: &Mpv) -> Self {
+        let tracks = read_tracks(mpv);
+        Self::read_with_tracks(mpv, &tracks)
+    }
+
+    fn read_with_tracks(mpv: &Mpv, tracks: &[RawTrack]) -> Self {
         let file_size_bytes =
             non_negative_u64(mpv.get_property::<i64>("file-size").unwrap_or_default());
         let duration_seconds = mpv.get_property::<f64>("duration").unwrap_or_default();
-        let video_tracks = read_tracks(mpv, "video")
-            .into_iter()
-            .filter(|track| !track.album_art)
+        let video_tracks = tracks
+            .iter()
+            .filter(|track| track.kind == TrackKind::Video && !track.album_art)
             .count();
-        let audio_tracks = read_tracks(mpv, "audio").len();
-        let subtitle_tracks = read_tracks(mpv, "sub").len();
+        let audio_tracks = tracks
+            .iter()
+            .filter(|track| track.kind == TrackKind::Audio)
+            .count();
+        let subtitle_tracks = tracks
+            .iter()
+            .filter(|track| track.kind == TrackKind::Subtitle)
+            .count();
 
         Self {
             width: non_negative_u32(mpv.get_property::<i64>("width").unwrap_or_default()),
@@ -56,9 +67,31 @@ impl MediaInfo {
     }
 }
 
+pub struct MediaSnapshot {
+    pub info: MediaInfo,
+    pub audio_tracks: Vec<AudioTrackInfo>,
+    pub subtitle_tracks: Vec<SubtitleTrackInfo>,
+}
+
+impl MediaSnapshot {
+    pub fn read(mpv: &Mpv) -> Self {
+        let tracks = read_tracks(mpv);
+        Self {
+            info: MediaInfo::read_with_tracks(mpv, &tracks),
+            audio_tracks: audio_tracks_from(&tracks),
+            subtitle_tracks: subtitle_tracks_from(&tracks),
+        }
+    }
+}
+
 pub fn read_audio_tracks(mpv: &Mpv) -> Vec<AudioTrackInfo> {
-    read_tracks(mpv, "audio")
-        .into_iter()
+    audio_tracks_from(&read_tracks(mpv))
+}
+
+fn audio_tracks_from(tracks: &[RawTrack]) -> Vec<AudioTrackInfo> {
+    tracks
+        .iter()
+        .filter(|track| track.kind == TrackKind::Audio)
         .enumerate()
         .map(|(index, track)| AudioTrackInfo {
             id: track.id,
@@ -76,8 +109,13 @@ pub fn read_audio_tracks(mpv: &Mpv) -> Vec<AudioTrackInfo> {
 }
 
 pub fn read_subtitle_tracks(mpv: &Mpv) -> Vec<SubtitleTrackInfo> {
-    read_tracks(mpv, "sub")
-        .into_iter()
+    subtitle_tracks_from(&read_tracks(mpv))
+}
+
+fn subtitle_tracks_from(tracks: &[RawTrack]) -> Vec<SubtitleTrackInfo> {
+    tracks
+        .iter()
+        .filter(|track| track.kind == TrackKind::Subtitle)
         .enumerate()
         .map(|(index, track)| {
             let external_title = track.external_filename.as_deref().and_then(|path| {
@@ -153,6 +191,7 @@ fn format_chapter_time(seconds: f64) -> String {
 }
 
 struct RawTrack {
+    kind: TrackKind,
     id: i64,
     title: String,
     language: String,
@@ -163,7 +202,14 @@ struct RawTrack {
     album_art: bool,
 }
 
-fn read_tracks(mpv: &Mpv, track_type: &str) -> Vec<RawTrack> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TrackKind {
+    Video,
+    Audio,
+    Subtitle,
+}
+
+fn read_tracks(mpv: &Mpv) -> Vec<RawTrack> {
     let count = mpv
         .get_property::<i64>("track-list/count")
         .unwrap_or_default()
@@ -172,13 +218,16 @@ fn read_tracks(mpv: &Mpv, track_type: &str) -> Vec<RawTrack> {
 
     for index in 0..count {
         let property = |name: &str| format!("track-list/{index}/{name}");
-        if mpv
+        let kind = match mpv
             .get_property::<String>(&property("type"))
             .unwrap_or_default()
-            != track_type
+            .as_str()
         {
-            continue;
-        }
+            "video" => TrackKind::Video,
+            "audio" => TrackKind::Audio,
+            "sub" => TrackKind::Subtitle,
+            _ => continue,
+        };
 
         let Ok(id) = mpv.get_property::<i64>(&property("id")) else {
             continue;
@@ -213,6 +262,7 @@ fn read_tracks(mpv: &Mpv, track_type: &str) -> Vec<RawTrack> {
             .unwrap_or(false);
 
         tracks.push(RawTrack {
+            kind,
             id,
             title,
             language,
