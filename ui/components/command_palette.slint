@@ -72,13 +72,25 @@ component CommandRow inherits Rectangle {
     callback restore-default();
     callback geometry-changed(length, length);
 
-    height: 56px + editor.height;
+    private property <length> editor-height: root.editing
+        ? (root.error-message != "" ? 92px : 66px) : 0px;
+    private property <int> editor-focus-request;
+    private property <bool> editor-focus-backward;
+    function focus-editor(backward: bool) {
+        root.editor-focus-backward = backward;
+        root.editor-focus-request += 1;
+    }
+    height: 56px + root.editor-height;
     clip: true;
+    animate editor-height {
+        duration: Theme.motion-gentle;
+        easing: cubic-bezier(0.16, 1, 0.3, 1);
+    }
     changed y => root.geometry-changed(root.y, root.height);
     changed height => root.geometry-changed(root.y, root.height);
     changed selected => { if (selected) { root.geometry-changed(root.y, root.height); } }
     border-radius: Theme.radius-medium;
-    background: editor.height > 0px ? Theme.surface-control : transparent;
+    background: root.editor-height > 0px ? Theme.surface-control : transparent;
     accessible-role: list-item;
     accessible-label: entry.title + ", сочетание " + entry.shortcut;
     accessible-enabled: !blocked && (enabled || editing);
@@ -89,7 +101,7 @@ component CommandRow inherits Rectangle {
         width: parent.width;
         height: 56px;
         // Only the outer card clips corners while its editor is expanded.
-        border-radius: editor.height > 0px ? 0px : Theme.radius-medium;
+        border-radius: root.editor-height > 0px ? 0px : Theme.radius-medium;
         background: root.saved ? Theme.success-subtle
             : root.selected ? Theme.accent-subtle
             : hit.pressed ? Theme.surface-pressed
@@ -153,12 +165,12 @@ component CommandRow inherits Rectangle {
             edit => { if (root.editing) { root.activate(); } else { root.edit(); } }
             restore-default => {
                 root.restore-default();
-                editor.focus-entry(true);
+                root.focus-editor(true);
             }
-            return-to-editor(backward) => editor.focus-entry(backward);
+            return-to-editor(backward) => root.focus-editor(backward);
         }
     }
-    editor := ExpandedShortcutEditor {
+    if root.editing : editor := ExpandedShortcutEditor {
         x: 0px;
         y: 56px;
         width: parent.width;
@@ -173,6 +185,8 @@ component CommandRow inherits Rectangle {
         preview: root.preview;
         default-shortcut: root.entry.default-shortcut;
         error-message: root.error-message;
+        focus-request: root.editor-focus-request;
+        focus-backward: root.editor-focus-backward;
         input-focus-changed(focused) => root.input-focus-changed(focused);
         warning-finished => root.warning-finished();
         save(overwrite) => root.save(overwrite);
@@ -182,6 +196,7 @@ component CommandRow inherits Rectangle {
 
 export component CommandPaletteOverlay inherits Rectangle {
     in property <bool> open;
+    out property <bool> search-focused: search.has-focus;
     in property <float> scale-factor: 1.0;
     in property <bool> window-active: true;
     in-out property <string> query;
@@ -213,8 +228,17 @@ export component CommandPaletteOverlay inherits Rectangle {
     private property <int> warning-request;
     // After warning, any other command can discard this draft; the edited command cannot.
     private property <bool> discard-armed: false;
-    private property <length> selected-top;
-    private property <length> selected-height: 56px;
+    private property <length> row-spacing: Theme.space-1;
+    private property <length> row-height: 56px;
+    private property <length> selected-top: 0px;
+    private property <length> selected-height: row-height;
+    private property <float> reveal-progress: open ? 1 : 0;
+    private property <bool> auto-centering: false;
+    private property <bool> center-pending: false;
+    private property <length> center-start: 0px;
+    private property <length> center-end: 0px;
+    private property <float> center-progress: 0;
+    private property <duration> center-started-at: 0ms;
     private property <bool> can-restore: editing && (
         (selected-command.shortcut != selected-command.default-shortcut && !(selected-command.shortcut == "—" && selected-command.default-shortcut == "не назначено"))
         || (!empty-edit && preview != selected-command.default-shortcut && !(preview == "Не назначено" && selected-command.default-shortcut == "не назначено")));
@@ -233,11 +257,13 @@ export component CommandPaletteOverlay inherits Rectangle {
     callback prepare-close(float, float, float, float);
     callback capture-focus-changed(bool);
 
-    visible: open || self.opacity > 0.01;
-    opacity: open ? 1 : 0;
-    background: Theme.backdrop;
+    visible: open || reveal-progress > 0.01;
+    background: transparent;
     forward-focus: search;
-    animate opacity { duration: Theme.motion-normal; }
+    animate reveal-progress {
+        duration: Theme.motion-normal;
+        easing: cubic-bezier(0.4, 0, 0.2, 1);
+    }
     changed open => {
         root.close-pending = false;
         root.discard-armed = false;
@@ -250,22 +276,59 @@ export component CommandPaletteOverlay inherits Rectangle {
     changed capture-action => {
         root.discard-armed = false;
         root.close-pending = false;
+        if (root.editing) { root.request-center(); }
     }
     changed capture-active => {
         root.discard-armed = false;
         root.close-pending = false;
         if (!root.editing && root.open) { search.focus(); }
+        root.request-center();
     }
+    changed error-message => { if (root.editing) { root.request-center(); } }
     changed preview => { root.discard-armed = false; }
     changed recording => { root.discard-armed = false; }
     changed empty-edit => {
-        if (root.editing && !root.empty-edit) { root.reveal-selection(); }
+        if (root.editing && !root.empty-edit) { root.request-center(); }
+    }
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: root.open ? Theme.backdrop : transparent;
+        animate background {
+            duration: Theme.motion-normal;
+            easing: cubic-bezier(0.4, 0, 0.2, 1);
+        }
     }
     TouchArea {
+        enabled: root.open;
         clicked => {
             if (root.editing) { root.request-close(); }
             else if (root.confirming-reset) { root.confirming-reset = false; search.focus(); }
             else { root.close(); }
+        }
+    }
+    center-delay := Timer {
+        interval: 16ms;
+        running: root.center-pending;
+        triggered => {
+            root.center-pending = false;
+            root.start-centering();
+        }
+    }
+    center-timer := Timer {
+        interval: 16ms;
+        running: root.auto-centering;
+        triggered => {
+            root.center-progress = min(1,
+                (animation-tick() - root.center-started-at) / Theme.motion-gentle);
+            let eased = root.center-progress * root.center-progress
+                * (3 - 2 * root.center-progress);
+            root.center-end = root.center-target();
+            command-list.viewport-y = root.center-start
+                + (root.center-end - root.center-start) * eased;
+            if (root.center-progress >= 1) {
+                root.auto-centering = false;
+            }
         }
     }
     panel := Rectangle {
@@ -277,7 +340,7 @@ export component CommandPaletteOverlay inherits Rectangle {
         x: Math.floor((parent.width - self.width) / 2 / 1px * safe-scale)
             / safe-scale * 1px;
         y: Math.floor((parent.height - self.height) / 2 / 1px * safe-scale)
-            / safe-scale * 1px;
+            / safe-scale * 1px + (1 - root.reveal-progress) * Theme.space-2;
         border-radius: Theme.radius-xlarge;
         background: Theme.surface-modal;
         border-width: 1px;
@@ -339,10 +402,12 @@ export component CommandPaletteOverlay inherits Rectangle {
                     command-list := ScrollView {
                         vertical-stretch: 1;
                         enabled: browser.visible && !root.confirming-reset;
+                        viewport-width: self.visible-width;
                         changed visible-height => root.reveal-selection();
                         VerticalLayout {
-                            spacing: Theme.space-1;
+                            spacing: root.row-spacing;
                             for command[index] in root.commands : CommandRow {
+                                width: max(0px, command-list.visible-width - Theme.space-5);
                                 entry: command;
                                 selected: index == root.selected-index;
                                 enabled: browser.visible && !root.close-pending
@@ -358,15 +423,14 @@ export component CommandPaletteOverlay inherits Rectangle {
                                 error-message: root.error-message;
                                 can-restore: root.can-restore;
                                 warning-request: root.warning-request;
+                                can-execute: (!command.requires-media || root.media-loaded)
+                                    && (!(command.action == 25 || command.action == 26) || !root.audio-media);
                                 geometry-changed(top, height) => {
                                     if (index == root.selected-index) {
                                         root.selected-top = top;
                                         root.selected-height = height;
-                                        root.reveal-selection();
                                     }
                                 }
-                                can-execute: (!command.requires-media || root.media-loaded)
-                                    && (!(command.action == 25 || command.action == 26) || !root.audio-media);
                                 activate => {
                                     if (root.editing) {
                                         if (root.try-leave-edit(command.action)) {
@@ -377,10 +441,11 @@ export component CommandPaletteOverlay inherits Rectangle {
                                     else { root.selected-index = index; search.focus(); }
                                 }
                                 edit => {
-                                    if (root.try-leave-edit(command.action)) {
-                                        root.selected-index = index;
-                                        root.edit-selected();
-                                    }
+                                    if (root.close-pending) { return; }
+                                    root.discard-armed = false;
+                                    if (root.editing) { root.cancel(); }
+                                    root.selected-index = index;
+                                    root.edit-selected();
                                 }
                                 save(overwrite) => root.save(overwrite);
                                 input-focus-changed(focused) => {
@@ -392,9 +457,11 @@ export component CommandPaletteOverlay inherits Rectangle {
                                 restore-default => { root.discard-armed = false; root.restore-default(); }
                             }
                             if root.commands.length == 0 : UiText {
+                                height: command-list.visible-height;
                                 text: "Команды не найдены";
                                 color: Theme.text-muted;
                                 horizontal-alignment: center;
+                                vertical-alignment: center;
                             }
                         }
                     }
@@ -628,6 +695,13 @@ export component CommandPaletteOverlay inherits Rectangle {
         root.cancel();
         root.close();
     }
+    public function edit-query(action: int) {
+        if (!root.search-focused) { return; }
+        if (action == 0) { search.select-all(); }
+        else if (action == 1) { search.copy(); }
+        else if (action == 2) { search.cut(); }
+        else if (action == 3) { search.paste(); }
+    }
     function reveal-selection() {
         if (commands.length > 0) {
             let top = root.selected-top;
@@ -638,9 +712,35 @@ export component CommandPaletteOverlay inherits Rectangle {
             }
         }
     }
+    function center-target() -> length {
+        let content-height = max(command-list.visible-height, command-list.viewport-height);
+        let minimum-offset = min(0px, command-list.visible-height - content-height);
+        let centered-offset = command-list.visible-height / 2
+            - root.selected-height / 2 - root.selected-top;
+        return max(minimum-offset, min(0px, centered-offset));
+    }
+    function request-center() {
+        if (root.open && root.commands.length > 0) {
+            root.auto-centering = false;
+            root.center-pending = true;
+        }
+    }
+    function start-centering() {
+        if (root.open && root.commands.length > 0 && command-list.visible-height > 0px) {
+            root.center-start = command-list.viewport-y;
+            root.center-end = root.center-target();
+            root.center-progress = 0;
+            if (Theme.reduce-motion || abs(root.center-end - root.center-start) < 0.5px) {
+                command-list.viewport-y = root.center-end;
+                root.auto-centering = false;
+            } else {
+                root.center-started-at = animation-tick();
+                root.auto-centering = true;
+            }
+        }
+    }
     function edit-selected() {
         if (commands.length > 0 && selected-command.shortcut-editable) {
-            reveal-selection();
             begin-capture(selected-command.action);
         }
     }

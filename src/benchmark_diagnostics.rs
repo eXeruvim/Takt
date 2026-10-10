@@ -20,7 +20,139 @@ use windows_sys::Win32::{
 
 const DIAGNOSTICS_ENV: &str = "OXIDE_BENCHMARK_DIAGNOSTICS_PATH";
 const MEASUREMENT_GATE_ENV: &str = "OXIDE_BENCHMARK_RENDER_GATE";
+const UI_LATENCY_ENV: &str = "OXIDE_UI_LATENCY_DIAGNOSTICS";
 const MAX_TIMING_SAMPLES: usize = 300_000;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UiSurface {
+    Playlist,
+    Info,
+    Settings,
+    CommandPalette,
+}
+
+impl UiSurface {
+    const COUNT: usize = 4;
+
+    fn index(self) -> usize {
+        match self {
+            Self::Playlist => 0,
+            Self::Info => 1,
+            Self::Settings => 2,
+            Self::CommandPalette => 3,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Playlist => "Очередь",
+            Self::Info => "Инфо",
+            Self::Settings => "Настройки",
+            Self::CommandPalette => "Горячие клавиши",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PendingUiLatency {
+    surface: UiSurface,
+    started: Instant,
+    rendering_started: Option<Instant>,
+    opening: u64,
+}
+
+struct UiLatencyState {
+    pending: Option<PendingUiLatency>,
+    openings: [u64; UiSurface::COUNT],
+}
+
+impl Default for UiLatencyState {
+    fn default() -> Self {
+        Self {
+            pending: None,
+            openings: [0; UiSurface::COUNT],
+        }
+    }
+}
+
+impl UiLatencyState {
+    fn begin(&mut self, surface: UiSurface, now: Instant) {
+        let opening = self.openings[surface.index()].saturating_add(1);
+        self.openings[surface.index()] = opening;
+        self.pending = Some(PendingUiLatency {
+            surface,
+            started: now,
+            rendering_started: None,
+            opening,
+        });
+    }
+
+    fn begin_rendering(&mut self, now: Instant) {
+        if let Some(pending) = self.pending.as_mut()
+            && pending.rendering_started.is_none()
+        {
+            pending.rendering_started = Some(now);
+        }
+    }
+
+    fn finish(&mut self, now: Instant) -> Option<(UiSurface, u64, f64, f64, f64)> {
+        let pending = self.pending.take()?;
+        let rendering_started = pending.rendering_started.unwrap_or(now);
+        Some((
+            pending.surface,
+            pending.opening,
+            now.saturating_duration_since(pending.started).as_secs_f64() * 1_000.0,
+            rendering_started
+                .saturating_duration_since(pending.started)
+                .as_secs_f64()
+                * 1_000.0,
+            now.saturating_duration_since(rendering_started)
+                .as_secs_f64()
+                * 1_000.0,
+        ))
+    }
+}
+
+fn ui_latency_state() -> Option<&'static Mutex<UiLatencyState>> {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    static STATE: OnceLock<Mutex<UiLatencyState>> = OnceLock::new();
+    if !*ENABLED.get_or_init(|| std::env::var_os(UI_LATENCY_ENV).is_some()) {
+        return None;
+    }
+    Some(STATE.get_or_init(|| Mutex::new(UiLatencyState::default())))
+}
+
+pub fn begin_ui_latency(surface: UiSurface) {
+    if let Some(state) = ui_latency_state()
+        && let Ok(mut state) = state.lock()
+    {
+        state.begin(surface, Instant::now());
+    }
+}
+
+pub fn begin_ui_latency_render() {
+    if let Some(state) = ui_latency_state()
+        && let Ok(mut state) = state.lock()
+    {
+        state.begin_rendering(Instant::now());
+    }
+}
+
+pub fn finish_ui_latency_frame() {
+    let Some(state) = ui_latency_state() else {
+        return;
+    };
+    let sample = state
+        .lock()
+        .ok()
+        .and_then(|mut state| state.finish(Instant::now()));
+    if let Some((surface, opening, elapsed_ms, before_render_ms, render_ms)) = sample {
+        eprintln!(
+            "UI: {} — кадр готов за {elapsed_ms:.1} мс (до рендера {before_render_ms:.1} мс, рендер {render_ms:.1} мс; открытие {opening})",
+            surface.label()
+        );
+    }
+}
 
 #[derive(Default)]
 struct RenderTimingState {
@@ -268,6 +400,30 @@ pub fn render_timing_summary() -> Option<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ui_latency_separates_cold_and_warm_openings() {
+        let started = Instant::now();
+        let mut state = UiLatencyState::default();
+
+        state.begin(UiSurface::CommandPalette, started);
+        state.begin_rendering(started + std::time::Duration::from_millis(75));
+        let (surface, opening, elapsed_ms, before_render_ms, render_ms) = state
+            .finish(started + std::time::Duration::from_millis(125))
+            .expect("first rendered frame must finish the pending sample");
+        assert_eq!(surface, UiSurface::CommandPalette);
+        assert_eq!(opening, 1);
+        assert_eq!(elapsed_ms, 125.0);
+        assert_eq!(before_render_ms, 75.0);
+        assert_eq!(render_ms, 50.0);
+
+        state.begin(UiSurface::CommandPalette, started);
+        let (_, opening, _, _, _) = state
+            .finish(started + std::time::Duration::from_millis(8))
+            .expect("second opening must produce its own sample");
+        assert_eq!(opening, 2);
+        assert!(state.finish(started).is_none());
+    }
 
     #[test]
     fn percentile_uses_nearest_rank_and_rounds_milliseconds() {

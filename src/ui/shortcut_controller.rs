@@ -6,6 +6,28 @@ use std::{
     time::Duration,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(i32)]
+enum QueryEditAction {
+    SelectAll = 0,
+    Copy = 1,
+    Cut = 2,
+    Paste = 3,
+}
+
+fn query_edit_action(code: KeyCode, modifiers: ModifiersState) -> Option<QueryEditAction> {
+    if !modifiers.control_key() || modifiers.alt_key() || modifiers.super_key() {
+        return None;
+    }
+    match (code, modifiers.shift_key()) {
+        (KeyCode::KeyA, false) => Some(QueryEditAction::SelectAll),
+        (KeyCode::KeyC, false) => Some(QueryEditAction::Copy),
+        (KeyCode::KeyX, false) => Some(QueryEditAction::Cut),
+        (KeyCode::KeyV, false) => Some(QueryEditAction::Paste),
+        _ => None,
+    }
+}
+
 use slint::winit_030::{
     EventResult,
     winit::keyboard::{KeyCode, ModifiersState},
@@ -13,6 +35,7 @@ use slint::winit_030::{
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::{
+    benchmark_diagnostics::{self, UiSurface},
     ipc::Command,
     player::{
         commands::CommandSender,
@@ -122,6 +145,16 @@ impl ShortcutController {
             return Some(EventResult::PreventDefault);
         }
 
+        if app.get_command_palette_visible()
+            && app.get_command_query_focused()
+            && let Some(action) = query_edit_action(code, modifiers)
+        {
+            if !repeat {
+                app.invoke_edit_command_query(action as i32);
+            }
+            return Some(EventResult::PreventDefault);
+        }
+
         None
     }
 
@@ -159,6 +192,8 @@ impl ShortcutController {
                     app.set_command_query("".into());
                     if !opening {
                         app.invoke_command_query_changed("".into());
+                    } else {
+                        benchmark_diagnostics::begin_ui_latency(UiSurface::CommandPalette);
                     }
                     app.set_command_palette_visible(opening);
                 }
@@ -545,4 +580,29 @@ fn persist_shortcuts(
 fn show_error(app: &AppWindow, message: impl Into<slint::SharedString>) {
     app.set_error_message(message.into());
     app.set_error_visible(true);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_editing_uses_physical_keys_instead_of_layout_text() {
+        assert_eq!(
+            query_edit_action(KeyCode::KeyA, ModifiersState::CONTROL),
+            Some(QueryEditAction::SelectAll)
+        );
+        assert_eq!(
+            query_edit_action(KeyCode::KeyV, ModifiersState::CONTROL),
+            Some(QueryEditAction::Paste)
+        );
+        assert_eq!(
+            query_edit_action(KeyCode::KeyA, ModifiersState::empty()),
+            None
+        );
+        assert_eq!(
+            query_edit_action(KeyCode::KeyA, ModifiersState::CONTROL | ModifiersState::ALT),
+            None
+        );
+    }
 }

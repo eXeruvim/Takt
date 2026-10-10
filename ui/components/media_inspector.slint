@@ -372,13 +372,14 @@ component AccentChoice inherits Rectangle {
 }
 
 export component MediaInspector inherits Rectangle {
-    private property <bool> prewarming: true;
     private property <int> settings-page: 0;
     // Keep the last page composed while the outer panel finishes its closing
     // transition. Binding content directly to the three open flags blanked the
     // panel on the first frame and made an otherwise animated close look abrupt.
     private property <int> visible-section: 0;
-    private property <bool> content-present: open || self.opacity > 0.01 || prewarming;
+    private property <bool> content-present: open
+        || (modal-mode ? modal-slide-offset < Theme.space-8
+            : slide-offset < self.width + Theme.space-5);
     private property <bool> wide-layout: parent-width >= 1100px;
     private property <bool> video-settings-available: media-loaded && !audio-media;
     in property <bool> open;
@@ -432,10 +433,8 @@ export component MediaInspector inherits Rectangle {
     in property <bool> media-presented: false;
     in property <bool> modal-mode: false;
     in property <bool> side-switching: false;
-    out property <length> slide-offset: open || prewarming
-        ? 0px : self.width + Theme.space-5;
-    out property <length> modal-slide-offset: open || prewarming
-        ? 0px : Theme.space-8;
+    out property <length> slide-offset: open ? 0px : self.width + Theme.space-5;
+    out property <length> modal-slide-offset: open ? 0px : Theme.space-8;
     private property <length> playback-content-height: modal-mode ? 864px : 912px;
     private property <length> video-content-height: 80px
         + (chapters.length > 0 ? 64px + chapters.length * 48px : 0px)
@@ -513,7 +512,7 @@ export component MediaInspector inherits Rectangle {
     y: modal-mode
         ? modal-base-y + modal-slide-offset
         : top-clearance + max(0px, (available-height - self.height) / 2);
-    opacity: open ? 1 : prewarming ? 0.001 : 0;
+    visible: root.content-present;
     border-radius: Theme.radius-large;
     background: Theme.surface-inspector;
     border-width: 1px;
@@ -543,24 +542,11 @@ export component MediaInspector inherits Rectangle {
         if (root.playback-open) { root.visible-section = 2; }
     }
 
-    animate opacity {
-        duration: root.side-switching
-            ? Theme.motion-normal
-            : root.open ? Theme.motion-slow : Theme.motion-gentle;
-        easing: cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
     animate slide-offset, modal-slide-offset {
         duration: root.side-switching
             ? Theme.motion-normal
             : root.open ? Theme.motion-slow : Theme.motion-gentle;
         easing: cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    prewarm-timer := Timer {
-        interval: 120ms;
-        running: root.prewarming;
-        triggered => { root.prewarming = false; }
     }
 
     TouchArea {
@@ -661,15 +647,14 @@ export component MediaInspector inherits Rectangle {
             clip: true;
 
             VerticalLayout {
-                visible: root.content-present || root.prewarming;
-                x: root.visible-section == 0 || root.prewarming
+                visible: root.content-present;
+                x: root.visible-section == 0
                     ? 0px : -parent.width - Theme.space-2;
-                opacity: root.visible-section == 0 || root.prewarming ? 1 : 0;
                 width: parent.width;
                 height: parent.height;
                 spacing: Theme.space-3;
 
-                animate x, opacity {
+                animate x {
                     duration: Theme.motion-normal;
                     easing: cubic-bezier(0.4, 0, 0.2, 1);
                 }
@@ -755,16 +740,15 @@ export component MediaInspector inherits Rectangle {
             }
 
             info-scroll := ScrollView {
-                visible: root.content-present || root.prewarming;
-                x: root.visible-section == 1 || root.prewarming
+                visible: root.content-present;
+                x: root.visible-section == 1
                     ? 0px : parent.width + Theme.space-2;
-                opacity: root.visible-section == 1 || root.prewarming ? 1 : 0;
                 width: parent.width;
                 height: parent.height;
                 viewport-width: self.visible-width;
                 viewport-height: max(self.visible-height, root.info-content-height);
 
-                animate x, opacity {
+                animate x {
                     duration: Theme.motion-normal;
                     easing: cubic-bezier(0.4, 0, 0.2, 1);
                 }
@@ -843,16 +827,15 @@ export component MediaInspector inherits Rectangle {
             }
 
             playback-scroll := ScrollView {
-                visible: (root.visible-section == 2 && root.content-present) || root.prewarming;
-                x: root.settings-page == 0 || root.prewarming
+                visible: root.visible-section == 2 && root.content-present;
+                x: root.settings-page == 0
                     ? 0px : -parent.width - Theme.space-2;
-                opacity: root.settings-page == 0 || root.prewarming ? 1 : 0;
                 width: parent.width;
                 height: parent.height;
                 viewport-width: self.visible-width;
                 viewport-height: max(self.visible-height, root.playback-content-height);
 
-                animate x, opacity {
+                animate x {
                     duration: Theme.motion-normal;
                     easing: cubic-bezier(0.4, 0, 0.2, 1);
                 }
@@ -1186,16 +1169,15 @@ export component MediaInspector inherits Rectangle {
             }
 
             video-scroll := ScrollView {
-                visible: (root.visible-section == 2 && root.content-present) || root.prewarming;
-                x: root.settings-page == 2 || root.prewarming
+                visible: root.visible-section == 2 && root.content-present;
+                x: root.settings-page == 2
                     ? 0px : parent.width + Theme.space-2;
-                opacity: root.settings-page == 2 || root.prewarming ? 1 : 0;
                 width: parent.width;
                 height: parent.height;
                 viewport-width: self.visible-width;
                 viewport-height: max(self.visible-height, root.video-content-height);
 
-                animate x, opacity {
+                animate x {
                     duration: Theme.motion-normal;
                     easing: cubic-bezier(0.4, 0, 0.2, 1);
                 }
@@ -1370,18 +1352,17 @@ export component MediaInspector inherits Rectangle {
             }
 
             sound-scroll := ScrollView {
-                visible: (root.visible-section == 2 && root.content-present) || root.prewarming;
-                x: root.settings-page == 1 || root.prewarming
+                visible: root.visible-section == 2 && root.content-present;
+                x: root.settings-page == 1
                     ? 0px : root.settings-page == 0
                         ? parent.width + Theme.space-2
                         : -parent.width - Theme.space-2;
-                opacity: root.settings-page == 1 || root.prewarming ? 1 : 0;
                 width: parent.width;
                 height: parent.height;
                 viewport-width: self.visible-width;
                 viewport-height: max(self.visible-height, root.sound-content-height);
 
-                animate x, opacity {
+                animate x {
                     duration: Theme.motion-normal;
                     easing: cubic-bezier(0.4, 0, 0.2, 1);
                 }

@@ -190,6 +190,9 @@ impl VideoOutputController {
                     }
                     return;
                 }
+                if matches!(state, slint::RenderingState::BeforeRendering) {
+                    crate::benchmark_diagnostics::begin_ui_latency_render();
+                }
                 let Ok(mut video_host) = notifier_video_host.try_borrow_mut() else {
                     return;
                 };
@@ -305,6 +308,7 @@ impl VideoOutputController {
                         }
                     }
                     slint::RenderingState::AfterRendering => {
+                        crate::benchmark_diagnostics::finish_ui_latency_frame();
                         if let Some(renderer) = gl_renderer.as_ref() {
                             // SAFETY: AfterRendering still has the original
                             // window OpenGL context current.

@@ -947,36 +947,28 @@ pub fn run(
                     );
                     let media_load_started = Instant::now();
                     match result.and_then(|next_playlist| {
-                        activate_playlist(
-                            &mpv,
-                            &tx,
-                            &mut playlist,
-                            next_playlist,
-                            options.shuffled,
-                        )
+                        activate_playlist(&mpv, &tx, &mut playlist, next_playlist, options.shuffled)
                     }) {
-                    Ok(()) => {
-                        background_jobs.cancel_metadata();
-                        options.media_available = true;
-                        let current_path = playlist
-                            .as_ref()
-                            .and_then(DirectoryPlaylist::current_path)
-                            .cloned();
-                        pending_folder_media_load = current_path
-                            .as_ref()
-                            .map(|path| (path.clone(), media_load_started));
-                        playback_state.begin_media_change(
-                            current_path,
-                            current_playlist_entry_id(&mpv),
-                        );
-                    }
-                    Err(error) => {
-                        pending_folder_media_load = None;
-                        background_jobs.cancel_metadata();
-                        options.media_available = false;
-                        playback_state.media_change_failed();
-                        send_playback_failed(&tx, error.to_string());
-                    }
+                        Ok(()) => {
+                            background_jobs.cancel_metadata();
+                            options.media_available = true;
+                            let current_path = playlist
+                                .as_ref()
+                                .and_then(DirectoryPlaylist::current_path)
+                                .cloned();
+                            pending_folder_media_load = current_path
+                                .as_ref()
+                                .map(|path| (path.clone(), media_load_started));
+                            playback_state
+                                .begin_media_change(current_path, current_playlist_entry_id(&mpv));
+                        }
+                        Err(error) => {
+                            pending_folder_media_load = None;
+                            background_jobs.cancel_metadata();
+                            options.media_available = false;
+                            playback_state.media_change_failed();
+                            send_playback_failed(&tx, error.to_string());
+                        }
                     }
                 }
             }

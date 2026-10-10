@@ -49,9 +49,7 @@ pub(super) fn create() -> anyhow::Result<Arc<Mpv>> {
     .map_err(|error| anyhow::anyhow!("{error:?}"))
 }
 
-fn configure_local_readahead(
-    initializer: &libmpv::MpvInitializer,
-) -> Result<(), libmpv::Error> {
+fn configure_local_readahead(initializer: &libmpv::MpvInitializer) -> Result<(), libmpv::Error> {
     // mpv defaults local files to roughly one second of demuxer read-ahead.
     // That is easy to exhaust when an older HDD pauses for a short seek or
     // background I/O burst. Buffer by media time rather than reserving a fixed
@@ -157,8 +155,7 @@ mod tests {
         .expect("headless mpv must accept bounded local read-ahead");
 
         assert_eq!(
-            mpv.get_property::<f64>("demuxer-readahead-secs")
-                .unwrap(),
+            mpv.get_property::<f64>("demuxer-readahead-secs").unwrap(),
             8.0
         );
         assert_ne!(mpv.get_property::<String>("cache").unwrap(), "yes");

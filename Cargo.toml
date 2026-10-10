@@ -1,6 +1,6 @@
 [package]
 name = "oxide"
-version = "0.9.0-alpha.81"
+version = "0.9.0-alpha.82"
 edition = "2024"
 build = "build.rs"
 

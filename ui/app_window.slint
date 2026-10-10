@@ -130,12 +130,14 @@ export component AppWindow inherits Window {
     callback finish_shortcut_close();
     changed shortcut_close_pending => root.shortcut_close_state_changed(root.shortcut_close_pending);
     finish_shortcut_close => command-palette.finish-close();
+    edit_command_query(action) => command-palette.edit-query(action);
     in-out property <bool> shortcut_capture_dirty: false;
     in-out property <string> shortcut_capture_preview: "";
     in-out property <int> shortcut_saved_action: 0;
     in-out property <bool> shortcut_saved_visible: false;
     in-out property <bool> command_palette_visible: false;
     in-out property <string> command_query: "";
+    out property <bool> command_query_focused: command-palette.search-focused;
     in property <[CommandEntry]> command_items;
     in-out property <bool> converter_visible: false;
     in-out property <string> conversion_output_path: "";
@@ -270,6 +272,7 @@ export component AppWindow inherits Window {
     callback preview_default_shortcut();
     callback toggle_command_palette();
     callback command_query_changed(string);
+    callback edit_command_query(int);
     callback open_converter();
     callback choose_conversion_source();
     callback choose_conversion_output(int);

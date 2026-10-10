@@ -4,6 +4,8 @@ use std::{cell::Cell, rc::Rc, time::Duration};
 
 use slint::{ComponentHandle, Model};
 
+use crate::benchmark_diagnostics::{self, UiSurface};
+
 use super::ui_logic::AppWindow;
 
 #[cfg(target_os = "windows")]
@@ -149,6 +151,11 @@ impl DrawerController {
     }
 
     fn open(&self, app: &AppWindow, drawer: Drawer) {
+        benchmark_diagnostics::begin_ui_latency(match drawer {
+            Drawer::Info => UiSurface::Info,
+            Drawer::Playlist => UiSurface::Playlist,
+            Drawer::Settings => UiSurface::Settings,
+        });
         app.set_inspector_left_aligned(!matches!(drawer, Drawer::Settings));
         app.set_inspector_audio_reserved(true);
         #[cfg(target_os = "windows")]

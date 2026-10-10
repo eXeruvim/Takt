@@ -253,6 +253,8 @@ export component ExpandedShortcutEditor inherits Rectangle {
     in property <string> preview;
     in property <string> default-shortcut;
     in property <string> error-message;
+    in property <int> focus-request;
+    in property <bool> focus-backward;
     callback input-focus-changed(bool);
     callback warning-finished();
     callback save(bool);
@@ -319,6 +321,7 @@ export component ExpandedShortcutEditor inherits Rectangle {
         if (editing) { record-focus.focus(); }
     }
     changed recording => { root.warning-step = 6; if (editing && recording) { record-focus.focus(); } }
+    changed focus-request => { if (editing) { root.focus-entry(focus-backward); } }
     Timer {
         interval: 500ms;
         running: root.editing && root.warning-step < 6;
