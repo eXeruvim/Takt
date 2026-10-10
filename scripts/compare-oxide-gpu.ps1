@@ -97,8 +97,9 @@ $hardware = Read-GpuSummary -Path $HardwareSummaryPath
 if ([string]$software.data.decoder_mode -ne 'software') {
     throw "Первая сводка имеет decoder_mode '$($software.data.decoder_mode)', ожидался software."
 }
-if ([string]$hardware.data.decoder_mode -ne 'd3d11va-copy') {
-    throw "Вторая сводка имеет decoder_mode '$($hardware.data.decoder_mode)', ожидался d3d11va-copy."
+$hardwareDecoderModes = @('hardware-auto-copy', 'nvdec-copy', 'd3d11va-copy')
+if ([string]$hardware.data.decoder_mode -notin $hardwareDecoderModes) {
+    throw "Вторая сводка имеет decoder_mode '$($hardware.data.decoder_mode)', ожидался аппаратный copy-back режим."
 }
 
 Assert-SameValue 'git_commit' $software.data.git_commit $hardware.data.git_commit
@@ -156,10 +157,10 @@ $comparison = [ordered]@{
     oxide_engine_deltas = @($oxideComparison)
     system_engine_deltas = @($systemComparison)
     interpretation = if ($directXHardwareActivityObserved) {
-        'Парный прогон подтверждает дополнительную DirectX GPU-работу в режиме d3d11va-copy. Метка движка отражает атрибуцию драйвера, а не обязательно физический блок декодирования.'
+        'Парный прогон подтверждает дополнительную GPU-работу в аппаратном copy-back режиме. Метка движка отражает атрибуцию драйвера, а не обязательно физический блок декодирования.'
     }
     else {
-        'Парный прогон не подтверждает дополнительную DirectX GPU-работу в режиме d3d11va-copy.'
+        'Парный прогон не подтверждает дополнительную GPU-работу в аппаратном copy-back режиме.'
     }
     limitation = 'Сравнение не содержит CPU, dropped frames, энергии и dedicated/shared GPU memory.'
 }

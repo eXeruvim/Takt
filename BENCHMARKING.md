@@ -32,16 +32,18 @@
    ```powershell
    .\scripts\measure-oxide.ps1 `
      -Scenario video-1080p `
-     -DecoderMode d3d11va-copy `
+     -DecoderMode hardware-auto-copy `
      -RendererBackend integrated-opengl `
      -WindowMode maximized `
      -Theme dark `
      -MediaPath C:\media\sample-1080p.mp4
    ```
 
-   Поддерживаемые режимы декодера: `software`, `d3d11va-copy`; backend:
+   Основные режимы декодера: `software`, `hardware-auto-copy`; backend:
    `integrated-opengl`, `native-hwnd-fallback`. Для video-сценариев эти два
-   параметра обязательны. Фактические значения после запуска видео показаны в
+   параметра обязательны. `hardware-auto-copy` означает продуктовую цепочку
+   Oxide: NVDEC copy-back на совместимой NVIDIA либо безопасный кросс-вендорный
+   copy-back fallback. Фактические значения после запуска видео показаны в
    Inspector → «Настройки воспроизведения» в строке аппаратного декодирования:
    `OpenGL` соответствует `integrated-opengl`, `HWND` — `native-hwnd-fallback`.
    `MediaPath` не сохраняется: в результат попадают только
@@ -272,11 +274,12 @@ cold-start/file-picker сценарий нужен, прежде чем прип
 
 Для pause обязательны 0 постоянных кадров и CPU, неотличимый от idle; для
 minimized — 0 кадров Slint и не более 0,25% общей CPU-мощности на этой машине.
-Аппаратное декодирование пока не входит в обязательный release baseline:
-`d3d11va-copy` на проверенном 1080p-файле увеличивает CPU/RAM/VRAM и имеет
-визуальные артефакты, поэтому до отдельного исправления остаётся выключенным по
-умолчанию. 4K/60, другие кодеки, energy и end-to-end presentation имеют отдельные
-паспорта и не должны молча оцениваться по таблице 1080p.
+Аппаратное декодирование пока не входит в обязательный release baseline. Старый
+прогон `d3d11va-copy` увеличивал CPU/RAM/VRAM и содержал визуальные артефакты;
+после исправления изоляции OpenGL-состояния и введения кросс-вендорной цепочки
+нужен новый A/B `software` → `hardware-auto-copy`. До него режим остаётся
+выключенным по умолчанию. 4K/60, другие кодеки, energy и end-to-end presentation
+имеют отдельные паспорта и не должны молча оцениваться по таблице 1080p.
 
 ## Системная трасса CPU, GPU и пробуждений
 
@@ -287,7 +290,7 @@ Recorder. Сначала соберите profiling-версию из чисто
 
 ```powershell
 .\scripts\capture-oxide-wpr.ps1 -Scenario idle -Profile CPU -DurationSeconds 30
-.\scripts\capture-oxide-wpr.ps1 -Scenario video-1080p -Profile GPU -DurationSeconds 30 -MediaPath C:\media\sample.mp4 -DecoderMode d3d11va-copy -RendererBackend integrated-opengl -WindowMode windowed -Theme dark
+.\scripts\capture-oxide-wpr.ps1 -Scenario video-1080p -Profile GPU -DurationSeconds 30 -MediaPath C:\media\sample.mp4 -DecoderMode hardware-auto-copy -RendererBackend integrated-opengl -WindowMode windowed -Theme dark
 ```
 
 Для media-сценария скрипт откроет Oxide и подождёт подтверждения после настройки
@@ -356,7 +359,7 @@ Exporter может не выгрузить VidMm-таблицу даже из G
 fallback, поскольку драйвер может атрибутировать работу иначе.
 
 Для проверки аппаратного пути снимите одним commit, бинарником и медиа два прогона
-`software` и `d3d11va-copy`, экспортируйте оба и сравните их:
+`software` и `hardware-auto-copy`, экспортируйте оба и сравните их:
 
 ```powershell
 .\scripts\compare-oxide-gpu.ps1 -SoftwareSummaryPath C:\path\software\oxide-gpu-summary.json -HardwareSummaryPath C:\path\hardware\oxide-gpu-summary.json
@@ -367,7 +370,7 @@ renderer, режим окна, тему и сценарий. Сравнение 
 frame pacing, energy и dedicated/shared GPU-memory измерения.
 
 Лёгкие замеры CPU и памяти из `measure-oxide.ps1` сравниваются отдельно. Передайте
-парные результаты `software` и `d3d11va-copy`; анализатор также проверит commit,
+парные результаты `software` и `hardware-auto-copy`; анализатор также проверит commit,
 SHA-256, медиа, длительность, окно, тему, оборудование и питание:
 
 ```powershell

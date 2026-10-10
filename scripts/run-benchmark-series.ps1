@@ -21,7 +21,7 @@ param(
 
     [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\oxide.exe'),
 
-    [ValidateSet('not-recorded', 'software', 'd3d11va-copy')]
+    [ValidateSet('not-recorded', 'software', 'hardware-auto-copy', 'nvdec-copy', 'd3d11va-copy')]
     [string]$DecoderMode = 'not-recorded',
 
     [ValidateSet('not-recorded', 'integrated-opengl', 'native-hwnd-fallback')]

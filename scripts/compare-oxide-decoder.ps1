@@ -137,8 +137,9 @@ $hardware = Read-Measurement -Path $HardwareResultPath
 if ([string]$software.data.run_configuration.decoder_mode -ne 'software') {
     throw "Первый результат имеет decoder_mode '$($software.data.run_configuration.decoder_mode)', ожидался software."
 }
-if ([string]$hardware.data.run_configuration.decoder_mode -ne 'd3d11va-copy') {
-    throw "Второй результат имеет decoder_mode '$($hardware.data.run_configuration.decoder_mode)', ожидался d3d11va-copy."
+$hardwareDecoderModes = @('hardware-auto-copy', 'nvdec-copy', 'd3d11va-copy')
+if ([string]$hardware.data.run_configuration.decoder_mode -notin $hardwareDecoderModes) {
+    throw "Второй результат имеет decoder_mode '$($hardware.data.run_configuration.decoder_mode)', ожидался аппаратный copy-back режим."
 }
 
 $identityPaths = [ordered]@{
@@ -319,6 +320,7 @@ $comparison = [ordered]@{
     renderer_backend = [string]$hardware.data.run_configuration.renderer_backend
     window_mode = [string]$hardware.data.run_configuration.window_mode
     theme = [string]$hardware.data.run_configuration.theme
+    requested_hardware_decoder_mode = [string]$hardware.data.run_configuration.decoder_mode
     metrics = $metrics
     playback_diagnostics = $frameDiagnostics
     interpretation = $interpretation
