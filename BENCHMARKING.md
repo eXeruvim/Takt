@@ -383,13 +383,18 @@ VO/decoder drops, delayed/mistimed, частота и A/V sync. Одна
 пара годится для диагностики направления, но release-бюджет принимается только
 по серии из пяти и более чистых прогонов плюс frame pacing/GPU/energy.
 
-Для video-сценария с `-CloseAfterMeasurement` лёгкий измеритель также запрашивает
+Для media-сценария с `-CloseAfterMeasurement` лёгкий измеритель также запрашивает
 у встроенного mpv финальные счётчики текущего файла и добавляет в JSON поле
 `playback_diagnostics`: кадры, отброшенные VO и декодером, mistimed/delayed,
 частоты, vsync и A/V sync. В benchmark-режиме дополнительно измеряются интервалы
 вызовов встроенного OpenGL renderer и длительность `mpv_render_context_render`
-с p50/p95/p99. Это frame pacing внутри Oxide/Slint, а не фактическая задержка
-показа DWM или дисплея; внешний PresentMon/WPA по-прежнему нужен для end-to-end.
+с p50/p95/p99. В `render_timing.scene_by_surface` отдельно записаны `empty`,
+`video` и `audio`: интервал кадров, участок Slint `BeforeRendering` →
+`AfterRendering` и его остаток после вычитания вложенного `mpv_render`. Последний
+показатель включает отрисовку Slint и служебный notifier-код, но не является
+чистым временем layout. Это frame pacing внутри Oxide/Slint, а не фактическая
+задержка показа DWM, ожидание GPU или дисплея; внешний PresentMon/WPA по-прежнему
+нужен для end-to-end.
 Временный диагностический файл удаляется после
 слияния со сводкой; обычный запуск Oxide его не создаёт. Счётчики охватывают
 текущий файл с момента загрузки, включая ручную настройку и прогрев. Поэтому

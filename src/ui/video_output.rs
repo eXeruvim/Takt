@@ -192,6 +192,14 @@ impl VideoOutputController {
                 }
                 if matches!(state, slint::RenderingState::BeforeRendering) {
                     crate::benchmark_diagnostics::begin_ui_latency_render();
+                    let surface = if !app.get_media_presented() {
+                        crate::benchmark_diagnostics::RenderSurface::Empty
+                    } else if app.get_audio_media() {
+                        crate::benchmark_diagnostics::RenderSurface::Audio
+                    } else {
+                        crate::benchmark_diagnostics::RenderSurface::Video
+                    };
+                    crate::benchmark_diagnostics::begin_scene_frame(surface);
                 }
                 let Ok(mut video_host) = notifier_video_host.try_borrow_mut() else {
                     return;
@@ -308,6 +316,7 @@ impl VideoOutputController {
                         }
                     }
                     slint::RenderingState::AfterRendering => {
+                        crate::benchmark_diagnostics::finish_scene_frame();
                         crate::benchmark_diagnostics::finish_ui_latency_frame();
                         if let Some(renderer) = gl_renderer.as_ref() {
                             // SAFETY: AfterRendering still has the original

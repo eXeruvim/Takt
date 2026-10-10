@@ -712,7 +712,8 @@ $instructions = switch ($Scenario) {
     'artwork-release' { 'Откройте указанный аудиофайл с обложкой и дождитесь её отображения.' }
 }
 
-$playbackDiagnosticsPath = if ($videoScenario -and $CloseAfterMeasurement) {
+$mediaDiagnosticsScenario = $Scenario -ne 'idle'
+$playbackDiagnosticsPath = if ($mediaDiagnosticsScenario -and $CloseAfterMeasurement) {
     Join-Path $resultRoot ".mpv-diagnostics-$([Guid]::NewGuid().ToString('N')).json"
 }
 else {
@@ -1143,6 +1144,19 @@ if ($null -ne $playbackDiagnosticsPath) {
                 $playbackDiagnostics.demuxer_cache.pause_total_ms, `
                 $playbackDiagnostics.demuxer_cache.pause_max_ms, `
                 $playbackDiagnostics.seeking.max_ms)
+            if ($null -ne $playbackDiagnostics.render_timing.scene_by_surface) {
+                foreach ($surfaceName in @('empty', 'video', 'audio')) {
+                    $surface = $playbackDiagnostics.render_timing.scene_by_surface.$surfaceName
+                    if ($null -ne $surface -and [int64]$surface.rendered_frames -gt 0) {
+                        Write-Host ("Рендер {0}: кадров={1}; interval p95={2} мс; scene p95={3} мс; Slint+notifier p95={4} мс." -f `
+                            $surfaceName, `
+                            $surface.rendered_frames, `
+                            $surface.frame_interval_ms.p95, `
+                            $surface.notifier_to_scene_complete_ms.p95, `
+                            $surface.slint_scene_and_notifier_overhead_ms.p95)
+                    }
+                }
+            }
         }
         catch {
             Write-Warning "Не удалось добавить диагностику кадров в сводку: $($_.Exception.Message)"

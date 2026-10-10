@@ -24,6 +24,33 @@ const UI_LATENCY_ENV: &str = "OXIDE_UI_LATENCY_DIAGNOSTICS";
 const MAX_TIMING_SAMPLES: usize = 300_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RenderSurface {
+    Empty,
+    Video,
+    Audio,
+}
+
+impl RenderSurface {
+    const COUNT: usize = 3;
+
+    fn index(self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::Video => 1,
+            Self::Audio => 2,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Empty => "empty",
+            Self::Video => "video",
+            Self::Audio => "audio",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UiSurface {
     Playlist,
     Info,
@@ -154,7 +181,13 @@ pub fn finish_ui_latency_frame() {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy)]
+struct PendingSceneFrame {
+    started: Instant,
+    surface: RenderSurface,
+    mpv_render_ms: f64,
+}
+
 struct RenderTimingState {
     collection_active: bool,
     last_render_started: Option<Instant>,
@@ -162,6 +195,35 @@ struct RenderTimingState {
     render_durations_ms: Vec<f64>,
     discarded_intervals: u64,
     discarded_durations: u64,
+    pending_scene_frame: Option<PendingSceneFrame>,
+    last_scene_started: [Option<Instant>; RenderSurface::COUNT],
+    scene_intervals_ms: [Vec<f64>; RenderSurface::COUNT],
+    scene_durations_ms: [Vec<f64>; RenderSurface::COUNT],
+    slint_scene_durations_ms: [Vec<f64>; RenderSurface::COUNT],
+    discarded_scene_intervals: [u64; RenderSurface::COUNT],
+    discarded_scene_durations: [u64; RenderSurface::COUNT],
+    discarded_slint_scene_durations: [u64; RenderSurface::COUNT],
+}
+
+impl Default for RenderTimingState {
+    fn default() -> Self {
+        Self {
+            collection_active: false,
+            last_render_started: None,
+            frame_intervals_ms: Vec::new(),
+            render_durations_ms: Vec::new(),
+            discarded_intervals: 0,
+            discarded_durations: 0,
+            pending_scene_frame: None,
+            last_scene_started: [None; RenderSurface::COUNT],
+            scene_intervals_ms: std::array::from_fn(|_| Vec::new()),
+            scene_durations_ms: std::array::from_fn(|_| Vec::new()),
+            slint_scene_durations_ms: std::array::from_fn(|_| Vec::new()),
+            discarded_scene_intervals: [0; RenderSurface::COUNT],
+            discarded_scene_durations: [0; RenderSurface::COUNT],
+            discarded_slint_scene_durations: [0; RenderSurface::COUNT],
+        }
+    }
 }
 
 impl RenderTimingState {
@@ -169,6 +231,8 @@ impl RenderTimingState {
         if !gate_open {
             self.collection_active = false;
             self.last_render_started = None;
+            self.pending_scene_frame = None;
+            self.last_scene_started = [None; RenderSurface::COUNT];
             return false;
         }
         if !self.collection_active {
@@ -299,6 +363,69 @@ pub fn reset_render_timing() {
     }
 }
 
+pub fn begin_scene_frame(surface: RenderSurface) {
+    let Some(state) = state() else {
+        return;
+    };
+    let gate_open = measurement_gate_open();
+    let now = Instant::now();
+    if let Ok(mut state) = state.lock() {
+        if !state.update_collection_gate(gate_open) {
+            return;
+        }
+        let index = surface.index();
+        if let Some(previous) = state.last_scene_started[index] {
+            let interval_ms = now.duration_since(previous).as_secs_f64() * 1_000.0;
+            let RenderTimingState {
+                scene_intervals_ms,
+                discarded_scene_intervals,
+                ..
+            } = &mut *state;
+            push_bounded(
+                &mut scene_intervals_ms[index],
+                &mut discarded_scene_intervals[index],
+                interval_ms,
+            );
+        }
+        state.last_scene_started[index] = Some(now);
+        state.pending_scene_frame = Some(PendingSceneFrame {
+            started: now,
+            surface,
+            mpv_render_ms: 0.0,
+        });
+    }
+}
+
+pub fn finish_scene_frame() {
+    let Some(state) = state() else {
+        return;
+    };
+    if let Ok(mut state) = state.lock()
+        && let Some(frame) = state.pending_scene_frame.take()
+    {
+        let duration_ms = frame.started.elapsed().as_secs_f64() * 1_000.0;
+        let slint_duration_ms = (duration_ms - frame.mpv_render_ms).max(0.0);
+        let index = frame.surface.index();
+        let RenderTimingState {
+            scene_durations_ms,
+            slint_scene_durations_ms,
+            discarded_scene_durations,
+            discarded_slint_scene_durations,
+            ..
+        } = &mut *state;
+        push_bounded(
+            &mut scene_durations_ms[index],
+            &mut discarded_scene_durations[index],
+            duration_ms,
+        );
+        push_bounded(
+            &mut slint_scene_durations_ms[index],
+            &mut discarded_slint_scene_durations[index],
+            slint_duration_ms,
+        );
+    }
+}
+
 pub fn begin_render() -> Option<Instant> {
     let state = state()?;
     let gate_open = measurement_gate_open();
@@ -327,6 +454,9 @@ pub fn finish_render(started: Option<Instant>) {
     };
     let duration_ms = started.elapsed().as_secs_f64() * 1000.0;
     if let Ok(mut state) = state.lock() {
+        if let Some(frame) = state.pending_scene_frame.as_mut() {
+            frame.mpv_render_ms += duration_ms;
+        }
         let RenderTimingState {
             render_durations_ms,
             discarded_durations,
@@ -374,9 +504,38 @@ fn stats_json(stats: Option<TimingStats>) -> serde_json::Value {
     })
 }
 
+fn surface_timing_json(state: &RenderTimingState, surface: RenderSurface) -> serde_json::Value {
+    let index = surface.index();
+    serde_json::json!({
+        "rendered_frames": state.scene_durations_ms[index].len() as u64
+            + state.discarded_scene_durations[index],
+        "frame_interval_samples": state.scene_intervals_ms[index].len(),
+        "scene_duration_samples": state.scene_durations_ms[index].len(),
+        "discarded_intervals": state.discarded_scene_intervals[index],
+        "discarded_scene_durations": state.discarded_scene_durations[index],
+        "discarded_slint_scene_durations": state.discarded_slint_scene_durations[index],
+        "frame_interval_ms": stats_json(summarize(&state.scene_intervals_ms[index])),
+        "notifier_to_scene_complete_ms": stats_json(summarize(&state.scene_durations_ms[index])),
+        "slint_scene_and_notifier_overhead_ms": stats_json(summarize(
+            &state.slint_scene_durations_ms[index]
+        )),
+    })
+}
+
 pub fn render_timing_summary() -> Option<serde_json::Value> {
     let state = state()?;
     let state = state.lock().ok()?;
+    let mut scene_by_surface = serde_json::Map::new();
+    for surface in [
+        RenderSurface::Empty,
+        RenderSurface::Video,
+        RenderSurface::Audio,
+    ] {
+        scene_by_surface.insert(
+            surface.label().to_owned(),
+            surface_timing_json(&state, surface),
+        );
+    }
     Some(serde_json::json!({
         "rendered_frames": state.render_durations_ms.len() as u64
             + state.discarded_durations,
@@ -393,7 +552,8 @@ pub fn render_timing_summary() -> Option<serde_json::Value> {
         },
         "frame_interval_ms": stats_json(summarize(&state.frame_intervals_ms)),
         "mpv_render_duration_ms": stats_json(summarize(&state.render_durations_ms)),
-        "metric_note": "Intervals surround Slint's integrated OpenGL render callback; they are not DWM/display presentation latency.",
+        "scene_by_surface": scene_by_surface,
+        "metric_note": "mpv intervals cover integrated video renders. Scene intervals and durations are split by the surface visible at BeforeRendering. notifier_to_scene_complete_ms covers Slint BeforeRendering through AfterRendering; subtracting nested mpv_render produces an estimate of Slint scene rendering plus Oxide notifier overhead. None of these metrics include buffer presentation, DWM latency, or GPU completion.",
     }))
 }
 
@@ -442,18 +602,51 @@ mod tests {
     }
 
     #[test]
+    fn scene_summary_keeps_audio_and_video_samples_separate() {
+        let mut state = RenderTimingState::default();
+        let audio = RenderSurface::Audio.index();
+        let video = RenderSurface::Video.index();
+        state.scene_intervals_ms[audio] = vec![33.0, 34.0];
+        state.scene_durations_ms[audio] = vec![2.0, 4.0];
+        state.slint_scene_durations_ms[audio] = vec![2.0, 4.0];
+        state.scene_intervals_ms[video] = vec![16.0];
+        state.scene_durations_ms[video] = vec![5.0];
+        state.slint_scene_durations_ms[video] = vec![1.5];
+
+        let audio_summary = surface_timing_json(&state, RenderSurface::Audio);
+        let video_summary = surface_timing_json(&state, RenderSurface::Video);
+
+        assert_eq!(audio_summary["rendered_frames"], 2);
+        assert_eq!(audio_summary["frame_interval_ms"]["p50"], 33.0);
+        assert_eq!(audio_summary["notifier_to_scene_complete_ms"]["p95"], 4.0);
+        assert_eq!(video_summary["rendered_frames"], 1);
+        assert_eq!(
+            video_summary["slint_scene_and_notifier_overhead_ms"]["p50"],
+            1.5
+        );
+    }
+
+    #[test]
     fn measurement_gate_preserves_finished_samples_then_resets_on_next_start() {
         let mut state = RenderTimingState {
             collection_active: true,
             last_render_started: Some(Instant::now()),
             frame_intervals_ms: vec![33.0],
             render_durations_ms: vec![2.0],
+            pending_scene_frame: Some(PendingSceneFrame {
+                started: Instant::now(),
+                surface: RenderSurface::Video,
+                mpv_render_ms: 2.0,
+            }),
+            last_scene_started: [Some(Instant::now()); RenderSurface::COUNT],
             ..RenderTimingState::default()
         };
 
         assert!(!state.update_collection_gate(false));
         assert!(!state.collection_active);
         assert!(state.last_render_started.is_none());
+        assert!(state.pending_scene_frame.is_none());
+        assert_eq!(state.last_scene_started, [None; RenderSurface::COUNT]);
         assert_eq!(state.frame_intervals_ms, [33.0]);
         assert_eq!(state.render_durations_ms, [2.0]);
 
