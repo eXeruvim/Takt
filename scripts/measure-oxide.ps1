@@ -86,6 +86,37 @@ function Get-Stats {
     }
 }
 
+function Get-DecoderValidationError {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RequestedMode,
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$ActualDecoder
+    )
+
+    if ($RequestedMode -eq 'not-recorded') {
+        return $null
+    }
+
+    $actual = $ActualDecoder.Trim().ToLowerInvariant()
+    $softwareDecoders = @('', 'no', 'false', '0')
+    if ($RequestedMode -eq 'software') {
+        if ($actual -notin $softwareDecoders) {
+            return "Запрошено программное декодирование, но mpv использовал '$ActualDecoder'. Проверьте настройку и повторите замер."
+        }
+        return $null
+    }
+
+    if ($actual -in $softwareDecoders) {
+        return "Запрошено аппаратное декодирование '$RequestedMode', но mpv использовал программный декодер ('$ActualDecoder'). Включите аппаратное декодирование и повторите замер."
+    }
+    if ($RequestedMode -in @('nvdec-copy', 'd3d11va-copy') -and $actual -ne $RequestedMode) {
+        return "Запрошен декодер '$RequestedMode', но mpv выбрал '$ActualDecoder'. Повторите замер с указанным декодером или используйте режим hardware-auto-copy."
+    }
+    return $null
+}
+
 function New-GpuMemorySampler {
     param(
         [Parameter(Mandatory = $true)]
@@ -1121,6 +1152,7 @@ if (-not $process.HasExited) {
         Write-Host 'Oxide оставлен открытым — закройте его вручную после нужных проверок.'
     }
 }
+$decoderValidationError = $null
 if ($null -ne $playbackDiagnosticsPath) {
     if (Test-Path -LiteralPath $playbackDiagnosticsPath -PathType Leaf) {
         try {
@@ -1133,6 +1165,9 @@ if ($null -ne $playbackDiagnosticsPath) {
                 throw 'неподдерживаемая схема'
             }
             $summary.playback_diagnostics = $playbackDiagnostics
+            $decoderValidationError = Get-DecoderValidationError `
+                -RequestedMode $DecoderMode `
+                -ActualDecoder ([string]$playbackDiagnostics.decoder)
             $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $summaryPath -Encoding utf8
             Write-Host ("Кадры mpv: VO dropped={0}; decoder dropped={1}; mistimed={2}; delayed={3}." -f `
                 $playbackDiagnostics.frame_drop_count, `
@@ -1171,4 +1206,7 @@ if ($null -ne $playbackDiagnosticsPath) {
 }
 if ($null -ne $renderGate) {
     $renderGate.Dispose()
+}
+if ($null -ne $decoderValidationError) {
+    throw "$decoderValidationError Отчёт сохранён для диагностики, но не является допустимым результатом A/B."
 }

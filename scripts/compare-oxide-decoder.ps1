@@ -230,6 +230,19 @@ if ($null -ne $softwareDiagnostics -and $null -ne $hardwareDiagnostics) {
         -or $hardwareDiagnostics.kind -ne 'oxide-mpv-playback-diagnostics') {
         throw 'A/B содержит неподдерживаемую схему playback_diagnostics.'
     }
+    $softwareActualDecoder = ([string]$softwareDiagnostics.decoder).Trim().ToLowerInvariant()
+    if ($softwareActualDecoder -notin @('', 'no', 'false', '0')) {
+        throw "Программный результат фактически использовал декодер '$($softwareDiagnostics.decoder)'. Повторите software-замер с выключенным аппаратным декодированием."
+    }
+    $hardwareActualDecoder = ([string]$hardwareDiagnostics.decoder).Trim().ToLowerInvariant()
+    if ($hardwareActualDecoder -in @('', 'no', 'false', '0')) {
+        throw "Аппаратный результат фактически использовал программный декодер ('$($hardwareDiagnostics.decoder)'). Включите аппаратное декодирование и повторите замер."
+    }
+    $requestedHardwareDecoder = [string]$hardware.data.run_configuration.decoder_mode
+    if ($requestedHardwareDecoder -in @('nvdec-copy', 'd3d11va-copy') `
+        -and $hardwareActualDecoder -ne $requestedHardwareDecoder) {
+        throw "Аппаратный результат запросил '$requestedHardwareDecoder', но mpv выбрал '$($hardwareDiagnostics.decoder)'."
+    }
     $softwareRenderTiming = Get-NestedValue `
         -Object $softwareDiagnostics `
         -Path 'render_timing'
@@ -270,9 +283,7 @@ if ($null -ne $softwareDiagnostics -and $null -ne $hardwareDiagnostics) {
         available = $true
         software_actual_decoder = $softwareDiagnostics.decoder
         hardware_actual_decoder = $hardwareDiagnostics.decoder
-        hardware_decoder_confirmed = -not [string]::IsNullOrWhiteSpace(
-            [string]$hardwareDiagnostics.decoder
-        ) -and [string]$hardwareDiagnostics.decoder -notin @('no', 'false')
+        hardware_decoder_confirmed = $true
         video_sync = [ordered]@{
             software = $softwareDiagnostics.video_sync
             hardware = $hardwareDiagnostics.video_sync
