@@ -71,11 +71,14 @@
 указанный файл и оставьте панели закрытыми. Для первых 100 циклов используйте:
 
 ```powershell
-.\scripts\measure-oxide.ps1 -Scenario ui-panels -DurationSeconds 120 -UiCycleCount 100 -MediaPath "C:\Медиа\sample.mp4" -CloseAfterMeasurement
+.\scripts\measure-oxide.ps1 -Scenario ui-panels -DurationSeconds 136 -UiCycleCount 100 -MediaPath "C:\Медиа\sample.mp4" -CloseAfterMeasurement
 ```
 
 Скрипт проверит число действительно завершённых циклов по внутреннему отчёту,
-а не только по прошедшему времени. Для 1 000 циклов требуется не менее 1 145 секунд.
+а не только по прошедшему времени. Таймер Slint обслуживается на границах кадров,
+поэтому защитный бюджет учитывает не только номинальные 380 мс шага, но и
+frame alignment с обычным scheduler jitter. Для 1 000 циклов требуется не менее
+1 270 секунд.
 Этот сценарий ищет устойчивый рост private bytes, handles и threads; он не
 заменяет отдельные циклы смены файлов или конвертации.
 

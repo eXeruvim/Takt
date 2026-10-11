@@ -630,7 +630,11 @@ if ($uiPanelsScenario -and -not $ValidateOnly) {
     if ([string]::IsNullOrWhiteSpace($MediaPath)) {
         throw 'Для ui-panels укажите -MediaPath тестового медиафайла, который будет записан в паспорт замера.'
     }
-    $minimumUiCycleDuration = [Math]::Ceiling($UiCycleCount * 3 * 0.38) + 5
+    # Slint timers are serviced on rendered UI frames. A nominal 380 ms step
+    # therefore took about 400 ms with 30 FPS media in the long acceptance run.
+    # Keep the workload itself unchanged and reserve enough measurement time for
+    # frame alignment and ordinary scheduler jitter.
+    $minimumUiCycleDuration = [Math]::Ceiling($UiCycleCount * 3 * 0.42) + 10
     if ($DurationSeconds -lt $minimumUiCycleDuration) {
         throw "Для $UiCycleCount циклов требуется -DurationSeconds не меньше $minimumUiCycleDuration."
     }
