@@ -12,6 +12,34 @@ pub(super) fn mpv_error<T>(result: Result<T, libmpv::Error>) -> anyhow::Result<T
     result.map_err(|error| anyhow::anyhow!("{error:?}"))
 }
 
+pub(super) fn playback_failure_message(error: i32) -> String {
+    use libmpv::mpv_error;
+
+    match error {
+        mpv_error::LoadingFailed => {
+            "Не удалось прочитать файл. Он может быть недоступен, повреждён или иметь ошибочную структуру."
+                .to_owned()
+        }
+        mpv_error::NothingToPlay => {
+            "В файле не найдено поддерживаемых аудио- или видеодорожек.".to_owned()
+        }
+        mpv_error::UnknownFormat => "Формат этого медиафайла не распознан.".to_owned(),
+        mpv_error::Unsupported => {
+            "Формат или кодек этого файла не поддерживается установленным медиадвижком."
+                .to_owned()
+        }
+        mpv_error::AoInitFailed => {
+            "Не удалось запустить вывод звука. Проверьте выбранное аудиоустройство."
+                .to_owned()
+        }
+        mpv_error::VoInitFailed => {
+            "Не удалось запустить вывод видео. Попробуйте отключить аппаратное декодирование."
+                .to_owned()
+        }
+        _ => format!("Не удалось воспроизвести медиафайл (код mpv: {error})."),
+    }
+}
+
 pub(super) fn create() -> anyhow::Result<Arc<Mpv>> {
     Mpv::with_initializer(|initializer| {
         configure_seek_osd(&initializer)?;
@@ -151,8 +179,22 @@ fn configure_seek_osd(initializer: &libmpv::MpvInitializer) -> Result<(), libmpv
 mod tests {
     use super::{
         automatic_hwdec_mode_for, configure_benchmark_local_cache, configure_local_readahead,
-        configure_seek_osd, hwdec_is_enabled, set_loaded_media_paused, video_background_color,
+        configure_seek_osd, hwdec_is_enabled, playback_failure_message, set_loaded_media_paused,
+        video_background_color,
     };
+
+    #[test]
+    fn playback_failures_have_actionable_messages_and_keep_unknown_code() {
+        use libmpv::mpv_error;
+
+        assert!(playback_failure_message(mpv_error::LoadingFailed).contains("повреждён"));
+        assert!(playback_failure_message(mpv_error::NothingToPlay).contains("дорожек"));
+        assert!(playback_failure_message(mpv_error::UnknownFormat).contains("не распознан"));
+        assert!(playback_failure_message(mpv_error::Unsupported).contains("не поддерживается"));
+        assert!(playback_failure_message(mpv_error::AoInitFailed).contains("аудиоустройство"));
+        assert!(playback_failure_message(mpv_error::VoInitFailed).contains("декодирование"));
+        assert!(playback_failure_message(-12345).contains("-12345"));
+    }
 
     #[test]
     fn local_readahead_covers_short_storage_stalls_without_enabling_full_cache() {

@@ -16,7 +16,8 @@ use crate::player::{
     metadata_worker::MetadataResult,
     mpv_adapter::{
         automatic_hwdec_mode, create as create_mpv, hwdec_is_enabled, mpv_error,
-        observe_playback_properties, set_loaded_media_paused, video_background_color,
+        observe_playback_properties, playback_failure_message, set_loaded_media_paused,
+        video_background_color,
     },
     playback_diagnostics::PlaybackDiagnostics,
     playback_state::PlaybackState,
@@ -1080,7 +1081,7 @@ pub fn run(
                 }
                 Ok(MpvEvent::EndFile {
                     reason,
-                    error: _,
+                    error,
                     playlist_entry_id,
                 }) if playback_state.end_file(playlist_entry_id) => match reason {
                     mpv_end_file_reason::Eof => {
@@ -1112,10 +1113,14 @@ pub fn run(
                         }
                     }
                     mpv_end_file_reason::Error => {
+                        let failure_message = playback_failure_message(error);
                         match skip_failed_current(&mpv, &tx, &mut playlist, options.repeat_folder) {
                             Ok(true) => {
                                 options.media_available = true;
                                 background_jobs.cancel_metadata();
+                                let _ = tx.send(Event::Error(format!(
+                                    "{failure_message} Открыт следующий файл."
+                                )));
                                 playback_state.expect_resume_for(
                                     playlist
                                         .as_ref()
@@ -1126,11 +1131,7 @@ pub fn run(
                             }
                             Ok(false) => {
                                 options.media_available = false;
-                                send_playback_failed(
-                                    &tx,
-                                    "Не удалось воспроизвести медиафайл; очередь завершена"
-                                        .to_owned(),
-                                );
+                                send_playback_failed(&tx, failure_message);
                             }
                             Err(error) => {
                                 options.media_available = false;
