@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'hdd-video', 'paused', 'minimized', 'large-playlist', 'large-artwork', 'artwork-release')]
+    [ValidateSet('idle', 'audio', 'video-1080p', 'video-4k', 'hdd-video', 'paused', 'minimized', 'large-playlist', 'large-artwork', 'artwork-release', 'ui-panels')]
     [string]$Scenario,
 
     [ValidateRange(10, 3600)]
@@ -38,6 +38,9 @@ param(
 
     [ValidateRange(0, 300)]
     [int]$WarmupSeconds = 0,
+
+    [ValidateRange(1, 10000)]
+    [int]$UiCycleCount = 100,
 
     [switch]$AutomaticIdle,
 
@@ -613,10 +616,23 @@ if ($largePlaylistScenario -and -not $ValidateOnly -and [string]::IsNullOrWhiteS
     throw 'Для large-playlist укажите -WorkloadManifest из каталога созданного fixture.'
 }
 $artworkReleaseScenario = $Scenario -eq 'artwork-release'
+$uiPanelsScenario = $Scenario -eq 'ui-panels'
 if ($artworkReleaseScenario -and -not $ValidateOnly) {
     if ([string]::IsNullOrWhiteSpace($MediaPath) -or
         [string]::IsNullOrWhiteSpace($ComparisonMediaPath)) {
         throw 'Для artwork-release укажите -MediaPath файла с обложкой и -ComparisonMediaPath файла без обложки.'
+    }
+}
+if ($uiPanelsScenario -and -not $ValidateOnly) {
+    if (-not $CloseAfterMeasurement) {
+        throw 'Для ui-panels укажите -CloseAfterMeasurement: автоматический цикл синхронизируется с окном замера.'
+    }
+    if ([string]::IsNullOrWhiteSpace($MediaPath)) {
+        throw 'Для ui-panels укажите -MediaPath тестового медиафайла, который будет записан в паспорт замера.'
+    }
+    $minimumUiCycleDuration = [Math]::Ceiling($UiCycleCount * 3 * 0.38) + 5
+    if ($DurationSeconds -lt $minimumUiCycleDuration) {
+        throw "Для $UiCycleCount циклов требуется -DurationSeconds не меньше $minimumUiCycleDuration."
     }
 }
 $mediaDescriptor = if ([string]::IsNullOrWhiteSpace($MediaPath)) {
@@ -741,6 +757,7 @@ $instructions = switch ($Scenario) {
     'large-playlist' { 'Откройте подготовленную большую папку и оставьте очередь открытой на время замера.' }
     'large-artwork' { 'Откройте аудиофайл с крупной допустимой обложкой и дождитесь её отображения.' }
     'artwork-release' { 'Откройте указанный аудиофайл с обложкой и дождитесь её отображения.' }
+    'ui-panels' { 'Откройте указанный медиафайл и оставьте все боковые панели закрытыми. После Enter Oxide сам выполнит одинаковые циклы панелей.' }
 }
 
 $mediaDiagnosticsScenario = $Scenario -ne 'idle'
@@ -754,6 +771,7 @@ $diagnosticsVariable = 'OXIDE_BENCHMARK_DIAGNOSTICS_PATH'
 $renderGateVariable = 'OXIDE_BENCHMARK_RENDER_GATE'
 $localCacheVariable = 'OXIDE_BENCHMARK_LOCAL_CACHE'
 $hardwareDecoderVariable = 'OXIDE_BENCHMARK_HWDEC'
+$uiCycleVariable = 'OXIDE_BENCHMARK_UI_CYCLES'
 $renderGateName = if ($null -ne $playbackDiagnosticsPath) {
     "Local\OxideBenchmarkRender-$([Guid]::NewGuid().ToString('N'))"
 }
@@ -786,6 +804,10 @@ $oldHardwareDecoder = [Environment]::GetEnvironmentVariable(
     $hardwareDecoderVariable,
     [EnvironmentVariableTarget]::Process
 )
+$oldUiCycleCount = [Environment]::GetEnvironmentVariable(
+    $uiCycleVariable,
+    [EnvironmentVariableTarget]::Process
+)
 try {
     [Environment]::SetEnvironmentVariable(
         $diagnosticsVariable,
@@ -805,6 +827,11 @@ try {
     [Environment]::SetEnvironmentVariable(
         $hardwareDecoderVariable,
         $(if ($DecoderMode -eq 'nvdec') { 'nvdec' } else { $null }),
+        [EnvironmentVariableTarget]::Process
+    )
+    [Environment]::SetEnvironmentVariable(
+        $uiCycleVariable,
+        $(if ($uiPanelsScenario) { $UiCycleCount.ToString() } else { $null }),
         [EnvironmentVariableTarget]::Process
     )
     $process = Start-Process -FilePath $executablePath -WorkingDirectory $repository -WindowStyle Normal -PassThru
@@ -828,6 +855,11 @@ finally {
     [Environment]::SetEnvironmentVariable(
         $hardwareDecoderVariable,
         $oldHardwareDecoder,
+        [EnvironmentVariableTarget]::Process
+    )
+    [Environment]::SetEnvironmentVariable(
+        $uiCycleVariable,
+        $oldUiCycleCount,
         [EnvironmentVariableTarget]::Process
     )
 }
@@ -1005,6 +1037,7 @@ $summary = [ordered]@{
         media = $mediaDescriptor
         comparison_media = $comparisonMediaDescriptor
         workload = $workloadDescriptor
+        ui_cycle_count = if ($uiPanelsScenario) { $UiCycleCount } else { $null }
         notes = $Notes
     }
     cpu_percent_total_capacity = Get-Stats -Values @($samples | ForEach-Object { [double]$_.cpu_percent })
@@ -1168,6 +1201,7 @@ if (-not $process.HasExited) {
     }
 }
 $decoderValidationError = $null
+$uiCycleValidationError = $null
 if ($null -ne $playbackDiagnosticsPath) {
     if (Test-Path -LiteralPath $playbackDiagnosticsPath -PathType Leaf) {
         try {
@@ -1207,6 +1241,15 @@ if ($null -ne $playbackDiagnosticsPath) {
                     }
                 }
             }
+            if ($uiPanelsScenario) {
+                $uiCycles = $playbackDiagnostics.render_timing.ui_cycles
+                Write-Host ("Циклы панелей: {0}/{1}." -f $uiCycles.completed, $uiCycles.requested)
+                if (-not $uiCycles.complete -or
+                    [int64]$uiCycles.requested -ne $UiCycleCount -or
+                    [int64]$uiCycles.completed -ne $UiCycleCount) {
+                    $uiCycleValidationError = "Автоматический цикл панелей не завершён: $($uiCycles.completed)/$UiCycleCount."
+                }
+            }
         }
         catch {
             Write-Warning "Не удалось добавить диагностику кадров в сводку: $($_.Exception.Message)"
@@ -1224,4 +1267,7 @@ if ($null -ne $renderGate) {
 }
 if ($null -ne $decoderValidationError) {
     throw "$decoderValidationError Отчёт сохранён для диагностики, но не является допустимым результатом A/B."
+}
+if ($null -ne $uiCycleValidationError) {
+    throw "$uiCycleValidationError Отчёт сохранён для диагностики, но не является завершённым циклическим замером."
 }

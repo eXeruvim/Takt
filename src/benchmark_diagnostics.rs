@@ -1,5 +1,8 @@
 use std::{
-    sync::{Mutex, OnceLock},
+    sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Instant,
 };
 
@@ -21,7 +24,11 @@ use windows_sys::Win32::{
 const DIAGNOSTICS_ENV: &str = "OXIDE_BENCHMARK_DIAGNOSTICS_PATH";
 const MEASUREMENT_GATE_ENV: &str = "OXIDE_BENCHMARK_RENDER_GATE";
 const UI_LATENCY_ENV: &str = "OXIDE_UI_LATENCY_DIAGNOSTICS";
+const UI_CYCLE_COUNT_ENV: &str = "OXIDE_BENCHMARK_UI_CYCLES";
 const MAX_TIMING_SAMPLES: usize = 300_000;
+const MAX_UI_CYCLES: u64 = 10_000;
+
+static COMPLETED_UI_CYCLES: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RenderSurface {
@@ -300,6 +307,37 @@ fn measurement_gate_open() -> bool {
     measurement_gate().is_open()
 }
 
+pub fn measurement_window_open() -> bool {
+    measurement_gate_open()
+}
+
+fn parse_ui_cycle_count(value: Option<std::ffi::OsString>) -> Option<u64> {
+    let value = value?.to_str()?.parse::<u64>().ok()?;
+    (1..=MAX_UI_CYCLES).contains(&value).then_some(value)
+}
+
+pub fn requested_ui_cycles() -> Option<u64> {
+    static REQUESTED: OnceLock<Option<u64>> = OnceLock::new();
+    *REQUESTED.get_or_init(|| parse_ui_cycle_count(std::env::var_os(UI_CYCLE_COUNT_ENV)))
+}
+
+pub fn record_ui_cycle_completed() -> u64 {
+    COMPLETED_UI_CYCLES.fetch_add(1, Ordering::Relaxed) + 1
+}
+
+fn ui_cycle_summary() -> serde_json::Value {
+    let Some(requested) = requested_ui_cycles() else {
+        return serde_json::Value::Null;
+    };
+    let completed = COMPLETED_UI_CYCLES.load(Ordering::Relaxed);
+    serde_json::json!({
+        "requested": requested,
+        "completed": completed,
+        "complete": completed == requested,
+        "sequence": "playlist -> settings -> closed",
+    })
+}
+
 #[cfg(not(target_os = "windows"))]
 fn measurement_gate_open() -> bool {
     true
@@ -545,6 +583,7 @@ pub fn render_timing_summary() -> Option<serde_json::Value> {
         "discarded_durations": state.discarded_durations,
         "measurement_gate_configured": measurement_gate_configured(),
         "measurement_gate_available": measurement_gate_available(),
+        "ui_cycles": ui_cycle_summary(),
         "scope": if measurement_gate_configured() {
             "benchmark measurement window"
         } else {
@@ -654,5 +693,14 @@ mod tests {
         assert!(state.collection_active);
         assert!(state.frame_intervals_ms.is_empty());
         assert!(state.render_durations_ms.is_empty());
+    }
+
+    #[test]
+    fn ui_cycle_count_is_bounded_and_strict() {
+        assert_eq!(parse_ui_cycle_count(Some("100".into())), Some(100));
+        assert_eq!(parse_ui_cycle_count(Some("10000".into())), Some(10_000));
+        assert_eq!(parse_ui_cycle_count(Some("0".into())), None);
+        assert_eq!(parse_ui_cycle_count(Some("10001".into())), None);
+        assert_eq!(parse_ui_cycle_count(Some("not-a-number".into())), None);
     }
 }

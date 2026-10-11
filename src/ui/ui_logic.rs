@@ -200,6 +200,7 @@ pub fn run(
             .set_position(slint::PhysicalPosition::new(placement.x, placement.y));
     }
     app.show()?;
+    let _ui_cycle_driver = super::benchmark_cycle_controller::install(&app);
     #[cfg(target_os = "windows")]
     if let Some(placement) = initial_window_placement {
         let app = app.as_weak();

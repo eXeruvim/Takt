@@ -1,3 +1,4 @@
+mod benchmark_cycle_controller;
 pub(crate) mod command_catalog;
 mod conversion_controller;
 mod drawer_controller;
