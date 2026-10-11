@@ -129,6 +129,14 @@ impl AudioMetadata {
             METADATA_READ_MAX_BYTES,
             Arc::clone(&cancelled),
         ));
+
+        Self::read_from_reader(reader, &cancelled)
+    }
+
+    fn read_from_reader<R>(reader: R, cancelled: &Arc<AtomicBool>) -> Option<Self>
+    where
+        R: Read + Seek,
+    {
         let probe = Probe::new(reader);
         let Ok(probe) = probe.guess_file_type() else {
             return (!cancelled.load(Ordering::Acquire)).then(Self::default);
@@ -256,5 +264,66 @@ mod tests {
     fn oversized_compressed_artwork_is_rejected_before_image_decode() {
         let picture = Picture::unchecked(vec![0; ARTWORK_SOURCE_MAX_BYTES + 1]).build();
         assert!(decode_artwork(&picture).is_none());
+    }
+
+    #[test]
+    fn generated_damaged_tag_corpus_is_bounded_and_panic_free() {
+        const PREFIXES: &[&[u8]] = &[
+            b"ID3\x04\x00\x00\x7f\x7f\x7f\x7f",
+            b"fLaC\xff\xff\xff\xff",
+            b"OggS\x00\xff\xff\xff\xff",
+            b"RIFF\xff\xff\xff\xffWAVEfmt ",
+            b"\x00\x00\x00\x08ftypM4A ",
+        ];
+
+        for case in 0_u32..128 {
+            let prefix = PREFIXES[case as usize % PREFIXES.len()];
+            let payload_len = 32 + (case as usize * 37 % 4_096);
+            let mut payload = Vec::with_capacity(prefix.len() + payload_len);
+            payload.extend_from_slice(prefix);
+            let mut state = case.wrapping_add(1);
+            for _ in 0..payload_len {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                payload.push((state >> 24) as u8);
+            }
+
+            let cancelled = Arc::new(AtomicBool::new(false));
+            let reader = BufReader::new(ReadBudget::cancellable(
+                Cursor::new(payload),
+                64 * 1_024,
+                Arc::clone(&cancelled),
+            ));
+            let metadata = AudioMetadata::read_from_reader(reader, &cancelled)
+                .expect("non-cancelled malformed metadata must fail closed");
+
+            assert!(metadata.title.len() <= UI_TEXT_BYTES);
+            assert!(metadata.artist.len() <= UI_TEXT_BYTES);
+            assert!(metadata.album.len() <= UI_TEXT_BYTES);
+            if let Some(artwork) = metadata.artwork {
+                assert!(artwork.width <= ARTWORK_MAX_DIMENSION);
+                assert!(artwork.height <= ARTWORK_MAX_DIMENSION);
+                assert_eq!(
+                    artwork.rgba.len(),
+                    artwork.width as usize * artwork.height as usize * 4
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn damaged_artwork_corpus_is_rejected_without_large_decode() {
+        let corpus: &[&[u8]] = &[
+            b"",
+            b"\x89PNG\r\n\x1a\n",
+            b"\xff\xd8\xff\xe0\x00\x10JFIF\x00",
+            b"GIF89a\xff\xff\xff\xff",
+            b"BM\xff\xff\xff\xff\x00\x00\x00\x00",
+            b"RIFF\xff\xff\xff\xffWEBPVP8 ",
+        ];
+
+        for payload in corpus {
+            let picture = Picture::unchecked(payload.to_vec()).build();
+            assert!(decode_artwork(&picture).is_none());
+        }
     }
 }
