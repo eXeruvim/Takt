@@ -115,12 +115,7 @@ impl AudioMetadata {
         }
         // Lofty's allocation limit is per tag item and thread-local. The reader
         // budget additionally limits cumulative bytes consumed across all items.
-        apply_global_options(
-            GlobalOptions::new()
-                .allocation_limit(TAG_ITEM_MAX_BYTES)
-                .preserve_format_specific_items(false)
-                .use_custom_resolvers(false),
-        );
+        apply_metadata_limits();
         let Ok(file) = File::open(path) else {
             return Some(Self::default());
         };
@@ -176,6 +171,62 @@ impl AudioMetadata {
             artwork,
         };
         (!cancelled.load(Ordering::Acquire)).then_some(metadata)
+    }
+}
+
+fn apply_metadata_limits() {
+    apply_global_options(
+        GlobalOptions::new()
+            .allocation_limit(TAG_ITEM_MAX_BYTES)
+            .preserve_format_specific_items(false)
+            .use_custom_resolvers(false),
+    );
+}
+
+#[cfg(feature = "fuzzing")]
+#[allow(dead_code)]
+pub(crate) fn fuzz_tag_bytes(data: &[u8]) {
+    apply_metadata_limits();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let reader = BufReader::new(ReadBudget::cancellable(
+        Cursor::new(data),
+        METADATA_READ_MAX_BYTES,
+        Arc::clone(&cancelled),
+    ));
+    let Some(metadata) = AudioMetadata::read_from_reader(reader, &cancelled) else {
+        return;
+    };
+
+    assert!(metadata.title.len() <= UI_TEXT_BYTES);
+    assert!(metadata.artist.len() <= UI_TEXT_BYTES);
+    assert!(metadata.album.len() <= UI_TEXT_BYTES);
+    if let Some(artwork) = metadata.artwork {
+        assert!(artwork.width <= ARTWORK_MAX_DIMENSION);
+        assert!(artwork.height <= ARTWORK_MAX_DIMENSION);
+        let expected = usize::try_from(artwork.width)
+            .ok()
+            .and_then(|width| {
+                usize::try_from(artwork.height)
+                    .ok()
+                    .and_then(|height| width.checked_mul(height))
+            })
+            .and_then(|pixels| pixels.checked_mul(4));
+        assert_eq!(expected, Some(artwork.rgba.len()));
+    }
+}
+
+#[cfg(feature = "fuzzing")]
+#[allow(dead_code)]
+pub(crate) fn fuzz_artwork_bytes(data: &[u8]) {
+    let capped = &data[..data.len().min(ARTWORK_SOURCE_MAX_BYTES + 1)];
+    let picture = Picture::unchecked(capped.to_vec()).build();
+    if let Some(artwork) = decode_artwork(&picture) {
+        assert!(artwork.width <= ARTWORK_MAX_DIMENSION);
+        assert!(artwork.height <= ARTWORK_MAX_DIMENSION);
+        assert_eq!(
+            artwork.rgba.len(),
+            artwork.width as usize * artwork.height as usize * 4
+        );
     }
 }
 

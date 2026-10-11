@@ -1,12 +1,13 @@
 [package]
 name = "oxide"
-version = "0.9.0-alpha.93"
+version = "0.9.0-alpha.94"
 edition = "2024"
 build = "build.rs"
 
 [features]
 default = []
 benchmark-tools = []
+fuzzing = []
 
 [[bin]]
 name = "oxide-playlist-bench"

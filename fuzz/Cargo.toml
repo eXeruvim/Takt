@@ -1,0 +1,39 @@
+[package]
+name = "oxide-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[features]
+default = ["fuzzing"]
+fuzzing = []
+
+[dependencies]
+image = { version = "=0.25.10", default-features = false, features = [
+    "bmp",
+    "gif",
+    "jpeg",
+    "png",
+] }
+libfuzzer-sys = "0.4"
+lofty = { version = "=0.25.1", default-features = true }
+
+[[bin]]
+name = "audio_metadata"
+path = "fuzz_targets/audio_metadata.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "artwork"
+path = "fuzz_targets/artwork.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
