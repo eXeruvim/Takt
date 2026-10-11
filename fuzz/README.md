@@ -2,17 +2,18 @@
 
 Этот пакет изолирован от обычной сборки Oxide и предназначен только для
 продолжительных проверок парсеров. `cargo-fuzz` использует nightly-компилятор и
-libFuzzer; официальный инструмент запускается на Unix-подобной системе. На
-Windows используйте WSL.
+libFuzzer. На Windows требуются MSVC v143 x64/x86 build tools и x64 runtime
+AddressSanitizer из компонента C++ AddressSanitizer или LLVM.
 
-```bash
+```powershell
 rustup toolchain install nightly
-cargo install cargo-fuzz --locked
-cargo +nightly fuzz run audio_metadata -- -max_total_time=300
-cargo +nightly fuzz run artwork -- -max_total_time=300
+cargo +nightly install cargo-fuzz --locked
+.\scripts\run-fuzz.ps1 -Target audio_metadata -DurationSeconds 300
+.\scripts\run-fuzz.ps1 -Target artwork -DurationSeconds 300
 ```
 
-Для длительного локального прогона уберите `-max_total_time` либо задайте нужное
-число секунд. Найденные входы появятся в `fuzz/artifacts/`; перед добавлением
-регрессионного fixture минимизируйте их командой `cargo fuzz tmin` и убедитесь,
-что файл не содержит чужих медиаданных.
+Для длительного локального прогона задайте нужное значение `DurationSeconds`.
+Скрипт сам находит MSVC linker и ASan runtime и не меняет системное окружение.
+Найденные входы появятся в `fuzz/artifacts/`; перед добавлением регрессионного
+fixture минимизируйте их командой `cargo fuzz tmin` и убедитесь, что файл не
+содержит чужих медиаданных.
