@@ -218,7 +218,10 @@ impl PlayerEventController {
                 app.set_volume((value / 100.0) as f32);
                 app.invoke_schedule_playback_defaults_save();
             }
-            Event::Muted(muted) => app.set_muted(muted),
+            Event::Muted(muted) => {
+                app.set_muted(muted);
+                app.invoke_persist_muted(muted);
+            }
             Event::Speed(value) => {
                 app.set_speed(value as f32);
                 app.invoke_schedule_playback_defaults_save();
@@ -458,7 +461,10 @@ impl PlayerEventController {
             }
             Event::LoopEnabled(enabled) => app.set_loop_enabled(enabled),
             Event::FolderLoopEnabled(enabled) => app.set_folder_loop_enabled(enabled),
-            Event::ShuffleEnabled(enabled) => app.set_shuffle_enabled(enabled),
+            Event::ShuffleEnabled(enabled) => {
+                app.set_shuffle_enabled(enabled);
+                app.invoke_persist_shuffle(enabled);
+            }
             Event::Error(message) => {
                 app.set_error_message(message.into());
                 app.set_error_visible(true);

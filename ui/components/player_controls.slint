@@ -183,6 +183,7 @@ export component PlayerControls inherits Rectangle {
                             icon: @image-url("../icons/file-media.svg");
                             accessible-name: "Открыть медиафайл";
                             circular: true;
+                            show-tooltip: true;
                             capture-focus: false;
                             clicked => root.open_file();
                         }
@@ -191,6 +192,7 @@ export component PlayerControls inherits Rectangle {
                             icon: @image-url("../icons/folder-open.svg");
                             accessible-name: "Открыть папку";
                             circular: true;
+                            show-tooltip: true;
                             capture-focus: false;
                             clicked => root.open_folder();
                         }
@@ -199,6 +201,7 @@ export component PlayerControls inherits Rectangle {
                             icon: @image-url("../icons/playlist.svg");
                             accessible-name: "Плейлист";
                             circular: true;
+                            show-tooltip: true;
                             selected: root.playlist_open;
                             capture-focus: false;
                             clicked => root.toggle_playlist();
@@ -208,6 +211,7 @@ export component PlayerControls inherits Rectangle {
                             icon: @image-url("../icons/info.svg");
                             accessible-name: "Информация о файле";
                             circular: true;
+                            show-tooltip: true;
                             selected: root.info_open;
                             capture-focus: false;
                             clicked => root.toggle_info();
@@ -217,6 +221,7 @@ export component PlayerControls inherits Rectangle {
                             icon: @image-url("../icons/convert.svg");
                             accessible-name: "Конвертация медиа";
                             circular: true;
+                            show-tooltip: true;
                             selected: root.converter_open;
                             capture-focus: false;
                             clicked => root.open_converter();
@@ -245,6 +250,7 @@ export component PlayerControls inherits Rectangle {
                         icon: @image-url("../icons/skip-back.svg");
                         accessible-name: "Предыдущий файл";
                         circular: true;
+                        show-tooltip: true;
                         enabled: root.media_loaded;
                         capture-focus: false;
                         clicked => root.previous();
@@ -257,6 +263,7 @@ export component PlayerControls inherits Rectangle {
                         accessible-name: root.is_playing ? "Пауза" : "Воспроизведение";
                         primary: true;
                         circular: true;
+                        show-tooltip: true;
                         enabled: root.media_loaded;
                         capture-focus: false;
                         clicked => root.play_pause();
@@ -268,6 +275,7 @@ export component PlayerControls inherits Rectangle {
                             ? "Следующий файл"
                             : "Следующий файл: " + root.next_file;
                         circular: true;
+                        show-tooltip: root.next_file == "";
                         enabled: root.media_loaded;
                         capture-focus: false;
                         clicked => root.next();
@@ -339,8 +347,11 @@ export component PlayerControls inherits Rectangle {
 
                     IconButton {
                         icon: @image-url("../icons/repeat.svg");
-                        accessible-name: root.loop_enabled ? "Выключить повтор" : "Включить повтор";
+                        accessible-name: root.loop_enabled
+                            ? "Выключить повтор текущего файла"
+                            : "Повторять текущий файл";
                         circular: true;
+                        show-tooltip: true;
                         selected: root.loop_enabled;
                         capture-focus: false;
                         clicked => root.toggle_loop();
@@ -366,6 +377,7 @@ export component PlayerControls inherits Rectangle {
                                     : @image-url("../icons/volume-off.svg");
                                 accessible-name: root.muted ? "Включить звук" : "Выключить звук";
                                 circular: true;
+                                show-tooltip: true;
                                 selected: root.muted;
                                 capture-focus: false;
                                 opacity: root.volume-feedback-visible ? 0 : 1;
@@ -464,6 +476,7 @@ export component PlayerControls inherits Rectangle {
                         icon: @image-url("../icons/settings.svg");
                         accessible-name: "Настройки воспроизведения";
                         circular: true;
+                        show-tooltip: true;
                         selected: root.settings_open;
                         capture-focus: false;
                         clicked => root.toggle_settings();
@@ -473,6 +486,7 @@ export component PlayerControls inherits Rectangle {
                         icon: @image-url("../icons/picture-in-picture.svg");
                         accessible-name: "Картинка в картинке";
                         circular: true;
+                        show-tooltip: true;
                         selected: root.picture_in_picture_active;
                         capture-focus: false;
                         clicked => root.toggle_picture_in_picture();
@@ -484,6 +498,7 @@ export component PlayerControls inherits Rectangle {
                             ? "Выйти из полноэкранного режима"
                             : "Полноэкранный режим";
                         circular: true;
+                        show-tooltip: true;
                         selected: root.fullscreen_active;
                         capture-focus: false;
                         clicked => root.toggle_fullscreen();
@@ -493,6 +508,7 @@ export component PlayerControls inherits Rectangle {
                         icon: @image-url("../icons/keyboard.svg");
                         accessible-name: "Команды и горячие клавиши";
                         circular: true;
+                        show-tooltip: true;
                         selected: root.command_palette_open;
                         capture-focus: false;
                         clicked => root.show_more();
@@ -517,6 +533,7 @@ export component PlayerControls inherits Rectangle {
                         icon: @image-url("../icons/skip-back.svg");
                         accessible-name: "Предыдущий файл";
                         circular: true;
+                        show-tooltip: true;
                         enabled: root.media_loaded;
                         capture-focus: false;
                         clicked => root.previous();
@@ -530,6 +547,7 @@ export component PlayerControls inherits Rectangle {
                         accessible-name: root.is_playing ? "Пауза" : "Воспроизведение";
                         primary: true;
                         circular: true;
+                        show-tooltip: true;
                         enabled: root.media_loaded;
                         capture-focus: false;
                         clicked => root.play_pause();
@@ -538,6 +556,7 @@ export component PlayerControls inherits Rectangle {
                         icon: @image-url("../icons/skip-forward.svg");
                         accessible-name: "Следующий файл";
                         circular: true;
+                        show-tooltip: true;
                         enabled: root.media_loaded;
                         capture-focus: false;
                         clicked => root.next();
@@ -546,6 +565,7 @@ export component PlayerControls inherits Rectangle {
                         icon: @image-url("../icons/picture-in-picture.svg");
                         accessible-name: "Вернуться в основное окно";
                         circular: true;
+                        show-tooltip: true;
                         selected: true;
                         capture-focus: false;
                         clicked => root.toggle_picture_in_picture();

@@ -58,7 +58,8 @@ Slint UI <- converter::ConverterEvent   <- converter <- FFmpeg progress
 - `src/ui/conversion_controller.rs` — UI-состояние конвертера: выбор входа и
   результата, пресеты, отправка задач, история и применение событий FFmpeg;
 - `src/ui/settings_controller.rs` — применение и сохранение пользовательских
-  параметров темы, акцента, воспроизведения и аппаратного декодирования;
+  параметров темы, акцента, громкости/mute, скорости, порядка плейлиста и
+  аппаратного декодирования;
 - `src/ui/video_output.rs` — Windows-жизненный цикл встроенного OpenGL-вывода,
   HWND fallback, render notifier и handshake готовности видео с player thread;
 - `src/ui/player_event_controller.rs` — применение ограниченных пакетов событий

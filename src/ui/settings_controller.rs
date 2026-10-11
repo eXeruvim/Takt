@@ -76,6 +76,22 @@ pub(super) fn register_preference_callbacks(
     }
 
     {
+        let app_weak = app.as_weak();
+        let settings = settings.clone();
+        app.on_persist_muted(move |muted| {
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
+            update_settings(
+                &app,
+                &settings,
+                "Не удалось сохранить состояние звука",
+                |settings| settings.set_muted(muted),
+            );
+        });
+    }
+
+    {
         let tx = tx.clone();
         let app_weak = app.as_weak();
         let settings = settings.clone();
@@ -119,6 +135,22 @@ pub(super) fn register_preference_callbacks(
                         CompletionBehavior::Stop
                     });
                 },
+            );
+        });
+    }
+
+    {
+        let app_weak = app.as_weak();
+        let settings = settings.clone();
+        app.on_persist_shuffle(move |enabled| {
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
+            update_settings(
+                &app,
+                &settings,
+                "Не удалось сохранить случайный порядок",
+                |settings| settings.set_shuffle_enabled(enabled),
             );
         });
     }

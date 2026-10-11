@@ -427,6 +427,9 @@ fn handle_command(
         Command::SetVolume(value) => {
             mpv_error(mpv.set_property("volume", value.clamp(0.0, 100.0)))?;
         }
+        Command::SetMuted(muted) => {
+            mpv_error(mpv.set_property("mute", muted))?;
+        }
         Command::SetSpeed(value) => {
             mpv_error(mpv.set_property("speed", value.clamp(0.25, 4.0)))?;
         }
@@ -615,6 +618,14 @@ fn handle_command(
         Command::SetFolderLoop(enabled) => {
             options.repeat_folder = enabled;
             let _ = tx.send(Event::FolderLoopEnabled(options.repeat_folder));
+        }
+        Command::SetShuffle(enabled) => {
+            options.shuffled = enabled;
+            if let Some(playlist) = playlist {
+                playlist.set_shuffled(options.shuffled);
+                send_playlist(tx, playlist);
+            }
+            let _ = tx.send(Event::ShuffleEnabled(options.shuffled));
         }
         Command::ToggleShuffle => {
             options.shuffled = !options.shuffled;

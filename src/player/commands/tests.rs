@@ -199,8 +199,12 @@ fn absolute_settings_coalesce_without_losing_other_settings() {
     for command in [
         Command::SetVolume(5.0),
         Command::SetVolume(15.0),
+        Command::SetMuted(true),
+        Command::SetMuted(false),
         Command::SetSpeed(0.5),
         Command::SetSpeed(1.5),
+        Command::SetShuffle(true),
+        Command::SetShuffle(false),
         Command::SetDarkTheme(true),
         Command::SetDarkTheme(false),
         Command::RequestMediaInfo,
@@ -209,7 +213,12 @@ fn absolute_settings_coalesce_without_losing_other_settings() {
         tx.send(command).unwrap();
     }
     assert!(matches!(rx.try_recv(true), Some(Command::SetVolume(15.0))));
+    assert!(matches!(rx.try_recv(true), Some(Command::SetMuted(false))));
     assert!(matches!(rx.try_recv(true), Some(Command::SetSpeed(1.5))));
+    assert!(matches!(
+        rx.try_recv(true),
+        Some(Command::SetShuffle(false))
+    ));
     assert!(matches!(
         rx.try_recv(true),
         Some(Command::SetDarkTheme(false))

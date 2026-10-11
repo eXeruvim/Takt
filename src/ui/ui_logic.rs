@@ -69,16 +69,20 @@ pub fn run(
         app.set_theme_mode(settings.theme().ui_index());
         app.set_accent_mode(settings.accent().ui_index());
         app.set_volume(settings.default_volume());
+        app.set_muted(settings.muted());
         app.set_speed(settings.default_speed());
         app.set_folder_loop_enabled(settings.completion_behavior().repeats_playlist());
+        app.set_shuffle_enabled(settings.shuffle_enabled());
         app.set_hardware_decoding_enabled(settings.hardware_decoding_enabled());
         let _ = tx.send(Command::SetVolume(
             f64::from(settings.default_volume()) * 100.0,
         ));
+        let _ = tx.send(Command::SetMuted(settings.muted()));
         let _ = tx.send(Command::SetSpeed(f64::from(settings.default_speed())));
         let _ = tx.send(Command::SetFolderLoop(
             settings.completion_behavior().repeats_playlist(),
         ));
+        let _ = tx.send(Command::SetShuffle(settings.shuffle_enabled()));
         let _ = tx.send(Command::SetHardwareDecoding(
             settings.hardware_decoding_enabled(),
         ));

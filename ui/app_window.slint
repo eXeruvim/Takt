@@ -240,6 +240,8 @@ export component AppWindow inherits Window {
     callback set_volume(float);
     callback set_speed(float);
     callback persist_playback_defaults(float, float);
+    callback persist_muted(bool);
+    callback persist_shuffle(bool);
     callback select_audio_track(int);
     callback select_subtitle_track(int);
     callback load_subtitle();
@@ -521,8 +523,8 @@ export component AppWindow inherits Window {
 
                     UtilityDock {
                         width: parent.width;
-                        volume: root.volume;
-                        muted: root.muted;
+                        volume <=> root.volume;
+                        muted <=> root.muted;
                         volume-feedback-visible: root.volume_feedback_visible;
                         settings-open: root.settings_drawer_visible;
                         command-palette-open: root.command_palette_visible;
@@ -868,8 +870,8 @@ export component AppWindow inherits Window {
                 time_pos: root.current_time;
                 time_duration: root.total_time;
                 duration_seconds: root.duration_seconds;
-                volume: root.volume;
-                muted: root.muted;
+                volume <=> root.volume;
+                muted <=> root.muted;
                 volume-feedback-visible: root.volume_feedback_visible;
                 loop_enabled: root.loop_enabled;
                 edge_to_edge: root.edge_to_edge;

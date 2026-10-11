@@ -7,7 +7,7 @@ use std::{
 };
 
 const SETTINGS_FORMAT: &str = "OXIDE_SETTINGS";
-const SETTINGS_VERSION: u32 = 1;
+const SETTINGS_VERSION: u32 = 2;
 const DEFAULT_VOLUME: f32 = 0.65;
 const DEFAULT_SPEED: f32 = 1.0;
 const MAX_SHORTCUT_OVERRIDES: usize = 64;
@@ -176,8 +176,10 @@ pub struct AppSettings {
     theme: ThemePreference,
     accent: AccentPreference,
     default_volume: f32,
+    muted: bool,
     default_speed: f32,
     completion_behavior: CompletionBehavior,
+    shuffle_enabled: bool,
     hardware_decoding_enabled: bool,
     window_placement: Option<WindowPlacementPreference>,
     shortcut_overrides: Vec<ShortcutPreference>,
@@ -192,8 +194,10 @@ impl Default for AppSettings {
             theme: ThemePreference::System,
             accent: AccentPreference::Copper,
             default_volume: DEFAULT_VOLUME,
+            muted: false,
             default_speed: DEFAULT_SPEED,
             completion_behavior: CompletionBehavior::Stop,
+            shuffle_enabled: false,
             hardware_decoding_enabled: false,
             window_placement: None,
             shortcut_overrides: Vec::new(),
@@ -207,7 +211,7 @@ impl Default for AppSettings {
 impl AppSettings {
     pub fn load_default() -> Self {
         let (persistence, mut settings) = Persistence::load(default_storage_path(), Self::parse);
-        settings.dirty = persistence.needs_repair();
+        settings.dirty |= persistence.needs_repair();
         settings.persistence = persistence;
         settings
     }
@@ -228,12 +232,20 @@ impl AppSettings {
         self.default_volume
     }
 
+    pub const fn muted(&self) -> bool {
+        self.muted
+    }
+
     pub const fn default_speed(&self) -> f32 {
         self.default_speed
     }
 
     pub const fn completion_behavior(&self) -> CompletionBehavior {
         self.completion_behavior
+    }
+
+    pub const fn shuffle_enabled(&self) -> bool {
+        self.shuffle_enabled
     }
 
     pub const fn hardware_decoding_enabled(&self) -> bool {
@@ -274,6 +286,13 @@ impl AppSettings {
         }
     }
 
+    pub fn set_muted(&mut self, muted: bool) {
+        if self.muted != muted {
+            self.muted = muted;
+            self.dirty = true;
+        }
+    }
+
     pub fn set_default_speed(&mut self, speed: f32) {
         let speed = if speed.is_finite() {
             speed.clamp(0.25, 4.0)
@@ -289,6 +308,13 @@ impl AppSettings {
     pub fn set_completion_behavior(&mut self, behavior: CompletionBehavior) {
         if self.completion_behavior != behavior {
             self.completion_behavior = behavior;
+            self.dirty = true;
+        }
+    }
+
+    pub fn set_shuffle_enabled(&mut self, enabled: bool) {
+        if self.shuffle_enabled != enabled {
+            self.shuffle_enabled = enabled;
             self.dirty = true;
         }
     }
@@ -323,16 +349,20 @@ impl AppSettings {
         let changed = self.theme != defaults.theme
             || self.accent != defaults.accent
             || self.default_volume != defaults.default_volume
+            || self.muted != defaults.muted
             || self.default_speed != defaults.default_speed
             || self.completion_behavior != defaults.completion_behavior
+            || self.shuffle_enabled != defaults.shuffle_enabled
             || self.hardware_decoding_enabled != defaults.hardware_decoding_enabled
             || self.window_placement.is_some()
             || !self.shortcut_overrides.is_empty();
         self.theme = defaults.theme;
         self.accent = defaults.accent;
         self.default_volume = defaults.default_volume;
+        self.muted = defaults.muted;
         self.default_speed = defaults.default_speed;
         self.completion_behavior = defaults.completion_behavior;
+        self.shuffle_enabled = defaults.shuffle_enabled;
         self.hardware_decoding_enabled = defaults.hardware_decoding_enabled;
         self.window_placement = None;
         self.shortcut_overrides.clear();
@@ -349,12 +379,14 @@ impl AppSettings {
             return Ok(());
         }
         let mut content = format!(
-            "{SETTINGS_FORMAT}\t{SETTINGS_VERSION}\ntheme\t{}\naccent\t{}\nvolume\t{}\nspeed\t{}\ncompletion_behavior\t{}\nhardware_decoding\t{}\n",
+            "{SETTINGS_FORMAT}\t{SETTINGS_VERSION}\ntheme\t{}\naccent\t{}\nvolume\t{}\nmuted\t{}\nspeed\t{}\ncompletion_behavior\t{}\nshuffle\t{}\nhardware_decoding\t{}\n",
             self.theme.as_str(),
             self.accent.as_str(),
             self.default_volume,
+            self.muted,
             self.default_speed,
             self.completion_behavior.as_str(),
+            self.shuffle_enabled,
             self.hardware_decoding_enabled
         );
         if let Some(placement) = self.window_placement {
@@ -381,7 +413,7 @@ impl AppSettings {
     #[cfg(test)]
     fn load_from(storage_path: &Path) -> std::io::Result<Self> {
         let (persistence, mut settings) = Persistence::open(storage_path, Self::parse)?;
-        settings.dirty = persistence.needs_repair();
+        settings.dirty |= persistence.needs_repair();
         settings.persistence = persistence;
         Ok(settings)
     }
@@ -402,7 +434,7 @@ impl AppSettings {
                 "повреждён заголовок настроек",
             ));
         }
-        if version != Some(SETTINGS_VERSION) {
+        if !matches!(version, Some(1 | SETTINGS_VERSION)) {
             return Err(Error::new(
                 ErrorKind::Unsupported,
                 "неподдерживаемая версия настроек",
@@ -430,6 +462,11 @@ impl AppSettings {
                         settings.default_volume = volume.clamp(0.0, 1.0);
                     }
                 }
+                (Some("muted"), Some(value)) => match value.trim() {
+                    "true" => settings.muted = true,
+                    "false" => settings.muted = false,
+                    _ => {}
+                },
                 (Some("speed"), Some(value)) => {
                     if let Ok(speed) = value.trim().parse::<f32>()
                         && speed.is_finite()
@@ -442,6 +479,11 @@ impl AppSettings {
                         settings.completion_behavior = behavior;
                     }
                 }
+                (Some("shuffle"), Some(value)) => match value.trim() {
+                    "true" => settings.shuffle_enabled = true,
+                    "false" => settings.shuffle_enabled = false,
+                    _ => {}
+                },
                 (Some("hardware_decoding"), Some(value)) => match value.trim() {
                     "true" => settings.hardware_decoding_enabled = true,
                     "false" => settings.hardware_decoding_enabled = false,
@@ -489,6 +531,7 @@ impl AppSettings {
                 _ => {}
             }
         }
+        settings.dirty = version != Some(SETTINGS_VERSION);
         Ok(settings)
     }
 }
@@ -550,8 +593,10 @@ mod tests {
         settings.set_theme(ThemePreference::Light);
         settings.set_accent(AccentPreference::Sage);
         settings.set_default_volume(0.42);
+        settings.set_muted(true);
         settings.set_default_speed(1.25);
         settings.set_completion_behavior(CompletionBehavior::RepeatPlaylist);
+        settings.set_shuffle_enabled(true);
         settings.set_hardware_decoding_enabled(true);
         settings
             .set_window_placement(WindowPlacementPreference::new(-820, 140, 1280, 760).unwrap());
@@ -573,11 +618,13 @@ mod tests {
         assert_eq!(loaded.theme(), ThemePreference::Light);
         assert_eq!(loaded.accent(), AccentPreference::Sage);
         assert_eq!(loaded.default_volume(), 0.42);
+        assert!(loaded.muted());
         assert_eq!(loaded.default_speed(), 1.25);
         assert_eq!(
             loaded.completion_behavior(),
             CompletionBehavior::RepeatPlaylist
         );
+        assert!(loaded.shuffle_enabled());
         assert!(loaded.hardware_decoding_enabled());
         assert_eq!(
             loaded.window_placement(),
@@ -606,8 +653,10 @@ mod tests {
             "theme",
             "accent",
             "volume",
+            "muted",
             "speed",
             "completion_behavior",
+            "shuffle",
             "hardware_decoding",
             "window_placement",
             "shortcut",
@@ -745,7 +794,7 @@ mod tests {
         let mut first = AppSettings::load_from(&path).unwrap();
         first.set_theme(ThemePreference::Light);
         first.save_if_dirty().unwrap();
-        std::fs::write(&path, "OXIDE_SETTINGS\t2\ntheme\tdark\n").unwrap();
+        std::fs::write(&path, "OXIDE_SETTINGS\t3\ntheme\tdark\n").unwrap();
         assert_eq!(
             AppSettings::load_from(&path).unwrap_err().kind(),
             std::io::ErrorKind::Unsupported
@@ -761,8 +810,10 @@ mod tests {
 
         let loaded = AppSettings::load_from(&path).expect("known version must be loaded");
         assert_eq!(loaded.default_volume(), 1.0);
+        assert!(!loaded.muted());
         assert_eq!(loaded.default_speed(), DEFAULT_SPEED);
         assert_eq!(loaded.completion_behavior(), CompletionBehavior::Stop);
+        assert!(!loaded.shuffle_enabled());
         assert!(!loaded.hardware_decoding_enabled());
 
         std::fs::remove_file(path).expect("temporary settings must be removed");
@@ -842,8 +893,10 @@ mod tests {
         settings.set_theme(ThemePreference::Light);
         settings.set_accent(AccentPreference::Blue);
         settings.set_default_volume(0.2);
+        settings.set_muted(true);
         settings.set_default_speed(1.75);
         settings.set_completion_behavior(CompletionBehavior::RepeatPlaylist);
+        settings.set_shuffle_enabled(true);
         settings.set_hardware_decoding_enabled(true);
         settings.set_window_placement(WindowPlacementPreference::new(100, 200, 900, 600).unwrap());
         settings.set_shortcut_overrides(vec![ShortcutPreference {
@@ -860,8 +913,10 @@ mod tests {
             assert_eq!(loaded.theme(), ThemePreference::System);
             assert_eq!(loaded.accent(), AccentPreference::Copper);
             assert_eq!(loaded.default_volume(), DEFAULT_VOLUME);
+            assert!(!loaded.muted());
             assert_eq!(loaded.default_speed(), DEFAULT_SPEED);
             assert_eq!(loaded.completion_behavior(), CompletionBehavior::Stop);
+            assert!(!loaded.shuffle_enabled());
             assert!(!loaded.hardware_decoding_enabled());
             assert_eq!(loaded.window_placement(), None);
             assert!(loaded.shortcut_overrides().is_empty());
@@ -872,5 +927,35 @@ mod tests {
         let mut recovered = AppSettings::load_from(&path).unwrap();
         assert_defaults(&recovered);
         assert!(recovered.take_storage_notice().is_some());
+    }
+
+    #[test]
+    fn version_one_settings_migrate_with_safe_audio_and_playlist_defaults() {
+        let files = TestDirectory::new();
+        let path = files.path("settings.txt");
+        std::fs::write(
+            &path,
+            "OXIDE_SETTINGS\t1\nvolume\t0.4\ncompletion_behavior\trepeat-playlist\n",
+        )
+        .unwrap();
+
+        let mut migrated = AppSettings::load_from(&path).unwrap();
+        assert_eq!(migrated.default_volume(), 0.4);
+        assert!(!migrated.muted());
+        assert_eq!(
+            migrated.completion_behavior(),
+            CompletionBehavior::RepeatPlaylist
+        );
+        assert!(!migrated.shuffle_enabled());
+        assert!(migrated.dirty);
+
+        migrated.save_if_dirty().unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("\nOXIDE_SETTINGS\t2\n"));
+        assert!(content.contains("\nmuted\tfalse\n"));
+        assert!(content.contains("\nshuffle\tfalse\n"));
+
+        let reloaded = AppSettings::load_from(&path).unwrap();
+        assert!(!reloaded.dirty);
     }
 }

@@ -312,8 +312,10 @@ impl ShortcutController {
         app.set_theme_mode(defaults.theme().ui_index());
         app.set_accent_mode(defaults.accent().ui_index());
         app.set_volume(defaults.default_volume());
+        app.set_muted(defaults.muted());
         app.set_speed(defaults.default_speed());
         app.set_folder_loop_enabled(defaults.completion_behavior().repeats_playlist());
+        app.set_shuffle_enabled(defaults.shuffle_enabled());
         app.set_hardware_decoding_enabled(defaults.hardware_decoding_enabled());
         app.set_settings_reset_done(true);
         app.set_reset_settings_prompt_visible(false);
@@ -326,12 +328,16 @@ impl ShortcutController {
         let _ = self.player_tx.send(Command::SetVolume(
             f64::from(defaults.default_volume()) * 100.0,
         ));
+        let _ = self.player_tx.send(Command::SetMuted(defaults.muted()));
         let _ = self
             .player_tx
             .send(Command::SetSpeed(f64::from(defaults.default_speed())));
         let _ = self.player_tx.send(Command::SetFolderLoop(
             defaults.completion_behavior().repeats_playlist(),
         ));
+        let _ = self
+            .player_tx
+            .send(Command::SetShuffle(defaults.shuffle_enabled()));
         let _ = self.player_tx.send(Command::SetHardwareDecoding(
             defaults.hardware_decoding_enabled(),
         ));

@@ -214,7 +214,10 @@ export component IconButton inherits Rectangle {
     in property <bool> loading: false;
     in property <bool> danger: false;
     in property <bool> capture-focus: true;
+    in property <bool> show-tooltip: false;
+    in property <string> tooltip-text: accessible-name;
     out property <bool> has-hover: interaction.has-hover;
+    private property <bool> tooltip-ready: false;
     callback clicked();
 
     width: Theme.space-10;
@@ -245,6 +248,25 @@ export component IconButton inherits Rectangle {
         clicked => root.clicked();
     }
 
+    changed has-hover => {
+        if (root.has-hover && root.show-tooltip && root.enabled
+            && root.tooltip-text != "") {
+            tooltip-delay.start();
+        } else {
+            tooltip-delay.stop();
+            root.tooltip-ready = false;
+        }
+    }
+
+    tooltip-delay := Timer {
+        interval: 420ms;
+        running: false;
+        triggered => {
+            root.tooltip-ready = true;
+            self.stop();
+        }
+    }
+
     if root.loading : Spinner {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
@@ -258,6 +280,40 @@ export component IconButton inherits Rectangle {
             ? Theme.on-accent
             : root.selected ? Theme.accent
             : Theme.text-primary;
+    }
+
+    tooltip := Rectangle {
+        z: 1000;
+        x: (parent.width - self.width) / 2;
+        y: -self.height - Theme.space-2;
+        width: max(Theme.space-12, min(320px, tooltip-label.preferred-width + Theme.space-6));
+        height: Theme.space-8;
+        visible: (root.tooltip-ready && root.enabled) || self.opacity > 0.01;
+        opacity: root.tooltip-ready && root.enabled ? 1 : 0;
+        border-radius: Theme.radius-small;
+        background: Theme.surface-popover;
+        border-width: 1px;
+        border-color: Theme.border-default;
+        drop-shadow-color: Theme.shadow-low;
+        drop-shadow-blur: Theme.elevation-low-blur;
+        drop-shadow-offset-y: Theme.elevation-low-y;
+
+        tooltip-label := UiText {
+            x: Theme.space-3;
+            width: parent.width - Theme.space-6;
+            height: parent.height;
+            text: root.tooltip-text;
+            variant: TextVariant.caption;
+            color: Theme.text-primary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        animate opacity {
+            duration: Theme.motion-fast;
+            easing: cubic-bezier(0.2, 0, 0, 1);
+        }
     }
 
     animate background, border-color, opacity {

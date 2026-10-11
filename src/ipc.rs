@@ -97,6 +97,7 @@ pub enum Command {
     Seek(f64),
 
     SetVolume(f64),
+    SetMuted(bool),
     SetSpeed(f64),
     SelectAudioTrack(i64),
     SelectSubtitleTrack(Option<i64>),
@@ -123,6 +124,7 @@ pub enum Command {
 
     ToggleLoop,
     SetFolderLoop(bool),
+    SetShuffle(bool),
     ToggleShuffle,
 
     SeekRelative(f64),

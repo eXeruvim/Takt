@@ -231,7 +231,9 @@ fn replaces(previous: &Command, next: &Command) -> bool {
         (previous, next),
         (Command::Seek(_), Command::Seek(_))
             | (Command::SetVolume(_), Command::SetVolume(_))
+            | (Command::SetMuted(_), Command::SetMuted(_))
             | (Command::SetSpeed(_), Command::SetSpeed(_))
+            | (Command::SetShuffle(_), Command::SetShuffle(_))
             | (Command::SetDarkTheme(_), Command::SetDarkTheme(_))
             | (Command::RequestMediaInfo, Command::RequestMediaInfo)
     )

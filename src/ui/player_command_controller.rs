@@ -287,8 +287,20 @@ fn register_audio_callbacks(app: &AppWindow, tx: &CommandSender) {
 
     {
         let tx = tx.clone();
+        let app_weak = app.as_weak();
         app.on_adjust_volume(move |value| {
-            let _ = tx.send(Command::AdjustVolume(f64::from(value)));
+            if tx.send(Command::AdjustVolume(f64::from(value))).is_err() {
+                return;
+            }
+
+            if let Some(app) = app_weak.upgrade() {
+                let next = adjusted_volume_fraction(app.get_volume(), value);
+                app.set_volume(next);
+                if next > 0.0 {
+                    app.set_muted(false);
+                }
+                app.invoke_schedule_playback_defaults_save();
+            }
         });
     }
 
@@ -371,6 +383,13 @@ fn register_audio_callbacks(app: &AppWindow, tx: &CommandSender) {
     }
 }
 
+fn adjusted_volume_fraction(current: f32, delta_percent: f32) -> f32 {
+    if !current.is_finite() || !delta_percent.is_finite() {
+        return 0.0;
+    }
+    ((current * 100.0 + delta_percent).clamp(0.0, 100.0).round()) / 100.0
+}
+
 fn register_playlist_callbacks(app: &AppWindow, tx: &CommandSender) {
     {
         let tx = tx.clone();
@@ -388,5 +407,23 @@ fn register_playlist_callbacks(app: &AppWindow, tx: &CommandSender) {
                 let _ = tx.send(Command::RemoveIndex(index));
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::adjusted_volume_fraction;
+
+    #[test]
+    fn relative_volume_keeps_non_multiple_of_five_values() {
+        assert!((adjusted_volume_fraction(0.63, 5.0) - 0.68).abs() < f32::EPSILON);
+        assert!((adjusted_volume_fraction(0.63, -5.0) - 0.58).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn relative_volume_is_rounded_and_clamped() {
+        assert_eq!(adjusted_volume_fraction(0.999, 5.0), 1.0);
+        assert_eq!(adjusted_volume_fraction(0.01, -5.0), 0.0);
+        assert_eq!(adjusted_volume_fraction(f32::NAN, 5.0), 0.0);
     }
 }
