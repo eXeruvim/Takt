@@ -13,7 +13,7 @@ param(
     [ValidateRange(1, 30)]
     [int]$ShutdownTimeoutSeconds = 10,
 
-    [ValidateSet('None', 'MpvInit', 'RendererInit')]
+    [ValidateSet('None', 'MpvInit', 'RendererInit', 'DialogOpen')]
     [string]$Fault = 'None',
 
     [switch]$ValidateOnly
@@ -109,6 +109,7 @@ try {
     [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_HWDEC')
     [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_FAULT')
     $expectedFaultMarker = $null
+    $expectedShutdownMarker = $null
     if ($Fault -eq 'MpvInit') {
         $startInfo.Environment['OXIDE_BENCHMARK_FAULT'] = 'mpv-init'
         $expectedFaultMarker = 'OXIDE_DIAGNOSTIC_FAULT:mpv-init'
@@ -116,6 +117,11 @@ try {
     elseif ($Fault -eq 'RendererInit') {
         $startInfo.Environment['OXIDE_BENCHMARK_FAULT'] = 'renderer-init'
         $expectedFaultMarker = 'OXIDE_DIAGNOSTIC_FAULT:renderer-init'
+    }
+    elseif ($Fault -eq 'DialogOpen') {
+        $startInfo.Environment['OXIDE_BENCHMARK_FAULT'] = 'dialog-open'
+        $expectedFaultMarker = 'OXIDE_DIAGNOSTIC_FAULT:dialog-open'
+        $expectedShutdownMarker = 'OXIDE_DIAGNOSTIC_FAULT:dialog-shutdown'
     }
     if ($null -ne $resolvedMediaPath) {
         [void]$startInfo.ArgumentList.Add($resolvedMediaPath)
@@ -151,14 +157,22 @@ try {
     Start-Sleep -Seconds $VisibleSeconds
 
     $process.Refresh()
-    if ($process.HasExited) {
+    if ($Fault -eq 'DialogOpen') {
+        if (-not $process.HasExited -and
+            -not $process.WaitForExit($ShutdownTimeoutSeconds * 1000)) {
+            throw "Oxide PID $($process.Id) не закрылся при открытом системном диалоге за $ShutdownTimeoutSeconds с. Процесс оставлен пользователю."
+        }
+    }
+    elseif ($process.HasExited) {
         throw "Oxide неожиданно завершился с кодом $($process.ExitCode)."
     }
-    if (-not $process.CloseMainWindow()) {
-        throw "Oxide PID $($process.Id) не принял обычный запрос закрытия. Процесс оставлен пользователю."
-    }
-    if (-not $process.WaitForExit($ShutdownTimeoutSeconds * 1000)) {
-        throw "Oxide PID $($process.Id) не закрылся за $ShutdownTimeoutSeconds с. Процесс оставлен пользователю."
+    else {
+        if (-not $process.CloseMainWindow()) {
+            throw "Oxide PID $($process.Id) не принял обычный запрос закрытия. Процесс оставлен пользователю."
+        }
+        if (-not $process.WaitForExit($ShutdownTimeoutSeconds * 1000)) {
+            throw "Oxide PID $($process.Id) не закрылся за $ShutdownTimeoutSeconds с. Процесс оставлен пользователю."
+        }
     }
     if ($process.ExitCode -ne 0) {
         throw "Oxide завершился с кодом $($process.ExitCode)."
@@ -168,6 +182,10 @@ try {
     if ($null -ne $expectedFaultMarker -and
         -not $standardError.Contains($expectedFaultMarker, [StringComparison]::Ordinal)) {
         throw "Диагностический сценарий $Fault не сработал. Проверьте, что сборка создана с --features benchmark-tools."
+    }
+    if ($null -ne $expectedShutdownMarker -and
+        -not $standardError.Contains($expectedShutdownMarker, [StringComparison]::Ordinal)) {
+        throw "Диагностический сценарий $Fault завершился до штатного выхода UI event loop."
     }
 
     if ($null -ne $expectedFaultMarker) {

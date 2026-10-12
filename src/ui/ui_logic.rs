@@ -200,6 +200,33 @@ pub fn run(
             .set_position(slint::PhysicalPosition::new(placement.x, placement.y));
     }
     app.show()?;
+    let dialog_fault = crate::benchmark_diagnostics::fault_requested("dialog-open");
+    let dialog_open_timer = dialog_fault.then(slint::Timer::default);
+    let dialog_shutdown_timer = dialog_fault.then(slint::Timer::default);
+    if let Some(timer) = dialog_open_timer.as_ref() {
+        let app_weak = app.as_weak();
+        timer.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_millis(350),
+            move || {
+                let Some(app) = app_weak.upgrade() else {
+                    return;
+                };
+                eprintln!("OXIDE_DIAGNOSTIC_FAULT:dialog-open");
+                app.invoke_open_file();
+            },
+        );
+    }
+    if let Some(timer) = dialog_shutdown_timer.as_ref() {
+        timer.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_millis(1_500),
+            || {
+                eprintln!("OXIDE_DIAGNOSTIC_FAULT:dialog-shutdown");
+                let _ = slint::quit_event_loop();
+            },
+        );
+    }
     let _ui_cycle_driver = super::benchmark_cycle_controller::install(&app);
     #[cfg(target_os = "windows")]
     if let Some(placement) = initial_window_placement {
@@ -212,6 +239,8 @@ pub fn run(
         })?;
     }
     let run_result = slint::run_event_loop();
+    drop(dialog_open_timer);
+    drop(dialog_shutdown_timer);
     let hide_result = app.hide();
     drop(player_bridge);
     #[cfg(target_os = "windows")]
