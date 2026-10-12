@@ -13,6 +13,9 @@ param(
     [ValidateRange(1, 30)]
     [int]$ShutdownTimeoutSeconds = 10,
 
+    [ValidateSet('None', 'MpvInit', 'RendererInit')]
+    [string]$Fault = 'None',
+
     [switch]$ValidateOnly
 )
 
@@ -31,6 +34,10 @@ if (-not [string]::IsNullOrWhiteSpace($MediaPath)) {
     if (-not (Test-Path -LiteralPath $resolvedMediaPath -PathType Leaf)) {
         throw "Медиафайл для smoke-теста не найден: $resolvedMediaPath"
     }
+}
+
+if ($Fault -eq 'RendererInit' -and $null -eq $resolvedMediaPath) {
+    throw 'Для проверки RendererInit укажите видеофайл через -MediaPath.'
 }
 
 if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
@@ -87,17 +94,29 @@ if (-not (Test-Path -LiteralPath $runtimePath -PathType Leaf)) {
 }
 
 $process = $null
+$standardErrorTask = $null
 $startedAt = [Diagnostics.Stopwatch]::StartNew()
 try {
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $executablePath
     $startInfo.WorkingDirectory = $repository
     $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardError = $true
     # A smoke launch must not inherit stale handles or report paths from an
     # earlier profiling session in the caller's terminal.
     [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_DIAGNOSTICS_PATH')
     [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_RENDER_GATE')
     [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_HWDEC')
+    [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_FAULT')
+    $expectedFaultMarker = $null
+    if ($Fault -eq 'MpvInit') {
+        $startInfo.Environment['OXIDE_BENCHMARK_FAULT'] = 'mpv-init'
+        $expectedFaultMarker = 'OXIDE_DIAGNOSTIC_FAULT:mpv-init'
+    }
+    elseif ($Fault -eq 'RendererInit') {
+        $startInfo.Environment['OXIDE_BENCHMARK_FAULT'] = 'renderer-init'
+        $expectedFaultMarker = 'OXIDE_DIAGNOSTIC_FAULT:renderer-init'
+    }
     if ($null -ne $resolvedMediaPath) {
         [void]$startInfo.ArgumentList.Add($resolvedMediaPath)
     }
@@ -105,6 +124,7 @@ try {
     if ($null -eq $process) {
         throw 'Не удалось запустить процесс Oxide.'
     }
+    $standardErrorTask = $process.StandardError.ReadToEndAsync()
 
     $startupDeadline = [TimeSpan]::FromSeconds($StartupTimeoutSeconds)
     while ($startedAt.Elapsed -lt $startupDeadline) {
@@ -144,7 +164,16 @@ try {
         throw "Oxide завершился с кодом $($process.ExitCode)."
     }
 
-    if ($null -ne $resolvedMediaPath) {
+    $standardError = $standardErrorTask.GetAwaiter().GetResult()
+    if ($null -ne $expectedFaultMarker -and
+        -not $standardError.Contains($expectedFaultMarker, [StringComparison]::Ordinal)) {
+        throw "Диагностический сценарий $Fault не сработал. Проверьте, что сборка создана с --features benchmark-tools."
+    }
+
+    if ($null -ne $expectedFaultMarker) {
+        Write-Host "Диагностический сценарий $Fault пройден: окно осталось отзывчивым и штатно закрылось."
+    }
+    elseif ($null -ne $resolvedMediaPath) {
         Write-Host 'Smoke-тест медиа пройден: окно оставалось отзывчивым и штатно закрылось.'
     }
     else {

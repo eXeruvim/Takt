@@ -25,10 +25,37 @@ const DIAGNOSTICS_ENV: &str = "OXIDE_BENCHMARK_DIAGNOSTICS_PATH";
 const MEASUREMENT_GATE_ENV: &str = "OXIDE_BENCHMARK_RENDER_GATE";
 const UI_LATENCY_ENV: &str = "OXIDE_UI_LATENCY_DIAGNOSTICS";
 const UI_CYCLE_COUNT_ENV: &str = "OXIDE_BENCHMARK_UI_CYCLES";
+const FAULT_ENV: &str = "OXIDE_BENCHMARK_FAULT";
 const MAX_TIMING_SAMPLES: usize = 300_000;
 const MAX_UI_CYCLES: u64 = 10_000;
 
 static COMPLETED_UI_CYCLES: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "benchmark-tools")]
+fn fault_matches(value: Option<&std::ffi::OsStr>, expected: &str) -> bool {
+    value.is_some_and(|value| value == std::ffi::OsStr::new(expected))
+}
+
+/// Returns whether a profiling-only failure scenario was explicitly requested.
+///
+/// The production binary compiles this to an unconditional `false`, so setting
+/// the environment variable cannot alter normal playback behavior.
+pub fn fault_requested(expected: &str) -> bool {
+    #[cfg(feature = "benchmark-tools")]
+    {
+        static FAULT: OnceLock<Option<std::ffi::OsString>> = OnceLock::new();
+        fault_matches(
+            FAULT.get_or_init(|| std::env::var_os(FAULT_ENV)).as_deref(),
+            expected,
+        )
+    }
+
+    #[cfg(not(feature = "benchmark-tools"))]
+    {
+        let _ = (FAULT_ENV, expected);
+        false
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RenderSurface {
@@ -702,5 +729,13 @@ mod tests {
         assert_eq!(parse_ui_cycle_count(Some("0".into())), None);
         assert_eq!(parse_ui_cycle_count(Some("10001".into())), None);
         assert_eq!(parse_ui_cycle_count(Some("not-a-number".into())), None);
+    }
+
+    #[cfg(feature = "benchmark-tools")]
+    #[test]
+    fn profiling_fault_requires_an_exact_scenario_name() {
+        assert!(fault_matches(Some("mpv-init".as_ref()), "mpv-init"));
+        assert!(!fault_matches(Some("renderer-init".as_ref()), "mpv-init"));
+        assert!(!fault_matches(None, "mpv-init"));
     }
 }

@@ -41,6 +41,10 @@ pub(super) fn playback_failure_message(error: i32) -> String {
 }
 
 pub(super) fn create() -> anyhow::Result<Arc<Mpv>> {
+    if crate::benchmark_diagnostics::fault_requested("mpv-init") {
+        anyhow::bail!("OXIDE_DIAGNOSTIC_FAULT:mpv-init");
+    }
+
     Mpv::with_initializer(|initializer| {
         configure_seek_osd(&initializer)?;
         // Oxide renders embedded artwork inside its own audio scene. Prevent mpv

@@ -218,7 +218,14 @@ impl VideoOutputController {
                                 .and_then(|source| source.clone());
 
                             if let Some(source) = source {
-                                let renderer = match graphics_api {
+                                let renderer = if crate::benchmark_diagnostics::fault_requested(
+                                    "renderer-init",
+                                ) {
+                                    Err(anyhow::anyhow!(
+                                        "OXIDE_DIAGNOSTIC_FAULT:renderer-init"
+                                    ))
+                                } else {
+                                    match graphics_api {
                                     slint::GraphicsAPI::NativeOpenGL { get_proc_address } => {
                                         let wake_app = app.as_weak();
                                         let native_redraw_hwnd = native_window_handle(app.window())
@@ -258,6 +265,7 @@ impl VideoOutputController {
                                     _ => Err(anyhow::anyhow!(
                                         "FemtoVG did not expose a native OpenGL context"
                                     )),
+                                    }
                                 };
 
                                 match renderer {
