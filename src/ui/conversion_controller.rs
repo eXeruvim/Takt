@@ -76,7 +76,6 @@ pub(super) fn register_callbacks(
                 app.set_info_drawer_visible(false);
                 app.set_playlist_drawer_visible(false);
                 app.set_settings_drawer_visible(false);
-                app.set_inspector_reserved(false);
                 app.set_inspector_audio_reserved(false);
                 app.set_inspector_side_switching(false);
                 app.set_converter_visible(true);

@@ -153,11 +153,7 @@ pub fn run(
         });
     }
 
-    super::drawer_controller::register_callbacks(
-        &app,
-        #[cfg(target_os = "windows")]
-        video_output.clone(),
-    );
+    super::drawer_controller::register_callbacks(&app);
 
     super::conversion_controller::register_callbacks(
         &app,
@@ -167,8 +163,7 @@ pub fn run(
     );
 
     #[cfg(target_os = "windows")]
-    let native_init_error_rx =
-        video_output.register_rendering(&app, tx.clone(), window_modes.clone())?;
+    let native_init_error_rx = video_output.register_rendering(&app, tx.clone())?;
 
     #[cfg(target_os = "windows")]
     let render_source_bridge = video_output_events.spawn_source_bridge(&app, render_source_rx)?;

@@ -132,7 +132,6 @@ pub enum Command {
     ToggleMute,
 
     RenderApiReady,
-    SetVideoWindow(usize),
 
     RequestMediaInfo,
     ResolveResume(bool),

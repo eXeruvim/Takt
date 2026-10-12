@@ -119,16 +119,10 @@ fn output_startup_never_moves_commands_into_an_unbounded_pending_queue() {
         tx.send(Command::OpenFile("extra.mp4".into())),
         Err(SendError::Full)
     );
-    // Reserved signals bypass the blocked front and a full mailbox.
-    tx.send(Command::SetVideoWindow(42)).unwrap();
-    tx.send(Command::SetVideoWindow(43)).unwrap();
+    // The renderer-ready signal bypasses the blocked front and a full mailbox.
     tx.send(Command::RenderApiReady).unwrap();
     tx.send(Command::RenderApiReady).unwrap();
     assert!(matches!(rx.try_recv(false), Some(Command::RenderApiReady)));
-    assert!(matches!(
-        rx.try_recv(false),
-        Some(Command::SetVideoWindow(43))
-    ));
     assert!(
         matches!(rx.try_recv(true), Some(Command::OpenFile(path)) if path == std::path::Path::new("first.mp4"))
     );
@@ -154,10 +148,8 @@ fn quit_bypasses_capacity_mutex_and_reserved_controls() {
 fn dropping_receiver_releases_pending_paths_and_reports_disconnect() {
     let (tx, rx, errors) = channel();
     tx.send(Command::OpenFile("pending.mp4".into())).unwrap();
-    tx.send(Command::SetVideoWindow(42)).unwrap();
     drop(rx);
     assert!(tx.shared.queue.lock().unwrap().commands.is_empty());
-    assert!(tx.shared.queue.lock().unwrap().video_window.is_none());
     assert_eq!(tx.send(Command::TogglePlay), Err(SendError::Disconnected));
     assert_eq!(errors.try_recv(), Ok(SendError::Disconnected));
 }

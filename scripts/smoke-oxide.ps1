@@ -109,7 +109,7 @@ try {
     [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_HWDEC')
     [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_FAULT')
     $expectedFaultMarker = $null
-    $expectedShutdownMarker = $null
+    $expectedAdditionalMarker = $null
     if ($Fault -eq 'MpvInit') {
         $startInfo.Environment['OXIDE_BENCHMARK_FAULT'] = 'mpv-init'
         $expectedFaultMarker = 'OXIDE_DIAGNOSTIC_FAULT:mpv-init'
@@ -117,11 +117,12 @@ try {
     elseif ($Fault -eq 'RendererInit') {
         $startInfo.Environment['OXIDE_BENCHMARK_FAULT'] = 'renderer-init'
         $expectedFaultMarker = 'OXIDE_DIAGNOSTIC_FAULT:renderer-init'
+        $expectedAdditionalMarker = 'OXIDE_DIAGNOSTIC_STATE:renderer-error'
     }
     elseif ($Fault -eq 'DialogOpen') {
         $startInfo.Environment['OXIDE_BENCHMARK_FAULT'] = 'dialog-open'
         $expectedFaultMarker = 'OXIDE_DIAGNOSTIC_FAULT:dialog-open'
-        $expectedShutdownMarker = 'OXIDE_DIAGNOSTIC_FAULT:dialog-shutdown'
+        $expectedAdditionalMarker = 'OXIDE_DIAGNOSTIC_FAULT:dialog-shutdown'
     }
     if ($null -ne $resolvedMediaPath) {
         [void]$startInfo.ArgumentList.Add($resolvedMediaPath)
@@ -183,9 +184,9 @@ try {
         -not $standardError.Contains($expectedFaultMarker, [StringComparison]::Ordinal)) {
         throw "Диагностический сценарий $Fault не сработал. Проверьте, что сборка создана с --features benchmark-tools."
     }
-    if ($null -ne $expectedShutdownMarker -and
-        -not $standardError.Contains($expectedShutdownMarker, [StringComparison]::Ordinal)) {
-        throw "Диагностический сценарий $Fault завершился до штатного выхода UI event loop."
+    if ($null -ne $expectedAdditionalMarker -and
+        -not $standardError.Contains($expectedAdditionalMarker, [StringComparison]::Ordinal)) {
+        throw "Диагностический сценарий $Fault не достиг ожидаемого состояния интерфейса."
     }
 
     if ($null -ne $expectedFaultMarker) {

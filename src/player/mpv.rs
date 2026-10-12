@@ -636,14 +636,6 @@ fn handle_command(
             }
             let _ = tx.send(Event::ShuffleEnabled(options.shuffled));
         }
-        Command::SetVideoWindow(handle) => {
-            mpv_error(mpv.set_property("wid", handle.to_string()))
-                .context("Не удалось привязать mpv к окну видео")?;
-            mpv_error(mpv.set_property("vo", "gpu".to_owned()))
-                .context("Не удалось выбрать видеовывод mpv")?;
-            mpv_error(mpv.set_property("vid", "auto".to_owned()))
-                .context("Не удалось включить видеодорожку")?;
-        }
         Command::SeekRelative(offset) => {
             if options.media_available {
                 mpv_error(mpv.command("seek", &[&offset.to_string(), "relative"]))?;

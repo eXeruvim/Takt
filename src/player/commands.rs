@@ -38,7 +38,6 @@ impl SendError {
 struct Queue {
     commands: VecDeque<Command>,
     render_ready: bool,
-    video_window: Option<usize>,
 }
 
 struct Shared {
@@ -122,7 +121,6 @@ impl CommandSender {
             }
             match command {
                 Command::RenderApiReady => queue.render_ready = true,
-                Command::SetVideoWindow(handle) => queue.video_window = Some(handle),
                 command => {
                     if queue
                         .commands
@@ -181,9 +179,6 @@ impl CommandReceiver {
             queue.render_ready = false;
             return Some(Command::RenderApiReady);
         }
-        if let Some(handle) = queue.video_window.take() {
-            return Some(Command::SetVideoWindow(handle));
-        }
         // Leave media commands in this same bounded queue until output is ready.
         // Commands behind them must not jump across a file boundary either.
         if !output_ready && queue.commands.front().is_some_and(requires_output) {
@@ -207,7 +202,6 @@ impl Drop for CommandReceiver {
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         queue.commands.clear();
-        queue.video_window = None;
         queue.render_ready = false;
     }
 }

@@ -2,14 +2,11 @@
 #![deny(clippy::undocumented_unsafe_blocks)]
 
 use std::{
-    cell::RefCell,
     io,
-    rc::Rc,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
 };
 
 use anyhow::Result;
@@ -23,10 +20,7 @@ use windows_sys::Win32::{
 use crate::{
     ipc::Command,
     player::commands::CommandSender,
-    render::{
-        mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource},
-        mpv_render::VideoHost,
-    },
+    render::mpv_opengl::{MpvOpenGlRenderer, MpvRenderSource},
 };
 
 use super::{
@@ -34,7 +28,6 @@ use super::{
     native_frame,
     ui_logic::AppWindow,
     window_interaction::native_window_handle,
-    window_modes::WindowModeController,
 };
 
 #[derive(Clone)]
@@ -92,19 +85,15 @@ impl VideoOutputEventHandle {
 
 #[derive(Clone)]
 pub(super) struct VideoOutputController {
-    video_host: Rc<RefCell<Option<VideoHost>>>,
     render_source: Arc<Mutex<Option<MpvRenderSource>>>,
     renderer_requested: Arc<AtomicBool>,
-    fallback_event_timer: Rc<slint::Timer>,
 }
 
 impl Default for VideoOutputController {
     fn default() -> Self {
         Self {
-            video_host: Rc::new(RefCell::new(None)),
             render_source: Arc::new(Mutex::new(None)),
             renderer_requested: Arc::new(AtomicBool::new(false)),
-            fallback_event_timer: Rc::new(slint::Timer::default()),
         }
     }
 }
@@ -117,59 +106,16 @@ impl VideoOutputController {
         }
     }
 
-    pub(super) fn sync_fallback(&self, app: &AppWindow) {
-        if let Ok(mut video_host) = self.video_host.try_borrow_mut()
-            && let Some(host) = video_host.as_mut()
-        {
-            let _ = sync_video_host(host, app);
-        }
-    }
-
     pub(super) fn register_rendering(
         &self,
         app: &AppWindow,
         player_tx: CommandSender,
-        window_modes: WindowModeController,
     ) -> Result<Receiver<anyhow::Error>> {
         let (native_init_error_tx, native_init_error_rx) = crossbeam_channel::bounded(1);
 
-        // The child HWND is only used when integrated OpenGL rendering is
-        // unavailable. Keep its polling bridge dormant on the normal path so
-        // an idle window does not wake every 50 ms.
-        let timer_app = app.as_weak();
-        self.fallback_event_timer.start(
-            slint::TimerMode::Repeated,
-            Duration::from_millis(50),
-            move || {
-                let Some(app) = timer_app.upgrade() else {
-                    return;
-                };
-                if VideoHost::take_fullscreen_request() {
-                    window_modes.toggle_fullscreen(&app);
-                }
-                if VideoHost::take_pointer_activity() {
-                    app.invoke_reveal_controls();
-                }
-                if VideoHost::take_primary_click() {
-                    if app.get_info_drawer_visible() {
-                        app.invoke_toggle_info();
-                    }
-                    if app.get_playlist_drawer_visible() {
-                        app.invoke_toggle_playlist();
-                    }
-                    if app.get_settings_drawer_visible() {
-                        app.invoke_toggle_settings();
-                    }
-                }
-            },
-        );
-        self.fallback_event_timer.stop();
-
         let app_weak = app.as_weak();
-        let notifier_video_host = Rc::clone(&self.video_host);
         let notifier_render_source = Arc::clone(&self.render_source);
         let notifier_renderer_requested = Arc::clone(&self.renderer_requested);
-        let notifier_video_timer = Rc::clone(&self.fallback_event_timer);
         let mut gl_renderer = None::<MpvOpenGlRenderer>;
         let mut render_api_failed = false;
 
@@ -201,14 +147,9 @@ impl VideoOutputController {
                     };
                     crate::benchmark_diagnostics::begin_scene_frame(surface);
                 }
-                let Ok(mut video_host) = notifier_video_host.try_borrow_mut() else {
-                    return;
-                };
-
                 match state {
                     slint::RenderingState::BeforeRendering => {
                         if gl_renderer.is_none()
-                            && video_host.is_none()
                             && !render_api_failed
                             && notifier_renderer_requested.load(Ordering::Acquire)
                         {
@@ -272,27 +213,24 @@ impl VideoOutputController {
                                     Ok(renderer) => {
                                         notifier_renderer_requested
                                             .store(false, Ordering::Release);
-                                        notifier_video_timer.stop();
                                         gl_renderer = Some(renderer);
                                         app.set_integrated_video_renderer(true);
                                         let _ = player_tx.send(Command::RenderApiReady);
                                     }
                                     Err(error) => {
                                         eprintln!(
-                                            "OpenGL video renderer unavailable, using HWND fallback: {error:#}"
+                                            "OpenGL video renderer unavailable; video remains disabled: {error:#}"
                                         );
                                         render_api_failed = true;
                                         notifier_renderer_requested
                                             .store(false, Ordering::Release);
-                                        if let Err(error) = activate_hwnd_video_fallback(
-                                            &mut video_host,
-                                            &app,
-                                            &player_tx,
-                                        ) {
-                                            show_error(&app, error);
-                                        } else {
-                                            notifier_video_timer.restart();
-                                        }
+                                        app.set_integrated_video_renderer(false);
+                                        app.set_error_message(
+                                            "Не удалось запустить безопасный вывод видео. Обновите драйвер видеокарты или отключите аппаратное декодирование в настройках."
+                                                .into(),
+                                        );
+                                        app.set_error_visible(true);
+                                        eprintln!("OXIDE_DIAGNOSTIC_STATE:renderer-error");
                                     }
                                 }
                             }
@@ -330,16 +268,10 @@ impl VideoOutputController {
                             // SAFETY: AfterRendering still has the original
                             // window OpenGL context current.
                             unsafe { renderer.report_swap() };
-                        } else if let Some(host) = video_host.as_mut()
-                            && let Err(error) = sync_video_host(host, &app)
-                        {
-                            show_error(&app, error);
                         }
                     }
                     slint::RenderingState::RenderingTeardown => {
-                        notifier_video_timer.stop();
                         gl_renderer = None;
-                        *video_host = None;
                     }
                     _ => {}
                 }
@@ -348,41 +280,6 @@ impl VideoOutputController {
 
         Ok(native_init_error_rx)
     }
-}
-
-fn sync_video_host(host: &mut VideoHost, app: &AppWindow) -> Result<()> {
-    let size = app.window().size();
-    sync_video_host_at_size(
-        host,
-        app,
-        (size.width, size.height),
-        app.window().scale_factor(),
-    )
-}
-
-fn sync_video_host_at_size(
-    host: &mut VideoHost,
-    app: &AppWindow,
-    physical_size: (u32, u32),
-    scale: f32,
-) -> Result<()> {
-    let video_visible =
-        video_surface_should_render(app.get_media_presented(), app.get_audio_media())
-            && !app.get_modal_overlay_active()
-            && !app.get_error_visible()
-            && !app.get_drop_target_visible();
-    host.set_visible(video_visible);
-
-    host.resize(
-        physical_size,
-        scale,
-        (
-            app.get_video_left_panel_inset(),
-            app.get_video_right_panel_inset(),
-            app.get_video_top_inset(),
-            app.get_video_bottom_inset(),
-        ),
-    )
 }
 
 fn video_surface_should_render(media_presented: bool, audio_media: bool) -> bool {
@@ -400,24 +297,6 @@ fn request_native_redraw(target: usize) {
             RDW_INTERNALPAINT,
         );
     }
-}
-
-fn activate_hwnd_video_fallback(
-    slot: &mut Option<VideoHost>,
-    app: &AppWindow,
-    player_tx: &CommandSender,
-) -> Result<()> {
-    let mut host = VideoHost::create(app.window())?;
-    sync_video_host(&mut host, app)?;
-    let _ = player_tx.send(Command::SetVideoWindow(host.handle()));
-    *slot = Some(host);
-    app.set_integrated_video_renderer(false);
-    Ok(())
-}
-
-fn show_error(app: &AppWindow, error: anyhow::Error) {
-    app.set_error_message(error.to_string().into());
-    app.set_error_visible(true);
 }
 
 #[cfg(test)]

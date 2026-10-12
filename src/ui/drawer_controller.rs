@@ -8,10 +8,6 @@ use crate::benchmark_diagnostics::{self, UiSurface};
 
 use super::ui_logic::AppWindow;
 
-#[cfg(target_os = "windows")]
-use super::video_output::VideoOutputController;
-
-const CLOSE_TRANSITION_DURATION: Duration = Duration::from_millis(360);
 const SIDE_SWITCH_DURATION: Duration = Duration::from_millis(220);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -30,18 +26,11 @@ struct TransitionState {
 #[derive(Clone)]
 struct DrawerController {
     state: Rc<TransitionState>,
-    #[cfg(target_os = "windows")]
-    video_output: VideoOutputController,
 }
 
-pub(super) fn register_callbacks(
-    app: &AppWindow,
-    #[cfg(target_os = "windows")] video_output: VideoOutputController,
-) {
+pub(super) fn register_callbacks(app: &AppWindow) {
     let controller = DrawerController {
         state: Rc::new(TransitionState::default()),
-        #[cfg(target_os = "windows")]
-        video_output,
     };
 
     {
@@ -79,9 +68,8 @@ impl DrawerController {
     fn toggle(&self, app: &AppWindow, drawer: Drawer) {
         if is_open(app, drawer) {
             app.set_inspector_side_switching(false);
-            let generation = self.begin_transition(None);
+            self.begin_transition(None);
             begin_close(app);
-            self.release_media_after_close(app, generation);
             return;
         }
 
@@ -131,7 +119,6 @@ impl DrawerController {
                     controller.finish_side_switch(&app, generation);
                 } else {
                     app.set_inspector_side_switching(false);
-                    controller.release_media(&app);
                 }
             }
         });
@@ -158,36 +145,10 @@ impl DrawerController {
         });
         app.set_inspector_left_aligned(!matches!(drawer, Drawer::Settings));
         app.set_inspector_audio_reserved(true);
-        #[cfg(target_os = "windows")]
-        app.set_inspector_reserved(true);
         app.set_info_drawer_visible(matches!(drawer, Drawer::Info));
         app.set_playlist_drawer_visible(matches!(drawer, Drawer::Playlist));
         app.set_settings_drawer_visible(matches!(drawer, Drawer::Settings));
-        #[cfg(target_os = "windows")]
-        self.video_output.sync_fallback(app);
     }
-
-    fn release_media_after_close(&self, app: &AppWindow, generation: u64) {
-        let delayed_app = app.as_weak();
-        let controller = self.clone();
-        slint::Timer::single_shot(CLOSE_TRANSITION_DURATION, move || {
-            if controller.state.generation.get() == generation
-                && controller.state.pending.get().is_none()
-                && let Some(app) = delayed_app.upgrade()
-                && !app.get_inspector_visible()
-            {
-                controller.release_media(&app);
-            }
-        });
-    }
-
-    #[cfg(target_os = "windows")]
-    fn release_media(&self, app: &AppWindow) {
-        app.set_inspector_reserved(false);
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn release_media(&self, _app: &AppWindow) {}
 }
 
 fn is_open(app: &AppWindow, drawer: Drawer) -> bool {
