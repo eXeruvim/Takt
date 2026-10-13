@@ -26,20 +26,24 @@ Important direct components include:
 | --- | --- | --- |
 | Slint 1.17.1 | GPL-3.0-only | <https://slint.dev/> |
 | vendored `libmpv-rs` wrapper 2.0.1 | LGPL-2.1 | <https://github.com/ParadoxSpiral/libmpv-rs> |
-| libmpv / mpv | Depends on the exact native build; normally GPL-2.0-or-later, or LGPL-2.1-or-later only when built with the documented LGPL configuration | <https://mpv.io/> |
-| FFmpeg | LGPL-2.1-or-later by default; GPL applies when GPL parts are enabled, and `nonfree` builds are not redistributable | <https://ffmpeg.org/> |
+| libmpv / mpv | Selected upstream build uses the LGPL route with `-Dgpl=false`; combined release runtime is treated as LGPL-3.0-or-later | <https://mpv.io/> |
+| FFmpeg inside libmpv | Upstream LGPL variant; statically linked for playback, with GPL features disabled | <https://ffmpeg.org/> |
 
-The SBOM is authoritative for the complete Rust graph. Individual crates retain
-their own copyrights and license terms.
+The SBOM is authoritative for the complete Rust graph. The separate
+`sbom/native-runtime.cdx.json` records the exact mpv, FFmpeg and libass versions
+reported by the selected DLL and points to their source commits; its coverage
+property explicitly notes the remaining static upstream build dependencies.
+Individual components retain their own copyrights and license terms.
 
 ## Native runtime gate
 
-The `mpv-2.dll` and import library currently used for local development have a
-known hash but an unproven source/build configuration. They are **not approved
-for public redistribution**. A release must use a native manifest marked
-`release_eligible`, with exact upstream source commits, build commands and flags,
-license files, checksums and corresponding-source location. The compliance
-script rejects a package while any of those facts are absent.
+The release runtime is the unmodified x86-64 LGPL libmpv artifact from upstream
+mpv GitHub Actions run `38326895870`, source commit
+`c3ac7f39514c7f45bc38a18e66887240539ee33c`. Its archive, DLL and import library
+hashes are fixed in `release/native-runtime.json`; the upstream license is copied
+into every compliance bundle. `scripts/fetch-native-runtime.ps1` fails closed on
+any missing member, size change or hash mismatch. Local development DLLs with a
+different hash are **not approved for redistribution**.
 
 FFmpeg is optional for playback and is currently supplied by the user for the
 converter. Oxide must not download or bundle an FFmpeg build until the same

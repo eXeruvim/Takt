@@ -10,29 +10,29 @@
     },
     "component": {
       "type": "application",
-      "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.100",
+      "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.101",
       "name": "oxide",
-      "version": "0.9.0-alpha.100",
+      "version": "0.9.0-alpha.101",
       "description": "Windows-first local video and audio player built with Rust, Slint, and libmpv",
       "scope": "required",
       "licenses": {
         "expression": "GPL-3.0-or-later"
       },
-      "purl": "pkg:cargo/oxide@0.9.0-alpha.100",
+      "purl": "pkg:cargo/oxide@0.9.0-alpha.101",
       "components": [
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.100#bin-target-0",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.101#bin-target-0",
           "name": "oxide",
-          "version": "0.9.0-alpha.100",
-          "purl": "pkg:cargo/oxide@0.9.0-alpha.100#src/main.rs"
+          "version": "0.9.0-alpha.101",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.101#src/main.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.100#bin-target-1",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.101#bin-target-1",
           "name": "oxide-playlist-bench",
-          "version": "0.9.0-alpha.100",
-          "purl": "pkg:cargo/oxide@0.9.0-alpha.100#src/playlist_bench.rs"
+          "version": "0.9.0-alpha.101",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.101#src/playlist_bench.rs"
         }
       ]
     },
@@ -9103,7 +9103,7 @@
   ],
   "dependencies": [
     {
-      "ref": "pkg:cargo/oxide@0.9.0-alpha.100",
+      "ref": "pkg:cargo/oxide@0.9.0-alpha.101",
       "dependsOn": [
         "registry+https://github.com/rust-lang/crates.io-index#anyhow@1.0.104",
         "registry+https://github.com/rust-lang/crates.io-index#crossbeam-channel@0.5.16",

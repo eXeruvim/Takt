@@ -2,6 +2,7 @@
 param(
     [string]$OutputDirectory = "artifacts/compliance",
     [string]$NativeManifest = "release/native-runtime.json",
+    [string]$NativeRuntimeDirectory = "artifacts/native-runtime",
     [switch]$RequireReleaseRuntime
 )
 
@@ -119,9 +120,11 @@ try {
         throw 'SBOM содержит локальный абсолютный путь.'
     }
 
-    foreach ($name in @('LICENSE', 'THIRD_PARTY_NOTICES.md', 'dependency review')) {
+    foreach ($name in @('LICENSE', 'THIRD_PARTY_NOTICES.md', 'dependency review', 'CODEC_MATRIX.md')) {
         Copy-Item -LiteralPath (Join-Path $repository $name) -Destination (Join-Path $output $name) -Force
     }
+    Copy-Item -LiteralPath (Join-Path $repository 'sbom/native-runtime.cdx.json') -Destination (Join-Path $output 'native-runtime.cdx.json') -Force
+    Copy-Item -LiteralPath (Join-Path $repository 'release/native-runtime-build.md') -Destination (Join-Path $output 'native-runtime-build.md') -Force
 
     $nativeManifestPath = [System.IO.Path]::GetFullPath((Join-Path $repository $NativeManifest))
     if (Test-Path -LiteralPath $nativeManifestPath -PathType Leaf) {
@@ -129,21 +132,61 @@ try {
         if ($RequireReleaseRuntime -and $native.release_eligible -ne $true) {
             throw 'Native runtime не помечен как release_eligible.'
         }
+        foreach ($field in @('url', 'sha256', 'size', 'github_asset_id', 'github_actions_run_id')) {
+            if ($RequireReleaseRuntime -and [string]::IsNullOrWhiteSpace([string]$native.upstream_asset.$field)) {
+                throw "Native manifest: не заполнено upstream_asset.$field."
+            }
+        }
+        foreach ($field in @('mpv', 'ffmpeg', 'libass')) {
+            if ($RequireReleaseRuntime -and [string]::IsNullOrWhiteSpace([string]$native.runtime_versions.$field)) {
+                throw "Native manifest: не заполнено runtime_versions.$field."
+            }
+        }
+        foreach ($source in @($native.embedded_sources)) {
+            foreach ($field in @('name', 'version', 'license_expression', 'source_commit', 'source_archive_url', 'source_archive_sha256')) {
+                if ($RequireReleaseRuntime -and [string]::IsNullOrWhiteSpace([string]$source.$field)) {
+                    throw "Native manifest: для embedded source $($source.name) не заполнено поле $field."
+                }
+            }
+        }
         foreach ($component in @($native.components)) {
-            foreach ($field in @('name', 'binary', 'sha256', 'version', 'license_expression', 'source_commit', 'source_archive_sha256', 'build_commands_file', 'corresponding_source_url')) {
+            foreach ($field in @('name', 'binary', 'sha256', 'version', 'license_expression', 'source_repository', 'source_commit', 'source_archive_url', 'source_archive_sha256', 'build_workflow_url', 'build_commands_file', 'corresponding_source_url')) {
                 $value = [string]$component.$field
                 if ($RequireReleaseRuntime -and ([string]::IsNullOrWhiteSpace($value) -or $value -eq 'REQUIRED' -or $value -like 'REQUIRED_*')) {
                     throw "Native manifest: для $($component.name) не заполнено поле $field."
                 }
             }
             if ($RequireReleaseRuntime) {
-                $binaryPath = Join-Path $repository ([string]$component.binary)
+                if (@($component.license_files).Count -eq 0) {
+                    throw "Native manifest: для $($component.name) не указаны license_files."
+                }
+                foreach ($urlField in @('source_repository', 'source_archive_url', 'build_workflow_url', 'corresponding_source_url')) {
+                    $uri = $null
+                    if (-not [Uri]::TryCreate([string]$component.$urlField, [UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -ne 'https') {
+                        throw "Native manifest: поле $urlField должно быть абсолютным HTTPS URL."
+                    }
+                }
+                $commandsPath = Join-Path $repository ([string]$component.build_commands_file)
+                if (-not (Test-Path -LiteralPath $commandsPath -PathType Leaf)) {
+                    throw "Не найдено описание native-сборки: $commandsPath"
+                }
+                $runtimeDirectory = [System.IO.Path]::GetFullPath((Join-Path $repository $NativeRuntimeDirectory))
+                $binaryPath = Join-Path $runtimeDirectory ([string]$component.binary)
                 if (-not (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {
                     throw "Native runtime отсутствует: $binaryPath"
                 }
                 $actualHash = (Get-FileHash -LiteralPath $binaryPath -Algorithm SHA256).Hash
                 if ($actualHash -ne ([string]$component.sha256).ToUpperInvariant()) {
                     throw "SHA-256 не совпадает для $($component.binary)."
+                }
+                foreach ($licenseFile in @($component.license_files)) {
+                    $licensePath = Join-Path $runtimeDirectory ([string]$licenseFile)
+                    if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
+                        throw "Native license отсутствует: $licensePath"
+                    }
+                    $nativeLicenseOutput = Join-Path $output 'native-licenses'
+                    New-Item -ItemType Directory -Path $nativeLicenseOutput -Force | Out-Null
+                    Copy-Item -LiteralPath $licensePath -Destination (Join-Path $nativeLicenseOutput ([string]$licenseFile)) -Force
                 }
             }
         }
@@ -153,10 +196,11 @@ try {
         throw "Не найден release native manifest: $nativeManifestPath"
     }
 
-    $hashFiles = Get-ChildItem -LiteralPath $output -File | Where-Object Name -ne 'SHA256SUMS.txt' | Sort-Object Name
+    $hashFiles = Get-ChildItem -LiteralPath $output -File -Recurse | Where-Object Name -ne 'SHA256SUMS.txt' | Sort-Object FullName
     $hashLines = foreach ($file in $hashFiles) {
         $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-        "$hash  $($file.Name)"
+        $relative = [System.IO.Path]::GetRelativePath($output, $file.FullName).Replace('\', '/')
+        "$hash  $relative"
     }
     $hashLines | Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') -Encoding ascii
 

@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "release_eligible": true,
+  "decision": "Oxide 1.0 uses mpv's upstream LGPL libmpv build. The GPL build was rejected because it is 8,136,038 bytes larger when compressed and Oxide does not require its GPL-only DVD or audio-filter features.",
+  "upstream_asset": {
+    "url": "https://github.com/mpv-player/mpv/releases/download/git-release/libmpv-v0.41.0-dev-gc3ac7f395-38326895870-x86_64-w64-mingw32-lgpl.zip",
+    "sha256": "9FFBED7A8AA013DA07A925DFBB046116683796AF76A9B635E4E7B3328D44F9D5",
+    "size": 56765949,
+    "github_asset_id": 635429643,
+    "github_actions_run_id": 38326895870
+  },
+  "runtime_versions": {
+    "mpv": "mpv v0.41.0-dev-gc3ac7f395",
+    "ffmpeg": "git-2026-10-12-0eeb79f",
+    "libass": "24137728"
+  },
+  "embedded_sources": [
+    {
+      "name": "FFmpeg",
+      "version": "git-2026-10-12-0eeb79f",
+      "license_expression": "LGPL-3.0-or-later",
+      "source_commit": "0eeb79fcc5b2761e8fdd3d0cfc5e5ba0e786645a",
+      "source_archive_url": "https://github.com/FFmpeg/FFmpeg/archive/0eeb79fcc5b2761e8fdd3d0cfc5e5ba0e786645a.tar.gz",
+      "source_archive_sha256": "9B40672E331188AF8393F87BD8ED987D3E9D4BB9C71DEB2706318B838D5159A3"
+    },
+    {
+      "name": "libass",
+      "version": "0.17.5",
+      "license_expression": "ISC",
+      "source_commit": "4a05d8127f525943ebf45fdc6497c9e665947f0d",
+      "source_archive_url": "https://github.com/libass/libass/archive/4a05d8127f525943ebf45fdc6497c9e665947f0d.tar.gz",
+      "source_archive_sha256": "3546ECC8748C62E100A9DD18E52EA2D17D7FACEDF89CFCAD97000AD60B1BCE2B"
+    }
+  ],
+  "components": [
+    {
+      "name": "libmpv",
+      "binary": "libmpv-2.dll",
+      "archive_member": "libmpv-2.dll",
+      "sha256": "FF1AAFF2CA9D5A56242DCEF28B20E3221B47F5FA38B25FBF6F3A8195E87157C1",
+      "size": 127147520,
+      "import_library": "mpv.lib",
+      "import_library_archive_member": "libmpv.dll.a",
+      "import_library_sha256": "1C4A6C8E06BD5167A7E234883BC68CABA5C4CB9A4CE84DFBCBE741BEAE73A1E5",
+      "version": "v0.41.0-dev-gc3ac7f395",
+      "license_expression": "LGPL-3.0-or-later",
+      "source_repository": "https://github.com/mpv-player/mpv",
+      "source_commit": "c3ac7f39514c7f45bc38a18e66887240539ee33c",
+      "source_archive_url": "https://github.com/mpv-player/mpv/archive/c3ac7f39514c7f45bc38a18e66887240539ee33c.tar.gz",
+      "source_archive_sha256": "7D8FA8CFCD3E4AB6C567D1EB66D739CB1539CF441E2746D7BB7DC560CC19CF26",
+      "build_workflow_url": "https://github.com/mpv-player/mpv/actions/runs/38326895870",
+      "build_commands_file": "release/native-runtime-build.md",
+      "license_files": [
+        "LICENSE.LGPL"
+      ],
+      "corresponding_source_url": "https://github.com/mpv-player/mpv/tree/c3ac7f39514c7f45bc38a18e66887240539ee33c"
+    }
+  ]
+}

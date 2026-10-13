@@ -5,8 +5,9 @@ Oxide — Windows-first медиаплеер для видео и аудио н�
 собственная дизайн-система, вдохновлённая принципами Raycast, без копирования его
 бренда и закрытых ассетов.
 
-> Проект находится в дорелизной подготовке. Основной плеер и интерфейс работают,
-> но воспроизводимая упаковка проверенного native runtime ещё не завершена.
+> Проект находится в дорелизной подготовке. Основной плеер и интерфейс работают;
+> проверенный native runtime уже воспроизводимо подготавливается, а установщик,
+> обновление и финальная приёмка ещё не завершены.
 
 ## Реализовано
 
@@ -30,13 +31,21 @@ Oxide — Windows-first медиаплеер для видео и аудио н�
 
 - Windows 10 или новее;
 - стабильный Rust toolchain;
-- совместимая библиотека libmpv (`mpv-2.dll` во время запуска);
+- совместимая библиотека libmpv (`libmpv-2.dll` во время запуска);
 - FFmpeg в `PATH`, рядом с `oxide.exe`, в подпапке `tools` или по пути из
   `OXIDE_FFMPEG` — только для конвертации;
 - рабочая C/C++ link-среда для выбранного Rust target.
 
-Поставка libmpv вместе с приложением пока не автоматизирована. Это обязательная
-задача перед первым публичным релизом.
+Закреплённый LGPL runtime для разработки и упаковки можно подготовить командой:
+
+```powershell
+./scripts/fetch-native-runtime.ps1
+```
+
+Скрипт проверяет SHA-256 архива и каждого используемого файла. Точные исходники,
+build run, лицензия и причины выбора записаны в
+`release/native-runtime.json`, `release/native-runtime-build.md` и
+`CODEC_MATRIX.md`.
 
 ## Сборка
 
@@ -64,6 +73,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-targets --all-features
 cargo test --locked -p libmpv --lib ownership_tests
 cargo run --locked --bin oxide -- --build-info
+cargo run --locked --bin oxide -- --native-info
 cargo audit
 cargo deny check licenses sources
 cargo cyclonedx --all-features --target x86_64-pc-windows-msvc `
@@ -71,14 +81,16 @@ cargo cyclonedx --all-features --target x86_64-pc-windows-msvc `
 ```
 
 `--build-info` проверяет загрузку настоящего executable и печатает сведения о
-сборке без запуска UI, плеера или конвертера. Эта проверка ловит отсутствующие
-DLL/экспорты, которые могут не использоваться в unit-тестах. На Windows/MSVC
+сборке без запуска UI, плеера или конвертера. `--native-info` отдельно создаёт
+headless-контекст libmpv и сообщает фактически загруженные версии mpv, FFmpeg и
+libass. Эти проверки ловят отсутствующие DLL/экспорты и подмену runtime, которые
+могут не проявиться в unit-тестах. На Windows/MSVC
 `build.rs` встраивает зависимость Common Controls v6 в манифест приложения.
 
 `cargo audit` запускается в CI на каждом изменении и по еженедельному расписанию.
 Разобранные RustSec-исключения и отпечатки локального native runtime описаны в
-[dependency review](dependency review); неизвестное происхождение DLL остаётся
-блокером публичной поставки, даже если её хеш совпадает.
+[dependency review](dependency review). Непроверенные локальные DLL больше не
+используются для CI или релизного пакета.
 
 Для `libmpv` используется локальное исправление закреплённого исходного кода
 в `vendor/libmpv`: освобождение контекста при ошибке initializer и строковых

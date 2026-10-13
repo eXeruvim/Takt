@@ -27,6 +27,7 @@ mod shutdown;
 enum StartupRequest {
     Run(Option<PathBuf>),
     BuildInfo,
+    NativeInfo,
 }
 
 fn parse_startup_request(
@@ -42,6 +43,12 @@ fn parse_startup_request(
             anyhow::bail!("Параметр --build-info нельзя сочетать с путём к медиафайлу");
         }
         return Ok(StartupRequest::BuildInfo);
+    }
+    if first == OsStr::new("--native-info") {
+        if args.next().is_some() {
+            anyhow::bail!("Параметр --native-info нельзя сочетать с путём к медиафайлу");
+        }
+        return Ok(StartupRequest::NativeInfo);
     }
 
     let path = if first == OsStr::new("--") {
@@ -74,10 +81,36 @@ fn print_build_info() {
     );
 }
 
+fn print_native_info() -> anyhow::Result<()> {
+    let mpv = libmpv::Mpv::with_initializer(|initializer| {
+        initializer.set_property("vo", "null")?;
+        initializer.set_property("ao", "null")
+    })
+    .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    let property = |name| {
+        mpv.get_property::<String>(name)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))
+    };
+    println!(
+        "{}",
+        serde_json::json!({
+            "schema": 1,
+            "mpv": property("mpv-version")?,
+            "ffmpeg": property("ffmpeg-version")?,
+            "libass": property("libass-version")?,
+        })
+    );
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let startup_path = match parse_startup_request(std::env::args_os().skip(1))? {
         StartupRequest::BuildInfo => {
             print_build_info();
+            return Ok(());
+        }
+        StartupRequest::NativeInfo => {
+            print_native_info()?;
             return Ok(());
         }
         StartupRequest::Run(path) => path,
@@ -190,6 +223,15 @@ mod tests {
             StartupRequest::BuildInfo
         );
         assert!(parse_startup_request(arguments(&["--build-info", "video.mp4"])).is_err());
+    }
+
+    #[test]
+    fn native_info_is_a_separate_mode() {
+        assert_eq!(
+            parse_startup_request(arguments(&["--native-info"])).unwrap(),
+            StartupRequest::NativeInfo
+        );
+        assert!(parse_startup_request(arguments(&["--native-info", "video.mp4"])).is_err());
     }
 
     #[test]

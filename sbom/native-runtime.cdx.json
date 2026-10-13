@@ -1,0 +1,99 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:ff1aaff2-ca9d-5a56-a42d-cef28b20e322",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "library",
+      "bom-ref": "pkg:generic/libmpv@0.41.0-dev-gc3ac7f395?download_url=https%3A%2F%2Fgithub.com%2Fmpv-player%2Fmpv%2Freleases%2Fdownload%2Fgit-release%2Flibmpv-v0.41.0-dev-gc3ac7f395-38326895870-x86_64-w64-mingw32-lgpl.zip",
+      "name": "libmpv",
+      "version": "0.41.0-dev-gc3ac7f395",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ff1aaff2ca9d5a56242dcef28b20e3221b47f5fa38b25fbf6f3a8195e87157c1"
+        }
+      ],
+      "properties": [
+        {
+          "name": "oxide:provenance",
+          "value": "mpv-player/mpv GitHub Actions run 38326895870, job 115067544505"
+        },
+        {
+          "name": "oxide:coverage",
+          "value": "Components whose exact runtime versions are exposed by libmpv. Additional static build dependencies are governed by the pinned upstream workflow and source tree."
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "application",
+      "bom-ref": "pkg:generic/mpv@0.41.0-dev-gc3ac7f395",
+      "name": "mpv",
+      "version": "0.41.0-dev-gc3ac7f395",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-3.0-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/mpv-player/mpv/tree/c3ac7f39514c7f45bc38a18e66887240539ee33c"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/ffmpeg@git-2026-10-12-0eeb79f",
+      "name": "FFmpeg",
+      "version": "git-2026-10-12-0eeb79f",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-3.0-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/FFmpeg/FFmpeg/tree/0eeb79fcc5b2761e8fdd3d0cfc5e5ba0e786645a"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/libass@0.17.5",
+      "name": "libass",
+      "version": "0.17.5",
+      "licenses": [
+        {
+          "license": {
+            "id": "ISC"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/libass/libass/tree/4a05d8127f525943ebf45fdc6497c9e665947f0d"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:generic/libmpv@0.41.0-dev-gc3ac7f395?download_url=https%3A%2F%2Fgithub.com%2Fmpv-player%2Fmpv%2Freleases%2Fdownload%2Fgit-release%2Flibmpv-v0.41.0-dev-gc3ac7f395-38326895870-x86_64-w64-mingw32-lgpl.zip",
+      "dependsOn": [
+        "pkg:generic/mpv@0.41.0-dev-gc3ac7f395",
+        "pkg:generic/ffmpeg@git-2026-10-12-0eeb79f",
+        "pkg:generic/libass@0.17.5"
+      ]
+    }
+  ]
+}
