@@ -94,3 +94,73 @@ jobs:
           cargo run --locked --bin oxide -- --build-info
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/verify-native-runtime.ps1
+
+  release-package:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
+        with:
+          toolchain: 1.94.1
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - name: Provision verified build tools
+        shell: pwsh
+        run: |
+          ./scripts/fetch-native-runtime.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/fetch-installer-tool.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tool = Get-Content release/installer-tool.json -Raw | ConvertFrom-Json
+          $installer = "artifacts/tooling/innosetup-$($tool.version)-x64.exe"
+          $toolDirectory = Join-Path $env:RUNNER_TEMP "InnoSetup-$($tool.version)"
+          $process = Start-Process -FilePath $installer -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$toolDirectory"
+          ) -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup install failed: $($process.ExitCode)" }
+          "ISCC_PATH=$(Join-Path $toolDirectory 'ISCC.exe')" >> $env:GITHUB_ENV
+      - name: Build and smoke-test release artifacts
+        shell: pwsh
+        run: |
+          ./scripts/build-installer.ps1 -Compiler $env:ISCC_PATH
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/test-installer.ps1
+      - name: Upload release candidate
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
+        with:
+          name: oxide-windows-release
+          path: artifacts/release
+          if-no-files-found: error
+      - name: Validate tag and publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $manifest = Get-Content Cargo.toml -Raw
+          if ($manifest -notmatch '(?m)^version\s*=\s*"([^"]+)"\s*$') {
+            throw 'Cannot read Cargo package version.'
+          }
+          $version = $Matches[1]
+          if ($env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match Cargo version v$version."
+          }
+          $assets = @(
+            "artifacts/release/Oxide-$version-setup-x86_64.exe",
+            "artifacts/release/Oxide-$version-windows-x86_64.zip",
+            "artifacts/release/Oxide-$version-sbom.cdx.json",
+            "artifacts/release/Oxide-$version-native-runtime.cdx.json",
+            "artifacts/release/Oxide-$version-THIRD-PARTY-NOTICES.md",
+            "artifacts/release/Oxide-$version-CODEC-MATRIX.md",
+            'artifacts/release/SHA256SUMS.txt'
+          )
+          $arguments = @('release', 'create', $env:GITHUB_REF_NAME) + $assets + @(
+            '--verify-tag', '--generate-notes', '--title', "Oxide $version"
+          )
+          if ($version.Contains('-')) { $arguments += '--prerelease' }
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -410,6 +410,7 @@ dispatcher — её потоком. Ошибка или panic освобожда
 - [План разработки](internal notes)
 - [Архитектура](ARCHITECTURE.md)
 - [Методика и запуск бенчмарков](BENCHMARKING.md)
+- [Подготовка и политика релиза](release guide)
 - [Лицензия GPL-3.0-or-later](LICENSE)
 - [Уведомления о сторонних компонентах](THIRD_PARTY_NOTICES.md)
 - [Аудит зависимостей](dependency review)
