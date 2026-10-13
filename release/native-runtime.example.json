@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "release_eligible": false,
+  "reason": "Template only: replace every placeholder with facts for the exact binaries being packaged.",
+  "components": [
+    {
+      "name": "libmpv",
+      "binary": "mpv-2.dll",
+      "sha256": "REQUIRED",
+      "version": "REQUIRED",
+      "license_expression": "REQUIRED",
+      "source_repository": "https://github.com/mpv-player/mpv",
+      "source_commit": "REQUIRED_FULL_COMMIT",
+      "source_archive_sha256": "REQUIRED",
+      "build_commands_file": "REQUIRED",
+      "license_files": ["REQUIRED"],
+      "corresponding_source_url": "REQUIRED_HTTPS_URL"
+    }
+  ]
+}

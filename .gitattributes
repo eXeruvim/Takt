@@ -1,0 +1,3 @@
+# Preserve upstream license text byte-for-byte; its historical examples contain
+# trailing spaces that are not source formatting errors.
+vendor/libmpv-sys/LICENSE -whitespace

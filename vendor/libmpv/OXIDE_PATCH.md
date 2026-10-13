@@ -6,14 +6,19 @@ commit `3e6c389b716f52a595cc5e8e3fa1f96cb76b3de7`.
 This is a locally maintained patch, not a claim that upstream released a fix.
 The upstream `LICENSE` and source copyright notices are retained.
 
+The package license metadata uses the current SPDX identifier
+`LGPL-2.1-or-later`, matching the existing source headers and bundled license
+text. Upstream used the deprecated ambiguous identifier `LGPL-2.1`; no license
+terms were changed.
+
 ## Contents and source changes
 
 Copied `src/`, `Cargo.toml`, `build.rs`, `README.md`, and `LICENSE` from that
 revision. Examples, media fixtures, upstream CI and Git metadata are not vendored.
 
 - `Cargo.toml`: remove the upstream nested workspace and unused example-only
-  `crossbeam` dev dependency. Resolve `libmpv-sys` from its original repository
-  at the same explicit revision used by Oxide. No native ABI or DLL change.
+  `crossbeam` dev dependency. Resolve the separately vendored `libmpv-sys`
+  copied from the same upstream revision. No native ABI or DLL change.
 - `src/mpv.rs`: construct the owning `Mpv` immediately after `mpv_create`, before
   the initializer callback. Callback errors, panic unwinding and initialization
   errors now all use its existing destructor; no separate error-path destroy.

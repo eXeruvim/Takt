@@ -2453,7 +2453,6 @@ dependencies = [
 [[package]]
 name = "libmpv-sys"
 version = "3.1.0"
-source = "git+https://github.com/ParadoxSpiral/libmpv-rs.git?rev=3e6c389b716f52a595cc5e8e3fa1f96cb76b3de7#3e6c389b716f52a595cc5e8e3fa1f96cb76b3de7"
 
 [[package]]
 name = "libredox"
@@ -3279,7 +3278,7 @@ dependencies = [
 
 [[package]]
 name = "oxide"
-version = "0.9.0-alpha.99"
+version = "0.9.0-alpha.100"
 dependencies = [
  "anyhow",
  "crossbeam-channel",

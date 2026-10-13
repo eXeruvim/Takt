@@ -10,3 +10,7 @@
 /benchmark-corpus/files/
 /benchmark-corpus/manifest.local.json
 /dhat-heap.json
+/artifacts/
+/oxide.cdx.json
+/oxide.cdx.json.json
+/.oxide-cdx-tmp.json

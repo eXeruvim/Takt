@@ -23,6 +23,39 @@ jobs:
       - name: Audit Cargo.lock
         run: cargo audit
 
+  license-and-sbom:
+    if: github.event_name != 'schedule'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
+        with:
+          toolchain: 1.94.1
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - name: Install pinned compliance tools
+        shell: pwsh
+        run: |
+          cargo install cargo-deny --version 0.20.2 --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify licenses, sources and reproducible SBOM
+        shell: pwsh
+        run: |
+          ./scripts/build-compliance-bundle.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $expected = (Get-FileHash sbom/oxide.cdx.json -Algorithm SHA256).Hash
+          $actual = (Get-FileHash artifacts/compliance/oxide.cdx.json -Algorithm SHA256).Hash
+          if ($expected -ne $actual) {
+            throw "Tracked SBOM is stale: $expected != $actual"
+          }
+      - name: Upload compliance bundle
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
+        with:
+          name: oxide-compliance
+          path: artifacts/compliance
+          if-no-files-found: error
+
   quality:
     if: github.event_name != 'schedule'
     runs-on: windows-latest

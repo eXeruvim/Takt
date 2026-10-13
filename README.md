@@ -5,8 +5,8 @@ Oxide — Windows-first медиаплеер для видео и аудио н�
 собственная дизайн-система, вдохновлённая принципами Raycast, без копирования его
 бренда и закрытых ассетов.
 
-> Проект находится на ранней стадии разработки. Базовое воспроизведение работает,
-> но упаковка зависимостей, новый рендеринг и полный UI ещё не завершены.
+> Проект находится в дорелизной подготовке. Основной плеер и интерфейс работают,
+> но воспроизводимая упаковка проверенного native runtime ещё не завершена.
 
 ## Реализовано
 
@@ -65,6 +65,9 @@ cargo test --locked --all-targets --all-features
 cargo test --locked -p libmpv --lib ownership_tests
 cargo run --locked --bin oxide -- --build-info
 cargo audit
+cargo deny check licenses sources
+cargo cyclonedx --all-features --target x86_64-pc-windows-msvc `
+  --format json --spec-version 1.5 --override-filename oxide.cdx
 ```
 
 `--build-info` проверяет загрузку настоящего executable и печатает сведения о
@@ -347,3 +350,7 @@ dispatcher — её потоком. Ошибка или panic освобожда
 - [План разработки](internal notes)
 - [Архитектура](ARCHITECTURE.md)
 - [Методика и запуск бенчмарков](BENCHMARKING.md)
+- [Лицензия GPL-3.0-or-later](LICENSE)
+- [Уведомления о сторонних компонентах](THIRD_PARTY_NOTICES.md)
+- [Аудит зависимостей](dependency review)
+- [Текущий CycloneDX SBOM](sbom/oxide.cdx.json)
