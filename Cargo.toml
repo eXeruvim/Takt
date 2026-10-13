@@ -1,6 +1,6 @@
 [package]
 name = "oxide"
-version = "0.9.0-alpha.104"
+version = "0.9.0-alpha.105"
 edition = "2024"
 build = "build.rs"
 license = "GPL-3.0-or-later"
@@ -39,6 +39,12 @@ lofty = { version = "0.25.1", default-features = true }
 raw-window-handle = { version = "0.6.2", default-features = false }
 winit = { version = "0.30.13", default-features = false, features = ["serde"] }
 serde_json = "1.0.145"
+serde = { version = "=1.0.229", features = ["derive"] }
+base64 = { version = "=0.23.1", default-features = false, features = ["std"] }
+ed25519-dalek = "=3.0.0"
+semver = { version = "=1.0.28", default-features = false, features = ["std"] }
+sha2 = "=0.11.1"
+url = "=2.5.8"
 rfd = { version = "0.17.2", default-features = false }
 
 [target.'cfg(windows)'.dependencies]

@@ -7,6 +7,7 @@ mod render;
 mod settings;
 mod storage;
 mod ui;
+pub mod updater;
 
 use crossbeam_channel::bounded;
 use std::{
