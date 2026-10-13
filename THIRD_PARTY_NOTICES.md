@@ -4,6 +4,13 @@ Oxide is distributed under `GPL-3.0-or-later`. The complete license text is in
 `LICENSE`. This document records the release policy for third-party components;
 it is not legal advice and does not replace the license text of any component.
 
+## Build-only installer tooling
+
+Windows installer artifacts are produced with Inno Setup 7.1.0. Inno Setup is
+build tooling and is not bundled into or redistributed with Oxide. Its pinned
+official download, digest, source and license locations are recorded in
+`release/installer-tool.json`.
+
 ## Rust dependency graph
 
 The exact Rust packages, versions, sources, checksums and declared license

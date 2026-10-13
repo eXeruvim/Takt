@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "name": "Inno Setup",
+  "version": "7.1.0",
+  "architecture": "x64",
+  "url": "https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe",
+  "sha256": "0362A383ED217D4C4239B5933866DD96D3EB2102737DA92F80F6057A4B40DF2F",
+  "size": 14304168,
+  "github_release_id": 369110765,
+  "github_asset_id": 511336600,
+  "source_repository": "https://github.com/jrsoftware/issrc",
+  "license_url": "https://jrsoftware.org/files/is/license.txt"
+}
