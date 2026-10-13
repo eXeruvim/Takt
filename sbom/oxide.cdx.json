@@ -10,29 +10,29 @@
     },
     "component": {
       "type": "application",
-      "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.101",
+      "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.102",
       "name": "oxide",
-      "version": "0.9.0-alpha.101",
+      "version": "0.9.0-alpha.102",
       "description": "Windows-first local video and audio player built with Rust, Slint, and libmpv",
       "scope": "required",
       "licenses": {
         "expression": "GPL-3.0-or-later"
       },
-      "purl": "pkg:cargo/oxide@0.9.0-alpha.101",
+      "purl": "pkg:cargo/oxide@0.9.0-alpha.102",
       "components": [
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.101#bin-target-0",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.102#bin-target-0",
           "name": "oxide",
-          "version": "0.9.0-alpha.101",
-          "purl": "pkg:cargo/oxide@0.9.0-alpha.101#src/main.rs"
+          "version": "0.9.0-alpha.102",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.102#src/main.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.101#bin-target-1",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.102#bin-target-1",
           "name": "oxide-playlist-bench",
-          "version": "0.9.0-alpha.101",
-          "purl": "pkg:cargo/oxide@0.9.0-alpha.101#src/playlist_bench.rs"
+          "version": "0.9.0-alpha.102",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.102#src/playlist_bench.rs"
         }
       ]
     },
@@ -8655,6 +8655,33 @@
     },
     {
       "type": "library",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#winresource@0.1.34",
+      "author": "Max Resch <resch.max@gmail.com>",
+      "name": "winresource",
+      "version": "0.1.34",
+      "description": "Create and set windows icons and metadata for executables",
+      "scope": "excluded",
+      "hashes": {
+        "alg": "SHA-256",
+        "content": "a2bc6d36480b829272a5bdabf08e6dca8004761c1da7e35efef800540c66221b"
+      },
+      "licenses": {
+        "expression": "MIT"
+      },
+      "purl": "pkg:cargo/winresource@0.1.34",
+      "externalReferences": [
+        {
+          "type": "documentation",
+          "url": "https://docs.rs/winresource/*/winresource/"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/BenjaminRi/winresource"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#writeable@0.6.3",
       "author": "The ICU4X Project Developers",
       "name": "writeable",
@@ -9103,7 +9130,7 @@
   ],
   "dependencies": [
     {
-      "ref": "pkg:cargo/oxide@0.9.0-alpha.101",
+      "ref": "pkg:cargo/oxide@0.9.0-alpha.102",
       "dependsOn": [
         "registry+https://github.com/rust-lang/crates.io-index#anyhow@1.0.104",
         "registry+https://github.com/rust-lang/crates.io-index#crossbeam-channel@0.5.16",
@@ -9117,7 +9144,8 @@
         "registry+https://github.com/rust-lang/crates.io-index#slint@1.17.1",
         "registry+https://github.com/rust-lang/crates.io-index#slint-build@1.17.1",
         "registry+https://github.com/rust-lang/crates.io-index#windows-sys@0.61.2",
-        "registry+https://github.com/rust-lang/crates.io-index#winit@0.30.13"
+        "registry+https://github.com/rust-lang/crates.io-index#winit@0.30.13",
+        "registry+https://github.com/rust-lang/crates.io-index#winresource@0.1.34"
       ]
     },
     {
@@ -11265,6 +11293,13 @@
     {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#winnow@1.0.4",
       "dependsOn": "registry+https://github.com/rust-lang/crates.io-index#memchr@2.8.3"
+    },
+    {
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#winresource@0.1.34",
+      "dependsOn": [
+        "registry+https://github.com/rust-lang/crates.io-index#toml@1.1.4+spec-1.1.0",
+        "registry+https://github.com/rust-lang/crates.io-index#version_check@0.9.5"
+      ]
     },
     {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#writeable@0.6.3"

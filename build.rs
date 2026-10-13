@@ -1,7 +1,14 @@
 use std::process::Command;
 
 fn git_output(arguments: &[&str]) -> Option<String> {
-    let output = Command::new("git").args(arguments).output().ok()?;
+    // Reading repository state from a build script must not refresh .git/index:
+    // the index is itself a rerun trigger, so an optional refresh would force a
+    // full relink on every otherwise identical Cargo invocation.
+    let output = Command::new("git")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .args(arguments)
+        .output()
+        .ok()?;
     output
         .status
         .success()
@@ -12,24 +19,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
     {
-        // GetWindowSubclass is a named export of Common Controls v6. Without
-        // an embedded activation manifest, Windows loads the legacy system DLL
-        // and terminates the process before main with STATUS_ENTRYPOINT_NOT_FOUND.
-        // Both link.exe and lld-link support these flags; apply them to tests too.
-        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
-        println!(
-            "cargo:rustc-link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'"
-        );
+        // Keep the executable identity, icon, DPI policy and Common Controls v6
+        // activation in one resource so every Windows surface sees the same app.
+        winresource::WindowsResource::new()
+            .set_icon("assets/icons/oxide.ico")
+            .set_manifest_file("assets/windows/app.manifest")
+            .compile()?;
     }
 
     println!("cargo:rerun-if-changed=ui");
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=Cargo.toml");
-    println!("cargo:rerun-if-changed=.git/HEAD");
-    println!("cargo:rerun-if-changed=.git/index");
-    println!("cargo:rerun-if-changed=.git/packed-refs");
+    println!("cargo:rerun-if-changed=assets/icons/oxide.ico");
+    println!("cargo:rerun-if-changed=assets/windows/app.manifest");
+    for git_path in [".git/HEAD", ".git/index", ".git/packed-refs"] {
+        if std::path::Path::new(git_path).exists() {
+            println!("cargo:rerun-if-changed={git_path}");
+        }
+    }
     if let Some(reference) = git_output(&["symbolic-ref", "--quiet", "HEAD"]) {
-        println!("cargo:rerun-if-changed=.git/{reference}");
+        let reference_path = format!(".git/{reference}");
+        if std::path::Path::new(&reference_path).exists() {
+            println!("cargo:rerun-if-changed={reference_path}");
+        }
     }
 
     let commit = git_output(&["rev-parse", "HEAD"])
