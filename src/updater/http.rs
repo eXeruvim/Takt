@@ -7,7 +7,9 @@ pub enum HttpError {
     InvalidUrl(&'static str),
     Request(io::Error),
     Status(u32),
+    RangeNotSupported,
     ResponseTooLarge,
+    Consumer(io::Error),
 }
 
 impl fmt::Display for HttpError {
@@ -18,10 +20,16 @@ impl fmt::Display for HttpError {
             }
             Self::Request(error) => write!(formatter, "не удалось получить обновление: {error}"),
             Self::Status(status) => write!(formatter, "сервер обновлений вернул HTTP {status}"),
+            Self::RangeNotSupported => {
+                write!(formatter, "сервер не поддерживает продолжение загрузки")
+            }
             Self::ResponseTooLarge => write!(
                 formatter,
                 "ответ сервера обновлений превышает допустимый размер"
             ),
+            Self::Consumer(error) => {
+                write!(formatter, "не удалось сохранить данные обновления: {error}")
+            }
         }
     }
 }
@@ -29,15 +37,46 @@ impl fmt::Display for HttpError {
 impl std::error::Error for HttpError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Request(error) => Some(error),
+            Self::Request(error) | Self::Consumer(error) => Some(error),
             _ => None,
         }
     }
 }
 
 pub fn get_https(url: &Url, maximum_bytes: usize) -> Result<Vec<u8>, HttpError> {
+    let mut output = Vec::new();
+    let result = stream_https(url, 0, maximum_bytes as u64, |bytes| {
+        append_bounded(&mut output, bytes, maximum_bytes)
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        Ok(StreamAction::Continue)
+    })?;
+    debug_assert!(result.complete);
+    Ok(output)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StreamAction {
+    Continue,
+    Stop,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StreamResult {
+    pub complete: bool,
+    pub bytes_received: u64,
+}
+
+pub fn stream_https<F>(
+    url: &Url,
+    offset: u64,
+    maximum_bytes: u64,
+    receive: F,
+) -> Result<StreamResult, HttpError>
+where
+    F: FnMut(&[u8]) -> io::Result<StreamAction>,
+{
     validate_url(url)?;
-    platform::get_https(url, maximum_bytes)
+    platform::stream_https(url, offset, maximum_bytes, receive)
 }
 
 fn validate_url(url: &Url) -> Result<(), HttpError> {
@@ -74,14 +113,15 @@ mod platform {
 
     use url::Url;
     use windows_sys::Win32::Networking::WinHttp::{
-        WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_FLAG_SECURE, WINHTTP_OPTION_REDIRECT_POLICY,
+        HTTP_STATUS_PARTIAL_CONTENT, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_ADDREQ_FLAG_ADD,
+        WINHTTP_FLAG_SECURE, WINHTTP_OPTION_REDIRECT_POLICY,
         WINHTTP_OPTION_REDIRECT_POLICY_DISALLOW_HTTPS_TO_HTTP, WINHTTP_QUERY_FLAG_NUMBER,
-        WINHTTP_QUERY_STATUS_CODE, WinHttpCloseHandle, WinHttpConnect, WinHttpOpen,
-        WinHttpOpenRequest, WinHttpQueryHeaders, WinHttpReadData, WinHttpReceiveResponse,
-        WinHttpSendRequest, WinHttpSetOption, WinHttpSetTimeouts,
+        WINHTTP_QUERY_STATUS_CODE, WinHttpAddRequestHeaders, WinHttpCloseHandle, WinHttpConnect,
+        WinHttpOpen, WinHttpOpenRequest, WinHttpQueryHeaders, WinHttpReadData,
+        WinHttpReceiveResponse, WinHttpSendRequest, WinHttpSetOption, WinHttpSetTimeouts,
     };
 
-    use super::{HttpError, append_bounded};
+    use super::{HttpError, StreamAction, StreamResult};
 
     const RESOLVE_TIMEOUT_MS: i32 = 5_000;
     const CONNECT_TIMEOUT_MS: i32 = 10_000;
@@ -111,7 +151,15 @@ mod platform {
         }
     }
 
-    pub(super) fn get_https(url: &Url, maximum_bytes: usize) -> Result<Vec<u8>, HttpError> {
+    pub(super) fn stream_https<F>(
+        url: &Url,
+        offset: u64,
+        maximum_bytes: u64,
+        mut receive: F,
+    ) -> Result<StreamResult, HttpError>
+    where
+        F: FnMut(&[u8]) -> io::Result<StreamAction>,
+    {
         let agent = wide("Oxide updater/1");
         // SAFETY: all strings are terminated UTF-16 buffers and optional WinHTTP
         // pointers are null as required by the synchronous API.
@@ -166,6 +214,22 @@ mod platform {
             )
         })?;
 
+        if offset > 0 {
+            let range = wide(&format!("Range: bytes={offset}-\r\n"));
+            // SAFETY: request is live and range is a terminated UTF-16 header buffer.
+            if unsafe {
+                WinHttpAddRequestHeaders(
+                    request.0,
+                    range.as_ptr(),
+                    (range.len() - 1) as u32,
+                    WINHTTP_ADDREQ_FLAG_ADD,
+                )
+            } == 0
+            {
+                return Err(last_error());
+            }
+        }
+
         let redirect_policy = WINHTTP_OPTION_REDIRECT_POLICY_DISALLOW_HTTPS_TO_HTTP;
         // SAFETY: request is live and the option buffer points to a u32 for its full size.
         if unsafe {
@@ -205,11 +269,19 @@ mod platform {
         {
             return Err(last_error());
         }
-        if status != 200 {
+        if offset > 0 && status == 200 {
+            return Err(HttpError::RangeNotSupported);
+        }
+        let expected_status = if offset == 0 {
+            200
+        } else {
+            HTTP_STATUS_PARTIAL_CONTENT
+        };
+        if status != expected_status {
             return Err(HttpError::Status(status));
         }
 
-        let mut output = Vec::new();
+        let mut total_received = 0_u64;
         let mut buffer = [0_u8; READ_BUFFER_BYTES];
         loop {
             let mut bytes_read = 0_u32;
@@ -228,9 +300,24 @@ mod platform {
             if bytes_read == 0 {
                 break;
             }
-            append_bounded(&mut output, &buffer[..bytes_read as usize], maximum_bytes)?;
+            total_received = total_received
+                .checked_add(u64::from(bytes_read))
+                .ok_or(HttpError::ResponseTooLarge)?;
+            if total_received > maximum_bytes {
+                return Err(HttpError::ResponseTooLarge);
+            }
+            let action = receive(&buffer[..bytes_read as usize]).map_err(HttpError::Consumer)?;
+            if action == StreamAction::Stop {
+                return Ok(StreamResult {
+                    complete: false,
+                    bytes_received: total_received,
+                });
+            }
         }
-        Ok(output)
+        Ok(StreamResult {
+            complete: true,
+            bytes_received: total_received,
+        })
     }
 
     fn last_error() -> HttpError {
@@ -248,9 +335,17 @@ mod platform {
 
     use url::Url;
 
-    use super::HttpError;
+    use super::{HttpError, StreamAction, StreamResult};
 
-    pub(super) fn get_https(_url: &Url, _maximum_bytes: usize) -> Result<Vec<u8>, HttpError> {
+    pub(super) fn stream_https<F>(
+        _url: &Url,
+        _offset: u64,
+        _maximum_bytes: u64,
+        _receive: F,
+    ) -> Result<StreamResult, HttpError>
+    where
+        F: FnMut(&[u8]) -> io::Result<StreamAction>,
+    {
         Err(HttpError::Request(io::Error::new(
             io::ErrorKind::Unsupported,
             "проверка обновлений пока доступна только в Windows",
