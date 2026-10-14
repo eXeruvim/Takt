@@ -102,6 +102,10 @@ impl CheckService {
         self.events.try_recv()
     }
 
+    pub fn event_receiver(&self) -> Receiver<CheckEvent> {
+        self.events.clone()
+    }
+
     fn spawn_with<F>(fetch: F) -> io::Result<Self>
     where
         F: Fn(&Url, usize) -> Result<Vec<u8>, HttpError> + Send + 'static,

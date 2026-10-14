@@ -126,6 +126,11 @@ jobs:
       - name: Build and smoke-test release artifacts
         shell: pwsh
         run: |
+          $manifest = Get-Content Cargo.toml -Raw
+          $version = [regex]::Match($manifest, '(?m)^version\s*=\s*"([^"]+)"').Groups[1].Value
+          if ($version -notmatch '-') {
+            $env:OXIDE_UPDATE_MANIFEST_URL = "https://github.com/${{ github.repository }}/releases/latest/download/oxide-update-stable.json"
+          }
           ./scripts/build-installer.ps1 -Compiler $env:ISCC_PATH
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-installer.ps1

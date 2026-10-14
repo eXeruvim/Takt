@@ -116,6 +116,7 @@ pub fn run(
     );
 
     super::settings_controller::register_preference_callbacks(&app, &tx, &settings);
+    let _update_controller = super::update_controller::install(&app, settings.clone())?;
     super::player_command_controller::register_callbacks(
         &app,
         &tx,

@@ -1,6 +1,6 @@
 [package]
 name = "oxide"
-version = "0.9.0-alpha.108"
+version = "0.9.0-alpha.109"
 edition = "2024"
 build = "build.rs"
 license = "GPL-3.0-or-later"

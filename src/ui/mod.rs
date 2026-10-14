@@ -16,6 +16,7 @@ mod shortcut_controller;
 #[cfg(target_os = "windows")]
 mod system_notification;
 pub mod ui_logic;
+mod update_controller;
 #[cfg(target_os = "windows")]
 mod video_output;
 mod window_event_controller;

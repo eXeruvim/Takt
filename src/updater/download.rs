@@ -90,6 +90,10 @@ impl DownloadService {
         self.events.try_recv()
     }
 
+    pub fn event_receiver(&self) -> Receiver<DownloadEvent> {
+        self.events.clone()
+    }
+
     fn send(&self, command: DownloadCommand) -> Result<(), ControlError> {
         let Some(commands) = &self.commands else {
             return Err(ControlError::Unavailable);

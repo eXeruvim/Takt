@@ -12,6 +12,7 @@ const DEFAULT_VOLUME: f32 = 0.65;
 const DEFAULT_SPEED: f32 = 1.0;
 const MAX_SHORTCUT_OVERRIDES: usize = 64;
 const MAX_SHORTCUT_KEY_BYTES: usize = 256;
+const MAX_SKIPPED_UPDATE_VERSION_BYTES: usize = 64;
 const MIN_WINDOW_WIDTH: u32 = 760;
 const MIN_WINDOW_HEIGHT: u32 = 520;
 const MAX_WINDOW_DIMENSION: u32 = 32_768;
@@ -183,6 +184,7 @@ pub struct AppSettings {
     hardware_decoding_enabled: bool,
     window_placement: Option<WindowPlacementPreference>,
     shortcut_overrides: Vec<ShortcutPreference>,
+    skipped_update_version: Option<String>,
     persistence: Persistence,
     dirty: bool,
     forget_previous_pending: bool,
@@ -201,6 +203,7 @@ impl Default for AppSettings {
             hardware_decoding_enabled: false,
             window_placement: None,
             shortcut_overrides: Vec::new(),
+            skipped_update_version: None,
             persistence: Persistence::default(),
             dirty: false,
             forget_previous_pending: false,
@@ -258,6 +261,22 @@ impl AppSettings {
 
     pub fn shortcut_overrides(&self) -> &[ShortcutPreference] {
         &self.shortcut_overrides
+    }
+
+    pub fn skipped_update_version(&self) -> Option<&str> {
+        self.skipped_update_version.as_deref()
+    }
+
+    pub fn set_skipped_update_version(&mut self, version: Option<String>) {
+        let version = version.filter(|value| {
+            !value.is_empty()
+                && value.len() <= MAX_SKIPPED_UPDATE_VERSION_BYTES
+                && !value.chars().any(char::is_control)
+        });
+        if self.skipped_update_version != version {
+            self.skipped_update_version = version;
+            self.dirty = true;
+        }
     }
 
     pub fn set_theme(&mut self, theme: ThemePreference) {
@@ -355,7 +374,8 @@ impl AppSettings {
             || self.shuffle_enabled != defaults.shuffle_enabled
             || self.hardware_decoding_enabled != defaults.hardware_decoding_enabled
             || self.window_placement.is_some()
-            || !self.shortcut_overrides.is_empty();
+            || !self.shortcut_overrides.is_empty()
+            || self.skipped_update_version.is_some();
         self.theme = defaults.theme;
         self.accent = defaults.accent;
         self.default_volume = defaults.default_volume;
@@ -366,6 +386,7 @@ impl AppSettings {
         self.hardware_decoding_enabled = defaults.hardware_decoding_enabled;
         self.window_placement = None;
         self.shortcut_overrides.clear();
+        self.skipped_update_version = None;
         if changed {
             self.dirty = true;
             // The first save keeps the previous settings in `.bak`; a second
@@ -394,6 +415,9 @@ impl AppSettings {
                 "window_placement\t{}\t{}\t{}\t{}\n",
                 placement.x, placement.y, placement.width, placement.height
             ));
+        }
+        if let Some(version) = &self.skipped_update_version {
+            content.push_str(&format!("skipped_update_version\t{version}\n"));
         }
         for preference in &self.shortcut_overrides {
             content.push_str(&format!(
@@ -489,6 +513,13 @@ impl AppSettings {
                     "false" => settings.hardware_decoding_enabled = false,
                     _ => {}
                 },
+                (Some("skipped_update_version"), Some(value))
+                    if !value.is_empty()
+                        && value.len() <= MAX_SKIPPED_UPDATE_VERSION_BYTES
+                        && !value.chars().any(char::is_control) =>
+                {
+                    settings.skipped_update_version = Some(value.to_owned());
+                }
                 (Some("window_placement"), Some(value)) => {
                     let mut placement = value.split('\t');
                     let x = placement.next().and_then(|value| value.parse::<i32>().ok());
@@ -598,6 +629,7 @@ mod tests {
         settings.set_completion_behavior(CompletionBehavior::RepeatPlaylist);
         settings.set_shuffle_enabled(true);
         settings.set_hardware_decoding_enabled(true);
+        settings.set_skipped_update_version(Some("1.2.3".to_owned()));
         settings
             .set_window_placement(WindowPlacementPreference::new(-820, 140, 1280, 760).unwrap());
         settings.set_shortcut_overrides(vec![
@@ -626,6 +658,7 @@ mod tests {
         );
         assert!(loaded.shuffle_enabled());
         assert!(loaded.hardware_decoding_enabled());
+        assert_eq!(loaded.skipped_update_version(), Some("1.2.3"));
         assert_eq!(
             loaded.window_placement(),
             WindowPlacementPreference::new(-820, 140, 1280, 760)

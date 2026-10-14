@@ -46,6 +46,11 @@ export component AppWindow inherits Window {
     in-out property <string> media_bitrate_label: "—";
     in-out property <string> track_summary: "—";
     in property <string> app_version: "";
+    in-out property <int> update_status: 0;
+    in-out property <string> update_version: "";
+    in-out property <string> update_message: "Проверка доступна в релизной сборке";
+    in-out property <string> update_notes: "";
+    in-out property <float> update_progress: 0;
     in-out property <string> track_title: "";
     in-out property <string> track_artist: "";
     in-out property <string> album_title: "";
@@ -281,6 +286,13 @@ export component AppWindow inherits Window {
     callback restart_saved_playback();
     callback clear_playback_data();
     callback reset_settings();
+    callback check_update();
+    callback download_update();
+    callback pause_update();
+    callback resume_update();
+    callback cancel_update();
+    callback skip_update();
+    callback install_update();
     callback drag_window();
 
     animate player_controls_slide_offset {
@@ -933,6 +945,11 @@ export component AppWindow inherits Window {
                 media-bitrate-label: root.media_bitrate_label;
                 track-summary: root.track_summary;
                 app-version: root.app_version;
+                update-status: root.update_status;
+                update-version: root.update_version;
+                update-message: root.update_message;
+                update-notes: root.update_notes;
+                update-progress: root.update_progress;
                 resolution: root.resolution;
                 fps: root.fps;
                 audio-media: root.audio_media;
@@ -1006,6 +1023,13 @@ export component AppWindow inherits Window {
                 request-reset-settings => {
                     root.reset_settings_prompt_visible = true;
                 }
+                check-update => root.check_update();
+                download-update => root.download_update();
+                pause-update => root.pause_update();
+                resume-update => root.resume_update();
+                cancel-update => root.cancel_update();
+                skip-update => root.skip_update();
+                install-update => root.install_update();
             }
 
             command-palette := CommandPaletteOverlay {

@@ -16,6 +16,17 @@ fn git_output(arguments: &[&str]) -> Option<String> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("cargo:rerun-if-changed=release/update-public-key.txt");
+    println!("cargo:rerun-if-env-changed=OXIDE_UPDATE_MANIFEST_URL");
+    let update_public_key = std::fs::read_to_string("release/update-public-key.txt")?;
+    println!(
+        "cargo:rustc-env=OXIDE_UPDATE_PUBLIC_KEY={}",
+        update_public_key.trim()
+    );
+    println!(
+        "cargo:rustc-env=OXIDE_UPDATE_MANIFEST_URL={}",
+        std::env::var("OXIDE_UPDATE_MANIFEST_URL").unwrap_or_default()
+    );
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
     {
