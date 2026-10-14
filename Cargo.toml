@@ -1,6 +1,6 @@
 [package]
 name = "oxide"
-version = "0.9.0-alpha.105"
+version = "0.9.0-alpha.106"
 edition = "2024"
 build = "build.rs"
 license = "GPL-3.0-or-later"
@@ -51,6 +51,7 @@ rfd = { version = "0.17.2", default-features = false }
 windows-sys = { version = "0.61.2", default-features = false, features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
+    "Win32_Networking_WinHttp",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Shell",
