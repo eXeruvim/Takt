@@ -129,6 +129,17 @@ jobs:
           ./scripts/build-installer.ps1 -Compiler $env:ISCC_PATH
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-installer.ps1
+      - name: Sign update manifest
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          OXIDE_UPDATE_SIGNING_KEY: ${{ secrets.OXIDE_UPDATE_SIGNING_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OXIDE_UPDATE_SIGNING_KEY)) {
+            throw 'Repository secret OXIDE_UPDATE_SIGNING_KEY is required for a tagged release.'
+          }
+          ./scripts/build-update-manifest.ps1 -Repository $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload release candidate
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
         with:
@@ -149,6 +160,15 @@ jobs:
           if ($env:GITHUB_REF_NAME -ne "v$version") {
             throw "Tag $env:GITHUB_REF_NAME does not match Cargo version v$version."
           }
+          $channel = if ($version -match '-alpha(?:\.|$)') {
+            'alpha'
+          } elseif ($version -match '-(?:beta|rc)(?:\.|$)') {
+            'beta'
+          } elseif ($version -notmatch '-') {
+            'stable'
+          } else {
+            throw "Unknown release channel in version $version."
+          }
           $assets = @(
             "artifacts/release/Oxide-$version-setup-x86_64.exe",
             "artifacts/release/Oxide-$version-windows-x86_64.zip",
@@ -156,6 +176,7 @@ jobs:
             "artifacts/release/Oxide-$version-native-runtime.cdx.json",
             "artifacts/release/Oxide-$version-THIRD-PARTY-NOTICES.md",
             "artifacts/release/Oxide-$version-CODEC-MATRIX.md",
+            "artifacts/release/oxide-update-$channel.json",
             'artifacts/release/SHA256SUMS.txt'
           )
           $arguments = @('release', 'create', $env:GITHUB_REF_NAME) + $assets + @(

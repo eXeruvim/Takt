@@ -10,29 +10,43 @@
     },
     "component": {
       "type": "application",
-      "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.107",
+      "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.108",
       "name": "oxide",
-      "version": "0.9.0-alpha.107",
+      "version": "0.9.0-alpha.108",
       "description": "Windows-first local video and audio player built with Rust, Slint, and libmpv",
       "scope": "required",
       "licenses": {
         "expression": "GPL-3.0-or-later"
       },
-      "purl": "pkg:cargo/oxide@0.9.0-alpha.107",
+      "purl": "pkg:cargo/oxide@0.9.0-alpha.108",
       "components": [
         {
-          "type": "application",
-          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.107#bin-target-0",
+          "type": "library",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.108#bin-target-0",
           "name": "oxide",
-          "version": "0.9.0-alpha.107",
-          "purl": "pkg:cargo/oxide@0.9.0-alpha.107#src/main.rs"
+          "version": "0.9.0-alpha.108",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.108#src/lib.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.107#bin-target-1",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.108#bin-target-1",
+          "name": "oxide",
+          "version": "0.9.0-alpha.108",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.108#src/main.rs"
+        },
+        {
+          "type": "application",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.108#bin-target-2",
           "name": "oxide-playlist-bench",
-          "version": "0.9.0-alpha.107",
-          "purl": "pkg:cargo/oxide@0.9.0-alpha.107#src/playlist_bench.rs"
+          "version": "0.9.0-alpha.108",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.108#src/playlist_bench.rs"
+        },
+        {
+          "type": "application",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.108#bin-target-3",
+          "name": "oxide-update-manifest",
+          "version": "0.9.0-alpha.108",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.108#src/bin/oxide_update_manifest.rs"
         }
       ]
     },
@@ -2476,6 +2490,33 @@
         "type": "vcs",
         "url": "https://github.com/rust-lang/getopts"
       }
+    },
+    {
+      "type": "library",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.3.4",
+      "author": "The Rand Project Developers",
+      "name": "getrandom",
+      "version": "0.3.4",
+      "description": "A small cross-platform library for retrieving random data from system source",
+      "scope": "required",
+      "hashes": {
+        "alg": "SHA-256",
+        "content": "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
+      },
+      "licenses": {
+        "expression": "MIT OR Apache-2.0"
+      },
+      "purl": "pkg:cargo/getrandom@0.3.4",
+      "externalReferences": [
+        {
+          "type": "documentation",
+          "url": "https://docs.rs/getrandom"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/rust-random/getrandom"
+        }
+      ]
     },
     {
       "type": "library",
@@ -9584,12 +9625,13 @@
   ],
   "dependencies": [
     {
-      "ref": "pkg:cargo/oxide@0.9.0-alpha.107",
+      "ref": "pkg:cargo/oxide@0.9.0-alpha.108",
       "dependsOn": [
         "registry+https://github.com/rust-lang/crates.io-index#anyhow@1.0.104",
         "registry+https://github.com/rust-lang/crates.io-index#base64@0.23.1",
         "registry+https://github.com/rust-lang/crates.io-index#crossbeam-channel@0.5.16",
         "registry+https://github.com/rust-lang/crates.io-index#ed25519-dalek@3.0.0",
+        "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.3.4",
         "registry+https://github.com/rust-lang/crates.io-index#image@0.25.10",
         "pkg:cargo/libmpv@2.0.1?repository_url=https%3A%2F%2Fgithub.com%2FParadoxSpiral%2Flibmpv-rs",
         "pkg:cargo/libmpv-sys@3.1.0?repository_url=https%3A%2F%2Fgithub.com%2FParadoxSpiral%2Flibmpv-rs",
@@ -10123,6 +10165,10 @@
     {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#getopts@0.2.24",
       "dependsOn": "registry+https://github.com/rust-lang/crates.io-index#unicode-width@0.2.2"
+    },
+    {
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.3.4",
+      "dependsOn": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4"
     },
     {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#getrandom@0.4.3",

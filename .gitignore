@@ -11,6 +11,7 @@
 /benchmark-corpus/manifest.local.json
 /dhat-heap.json
 /artifacts/
+/.release-secrets/
 /oxide.cdx.json
 /oxide.cdx.json.json
 /.oxide-cdx-tmp.json

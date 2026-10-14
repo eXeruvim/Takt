@@ -3392,12 +3392,13 @@ dependencies = [
 
 [[package]]
 name = "oxide"
-version = "0.9.0-alpha.107"
+version = "0.9.0-alpha.108"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
  "crossbeam-channel",
  "ed25519-dalek",
+ "getrandom 0.3.4",
  "image",
  "libc",
  "libmpv",
