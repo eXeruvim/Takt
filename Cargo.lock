@@ -3407,7 +3407,7 @@ dependencies = [
 
 [[package]]
 name = "oxide"
-version = "0.9.0-alpha.110"
+version = "0.9.0-alpha.111"
 dependencies = [
  "anyhow",
  "base64 0.23.1",

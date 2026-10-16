@@ -10,50 +10,50 @@
     },
     "component": {
       "type": "application",
-      "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.110",
+      "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.111",
       "name": "oxide",
-      "version": "0.9.0-alpha.110",
+      "version": "0.9.0-alpha.111",
       "description": "Windows-first local video and audio player built with Rust, Slint, and libmpv",
       "scope": "required",
       "licenses": {
         "expression": "GPL-3.0-or-later"
       },
-      "purl": "pkg:cargo/oxide@0.9.0-alpha.110",
+      "purl": "pkg:cargo/oxide@0.9.0-alpha.111",
       "components": [
         {
           "type": "library",
-          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.110#bin-target-0",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.111#bin-target-0",
           "name": "oxide",
-          "version": "0.9.0-alpha.110",
-          "purl": "pkg:cargo/oxide@0.9.0-alpha.110#src/lib.rs"
+          "version": "0.9.0-alpha.111",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.111#src/lib.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.110#bin-target-1",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.111#bin-target-1",
           "name": "oxide",
-          "version": "0.9.0-alpha.110",
-          "purl": "pkg:cargo/oxide@0.9.0-alpha.110#src/main.rs"
+          "version": "0.9.0-alpha.111",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.111#src/main.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.110#bin-target-2",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.111#bin-target-2",
           "name": "oxide-playlist-bench",
-          "version": "0.9.0-alpha.110",
-          "purl": "pkg:cargo/oxide@0.9.0-alpha.110#src/playlist_bench.rs"
+          "version": "0.9.0-alpha.111",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.111#src/playlist_bench.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.110#bin-target-3",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.111#bin-target-3",
           "name": "oxide-update-manifest",
-          "version": "0.9.0-alpha.110",
-          "purl": "pkg:cargo/oxide@0.9.0-alpha.110#src/bin/oxide_update_manifest.rs"
+          "version": "0.9.0-alpha.111",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.111#src/bin/oxide_update_manifest.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.110#bin-target-4",
+          "bom-ref": "pkg:cargo/oxide@0.9.0-alpha.111#bin-target-4",
           "name": "oxide-updater",
-          "version": "0.9.0-alpha.110",
-          "purl": "pkg:cargo/oxide@0.9.0-alpha.110#src/bin/oxide_updater.rs"
+          "version": "0.9.0-alpha.111",
+          "purl": "pkg:cargo/oxide@0.9.0-alpha.111#src/bin/oxide_updater.rs"
         }
       ]
     },
@@ -9679,7 +9679,7 @@
   ],
   "dependencies": [
     {
-      "ref": "pkg:cargo/oxide@0.9.0-alpha.110",
+      "ref": "pkg:cargo/oxide@0.9.0-alpha.111",
       "dependsOn": [
         "registry+https://github.com/rust-lang/crates.io-index#anyhow@1.0.104",
         "registry+https://github.com/rust-lang/crates.io-index#base64@0.23.1",
