@@ -67,6 +67,17 @@ try {
     }
 
     $executable = Join-Path $repository 'target/release/oxide.exe'
+    $updaterExecutable = Join-Path $repository 'target/release/oxide-updater.exe'
+    if (-not (Test-Path -LiteralPath $updaterExecutable -PathType Leaf)) {
+        throw "Release updater helper не создан: $updaterExecutable"
+    }
+    $updaterBuildInfoText = (& $updaterExecutable --build-info 2>&1 | Out-String).Trim()
+    $updaterBuildInfo = $updaterBuildInfoText | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -or
+        [string]$updaterBuildInfo.component -ne 'oxide-updater' -or
+        [string]$updaterBuildInfo.package_version -ne $version) {
+        throw "Updater helper вернул некорректный build-info: $updaterBuildInfoText"
+    }
     & (Join-Path $PSScriptRoot 'verify-native-runtime.ps1') `
         -Executable ([System.IO.Path]::GetRelativePath($repository, $executable)) `
         -RuntimeDirectory $RuntimeDirectory
@@ -88,6 +99,7 @@ try {
 
     $copies = @(
         @($executable, 'oxide.exe'),
+        @($updaterExecutable, 'oxide-updater.exe'),
         @((Join-Path $runtime 'libmpv-2.dll'), 'libmpv-2.dll'),
         @((Join-Path $runtime 'LICENSE.LGPL'), 'LICENSE.libmpv.LGPL'),
         @((Join-Path $repository 'LICENSE'), 'LICENSE'),
@@ -188,9 +200,14 @@ try {
             throw 'Приватный internal notes обнаружен после распаковки release.'
         }
         $smokeExecutable = Join-Path $smokePackage 'oxide.exe'
+        $smokeUpdater = Join-Path $smokePackage 'oxide-updater.exe'
         $smokeBuildInfo = (& $smokeExecutable --build-info 2>&1 | Out-String).Trim() | ConvertFrom-Json
         if ($LASTEXITCODE -ne 0 -or [string]$smokeBuildInfo.package_version -ne $version) {
             throw 'Распакованный portable executable не прошёл build-info smoke-тест.'
+        }
+        $smokeUpdaterInfo = (& $smokeUpdater --build-info 2>&1 | Out-String).Trim() | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0 -or [string]$smokeUpdaterInfo.package_version -ne $version) {
+            throw 'Распакованный updater helper не прошёл build-info smoke-тест.'
         }
         $smokeNativeInfo = (& $smokeExecutable --native-info 2>&1 | Out-String).Trim() | ConvertFrom-Json
         if ($LASTEXITCODE -ne 0 -or [string]$smokeNativeInfo.mpv -ne [string](Get-Content -LiteralPath (Join-Path $repository 'release/native-runtime.json') -Raw | ConvertFrom-Json).runtime_versions.mpv) {

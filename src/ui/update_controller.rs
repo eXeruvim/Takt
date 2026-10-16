@@ -8,13 +8,13 @@ use std::{
 };
 
 use anyhow::Result;
-use slint::ComponentHandle;
 use oxide::updater::{
     config,
     download::{DownloadEvent, DownloadRequest, DownloadService},
-    manifest::VerifiedUpdate,
+    manifest::{PackageKind, VerifiedUpdate},
     service::{CheckEvent, CheckRequest, CheckService},
 };
+use slint::ComponentHandle;
 
 use crate::settings::AppSettings;
 
@@ -229,13 +229,88 @@ fn register_callbacks(
     });
 
     let install_app = app.as_weak();
+    let install_state = state;
     app.on_install_update(move || {
-        if let Some(app) = install_app.upgrade() {
-            app.set_notice_message("Обновление загружено и проверено".into());
-            app.set_notice_visible(true);
+        let prepared = install_state.lock().ok().and_then(|state| {
+            Some((
+                state.available.as_ref()?.package.kind,
+                state.downloaded_path.clone()?,
+            ))
+        });
+        let Some((kind, package)) = prepared else {
+            return;
+        };
+        match launch_update_helper(kind, &package) {
+            Ok(()) => {
+                let _ = slint::quit_event_loop();
+            }
+            Err(error) => {
+                if let Some(app) = install_app.upgrade() {
+                    app.set_update_status(STATUS_FAILED);
+                    app.set_update_message(format!("Не удалось начать установку: {error}").into());
+                }
+            }
         }
     });
 }
+
+fn launch_update_helper(kind: PackageKind, package: &std::path::Path) -> std::io::Result<()> {
+    use std::{fs, process::Command};
+
+    let executable = std::env::current_exe()?;
+    let target = executable
+        .parent()
+        .ok_or_else(|| std::io::Error::other("не найден каталог Oxide"))?;
+    let bundled_helper = target.join("oxide-updater.exe");
+    if !bundled_helper.is_file() || !package.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "компонент установки или загруженный пакет недоступен",
+        ));
+    }
+
+    let mut random = [0_u8; 12];
+    getrandom::fill(&mut random)
+        .map_err(|error| std::io::Error::other(format!("не удалось создать token: {error}")))?;
+    let token = random
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    random.fill(0);
+    let temporary_root = std::env::temp_dir().join("Oxide");
+    let run_directory = temporary_root.join("update-runs").join(&token);
+    let probe_directory = temporary_root.join("update-probes");
+    fs::create_dir_all(run_directory.parent().expect("run directory has parent"))?;
+    fs::create_dir_all(&probe_directory)?;
+    fs::create_dir(&run_directory)?;
+    let helper = run_directory.join("oxide-updater.exe");
+    fs::copy(&bundled_helper, &helper)?;
+    let marker = probe_directory.join(format!("{token}.ready"));
+
+    let mut command = Command::new(helper);
+    command
+        .arg("apply")
+        .arg(match kind {
+            PackageKind::Installer => "installer",
+            PackageKind::Portable => "portable",
+        })
+        .arg(package)
+        .arg(target)
+        .arg(std::process::id().to_string())
+        .arg(marker);
+    configure_background_process(&mut command);
+    command.spawn()?;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn configure_background_process(command: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt as _;
+    command.creation_flags(0x0800_0000);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn configure_background_process(_command: &mut std::process::Command) {}
 
 fn apply_check_event(
     app: &AppWindow,

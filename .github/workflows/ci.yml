@@ -133,6 +133,8 @@ jobs:
           }
           ./scripts/build-installer.ps1 -Compiler $env:ISCC_PATH
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/test-updater.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-installer.ps1
       - name: Sign update manifest
         if: startsWith(github.ref, 'refs/tags/v')

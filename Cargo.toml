@@ -1,6 +1,6 @@
 [package]
 name = "oxide"
-version = "0.9.0-alpha.109"
+version = "0.9.0-alpha.110"
 edition = "2024"
 build = "build.rs"
 license = "GPL-3.0-or-later"
@@ -21,6 +21,10 @@ required-features = ["benchmark-tools"]
 [[bin]]
 name = "oxide-update-manifest"
 path = "src/bin/oxide_update_manifest.rs"
+
+[[bin]]
+name = "oxide-updater"
+path = "src/bin/oxide_updater.rs"
 
 [dependencies]
 slint = { version = "1.17.1", default-features = false, features = [
@@ -50,6 +54,7 @@ semver = { version = "=1.0.28", default-features = false, features = ["std"] }
 sha2 = "=0.11.1"
 url = "=2.5.8"
 getrandom = "=0.3.4"
+zip = { version = "=6.0.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 rfd = { version = "0.17.2", default-features = false }
 
 [target.'cfg(windows)'.dependencies]

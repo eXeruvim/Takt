@@ -24,7 +24,10 @@ mod shutdown;
 
 #[derive(Debug, Eq, PartialEq)]
 enum StartupRequest {
-    Run(Option<PathBuf>),
+    Run {
+        path: Option<PathBuf>,
+        update_probe: Option<PathBuf>,
+    },
     BuildInfo,
     NativeInfo,
 }
@@ -34,8 +37,26 @@ fn parse_startup_request(
 ) -> anyhow::Result<StartupRequest> {
     let mut args = args.into_iter();
     let Some(first) = args.next() else {
-        return Ok(StartupRequest::Run(None));
+        return Ok(StartupRequest::Run {
+            path: None,
+            update_probe: None,
+        });
     };
+
+    if first == OsStr::new("--update-applied") {
+        let marker = args
+            .next()
+            .map(PathBuf::from)
+            .ok_or_else(|| anyhow::anyhow!("После --update-applied требуется путь"))?;
+        validate_update_probe(&marker)?;
+        if args.next().is_some() {
+            anyhow::bail!("--update-applied не принимает дополнительные аргументы");
+        }
+        return Ok(StartupRequest::Run {
+            path: None,
+            update_probe: Some(marker),
+        });
+    }
 
     if first == OsStr::new("--build-info") {
         if args.next().is_some() {
@@ -64,7 +85,21 @@ fn parse_startup_request(
         anyhow::bail!("Oxide принимает только один путь при запуске");
     }
 
-    Ok(StartupRequest::Run(Some(PathBuf::from(path))))
+    Ok(StartupRequest::Run {
+        path: Some(PathBuf::from(path)),
+        update_probe: None,
+    })
+}
+
+fn validate_update_probe(path: &std::path::Path) -> anyhow::Result<()> {
+    let expected = std::env::temp_dir().join("Oxide").join("update-probes");
+    if !path.is_absolute()
+        || path.parent() != Some(expected.as_path())
+        || path.extension().and_then(|value| value.to_str()) != Some("ready")
+    {
+        anyhow::bail!("Некорректный путь подтверждения обновления");
+    }
+    Ok(())
 }
 
 fn print_build_info() {
@@ -103,7 +138,7 @@ fn print_native_info() -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let startup_path = match parse_startup_request(std::env::args_os().skip(1))? {
+    let (startup_path, update_probe) = match parse_startup_request(std::env::args_os().skip(1))? {
         StartupRequest::BuildInfo => {
             print_build_info();
             return Ok(());
@@ -112,7 +147,7 @@ fn main() -> anyhow::Result<()> {
             print_native_info()?;
             return Ok(());
         }
-        StartupRequest::Run(path) => path,
+        StartupRequest::Run { path, update_probe } => (path, update_probe),
     };
 
     let (ui_tx, player_rx, command_errors) = player::commands::channel();
@@ -161,9 +196,12 @@ fn main() -> anyhow::Result<()> {
         ui_rx,
         render_source_rx,
         command_errors,
-        converter_tx.clone(),
-        converter_event_rx,
-        converter_control,
+        ui::ui_logic::UiResources {
+            converter_tx: converter_tx.clone(),
+            converter_rx: converter_event_rx,
+            converter_control,
+            update_probe,
+        },
     );
 
     converter_shutdown.store(true, Ordering::Release);
@@ -195,7 +233,10 @@ mod tests {
     fn startup_without_arguments_opens_empty_window() {
         assert_eq!(
             parse_startup_request(Vec::<OsString>::new()).unwrap(),
-            StartupRequest::Run(None)
+            StartupRequest::Run {
+                path: None,
+                update_probe: None,
+            }
         );
     }
 
@@ -203,7 +244,10 @@ mod tests {
     fn startup_accepts_one_media_path() {
         assert_eq!(
             parse_startup_request(arguments(&[r"C:\Музыка\трек.mp3"])).unwrap(),
-            StartupRequest::Run(Some(PathBuf::from(r"C:\Музыка\трек.mp3")))
+            StartupRequest::Run {
+                path: Some(PathBuf::from(r"C:\Музыка\трек.mp3")),
+                update_probe: None,
+            }
         );
     }
 
@@ -211,7 +255,10 @@ mod tests {
     fn startup_accepts_path_after_option_separator() {
         assert_eq!(
             parse_startup_request(arguments(&["--", "--не-параметр.mp4"])).unwrap(),
-            StartupRequest::Run(Some(PathBuf::from("--не-параметр.mp4")))
+            StartupRequest::Run {
+                path: Some(PathBuf::from("--не-параметр.mp4")),
+                update_probe: None,
+            }
         );
     }
 

@@ -32,6 +32,7 @@ Important direct components include:
 | Component | Selected license path | Project |
 | --- | --- | --- |
 | Slint 1.17.1 | GPL-3.0-only | <https://slint.dev/> |
+| zip 6.0.0 | MIT | <https://github.com/zip-rs/zip2> |
 | vendored `libmpv-rs` wrapper 2.0.1 | LGPL-2.1 | <https://github.com/ParadoxSpiral/libmpv-rs> |
 | libmpv / mpv | Selected upstream build uses the LGPL route with `-Dgpl=false`; combined release runtime is treated as LGPL-3.0-or-later | <https://mpv.io/> |
 | FFmpeg inside libmpv | Upstream LGPL variant; statically linked for playback, with GPL features disabled | <https://ffmpeg.org/> |

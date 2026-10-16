@@ -26,15 +26,26 @@ use crate::ui::window_placement::restore_window_placement;
 use crate::ui::windows_theme::prefers_dark_apps as windows_prefers_dark_apps;
 slint::include_modules!();
 
+pub struct UiResources {
+    pub converter_tx: Sender<ConverterCommand>,
+    pub converter_rx: Receiver<ConverterEvent>,
+    pub converter_control: Arc<crate::converter::ConverterControl>,
+    pub update_probe: Option<std::path::PathBuf>,
+}
+
 pub fn run(
     tx: CommandSender,
     rx: Receiver<Event>,
     render_source_rx: Receiver<MpvRenderSource>,
     command_errors: Receiver<PlayerCommandError>,
-    converter_tx: Sender<ConverterCommand>,
-    converter_rx: Receiver<ConverterEvent>,
-    converter_control: Arc<crate::converter::ConverterControl>,
+    resources: UiResources,
 ) -> Result<()> {
+    let UiResources {
+        converter_tx,
+        converter_rx,
+        converter_control,
+        update_probe,
+    } = resources;
     let app = AppWindow::new()?;
     let error_weak = app.as_weak();
     let command_error_bridge = super::event_delivery::spawn(
@@ -86,6 +97,10 @@ pub fn run(
         let _ = tx.send(Command::SetHardwareDecoding(
             settings.hardware_decoding_enabled(),
         ));
+    }
+    if let Some(message) = take_update_diagnostic() {
+        app.set_error_message(format!("Обновление: {message}").into());
+        app.set_error_visible(true);
     }
     super::conversion_controller::apply_presets(&app, false, "");
     let shortcuts = ShortcutController::new(&app, tx.clone(), settings.clone());
@@ -196,6 +211,11 @@ pub fn run(
             .set_position(slint::PhysicalPosition::new(placement.x, placement.y));
     }
     app.show()?;
+    if let Some(path) = update_probe
+        && let Err(error) = write_update_probe(&path)
+    {
+        eprintln!("Не удалось подтвердить первый запуск обновления: {error}");
+    }
     let dialog_fault = crate::benchmark_diagnostics::fault_requested("dialog-open");
     let dialog_open_timer = dialog_fault.then(slint::Timer::default);
     let dialog_shutdown_timer = dialog_fault.then(slint::Timer::default);
@@ -260,6 +280,41 @@ pub fn run(
     }
 
     Ok(())
+}
+
+fn write_update_probe(path: &std::path::Path) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let expected = std::env::temp_dir().join("Oxide").join("update-probes");
+    if path.parent() != Some(expected.as_path())
+        || path.extension().and_then(|value| value.to_str()) != Some("ready")
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "маркер обновления находится вне управляемого каталога",
+        ));
+    }
+    std::fs::create_dir_all(&expected)?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    writeln!(file, "{}", env!("CARGO_PKG_VERSION"))?;
+    file.sync_all()
+}
+
+fn take_update_diagnostic() -> Option<String> {
+    const MAX_DIAGNOSTIC_BYTES: u64 = 16 * 1024;
+    let path = std::env::temp_dir()
+        .join("Oxide")
+        .join("last-update-error.txt");
+    let metadata = std::fs::symlink_metadata(&path).ok()?;
+    if !metadata.file_type().is_file() || metadata.len() > MAX_DIAGNOSTIC_BYTES {
+        let _ = std::fs::remove_file(path);
+        return Some("диагностический отчёт повреждён".to_owned());
+    }
+    let message = std::fs::read_to_string(&path).ok();
+    let _ = std::fs::remove_file(path);
+    message.map(|message| message.trim().to_owned())
 }
 
 #[cfg(test)]

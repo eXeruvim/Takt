@@ -571,10 +571,13 @@ mod tests {
             .unwrap()
             .as_nanos();
         let serial = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
-        let directory = std::env::temp_dir().join(format!(
-            "oxide-download-test-{}-{unique}-{serial}",
-            std::process::id()
-        ));
+        let directory = std::env::current_dir()
+            .expect("test working directory")
+            .join("target/updater-download-tests")
+            .join(format!(
+                "oxide-download-test-{}-{unique}-{serial}",
+                std::process::id()
+            ));
         let hash = hex_lower(&Sha256::digest(data));
         (
             DownloadRequest {
