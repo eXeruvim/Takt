@@ -104,6 +104,7 @@ try {
         @((Join-Path $runtime 'LICENSE.LGPL'), 'LICENSE.libmpv.LGPL'),
         @((Join-Path $repository 'LICENSE'), 'LICENSE'),
         @((Join-Path $repository 'README.md'), 'README.md'),
+        @((Join-Path $repository 'SUPPORT.md'), 'SUPPORT.md'),
         @((Join-Path $repository 'THIRD_PARTY_NOTICES.md'), 'THIRD_PARTY_NOTICES.md'),
         @((Join-Path $repository 'CODEC_MATRIX.md'), 'CODEC_MATRIX.md'),
         @((Join-Path $repository 'sbom/oxide.cdx.json'), 'sbom/oxide.cdx.json'),

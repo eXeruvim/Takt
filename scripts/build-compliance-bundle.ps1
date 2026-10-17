@@ -38,9 +38,9 @@ if ($LASTEXITCODE -ne 0 -or $cycloneVersion -notmatch '0\.5\.9') {
 
 Push-Location $repository
 try {
-    & cargo deny check licenses sources
+    & cargo deny check
     if ($LASTEXITCODE -ne 0) {
-        throw 'Проверка лицензий или источников зависимостей завершилась ошибкой.'
+        throw 'Проверка advisory, bans, лицензий или источников зависимостей завершилась ошибкой.'
     }
 
     $commitTime = (& git log -1 --format=%ct 2>$null | Out-String).Trim()

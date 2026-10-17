@@ -61,7 +61,7 @@ try {
     }
     $installed = $true
 
-    foreach ($file in @('oxide.exe', 'oxide-updater.exe', 'libmpv-2.dll', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'unins000.exe')) {
+    foreach ($file in @('oxide.exe', 'oxide-updater.exe', 'libmpv-2.dll', 'LICENSE', 'SUPPORT.md', 'THIRD_PARTY_NOTICES.md', 'unins000.exe')) {
         if (-not (Test-Path -LiteralPath (Join-Path $installDirectory $file) -PathType Leaf)) {
             throw "После установки отсутствует файл: $file"
         }
