@@ -9,8 +9,8 @@ have reviewed the contents.
 
 ## Known limitations in Windows 1.0
 
-- Oxide supports 64-bit Windows 10 and 11. ARM64, Linux, and macOS are planned
-  for later releases and are not supported yet.
+- Oxide supports 64-bit Windows 10 and 11. Linux support is planned after 1.0.
+  ARM64 and macOS are not currently planned.
 - DWM does not guarantee live window transparency in maximized or fullscreen
   mode. Oxide uses an opaque fallback with matching colors instead of capturing
   the desktop. This avoids extra load and latency and prevents accidental capture

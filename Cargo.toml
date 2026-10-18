@@ -4,7 +4,7 @@ version = "1.0.0-rc.2"
 edition = "2024"
 build = "build.rs"
 license = "GPL-3.0-or-later"
-description = "Windows-first video and audio player built with Rust, Slint, and libmpv"
+description = "Video and audio player built with Rust, Slint, and libmpv"
 readme = "README.md"
 publish = false
 

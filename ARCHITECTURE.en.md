@@ -138,11 +138,10 @@ explicitly excludes from its reset guarantee.
   placement or topmost calls. On Windows, decorations are disabled before winit's
   native transition and the Slint fullscreen property is synchronized afterward.
 
-  Call ordering alone did not eliminate native-frame flashes in manual testing
-  on 24 September 2026. `native_frame` installs a static HWND subclass from
-  `RenderingSetup`. Slint 1.17.1/winit draws the first frame of a hidden window
-  and only then calls `set_visible(true)`; an event-loop callback is too late and
-  leaves a visible system title bar between those operations. Calling
+  `native_frame` installs a static HWND subclass from `RenderingSetup` before the
+  window becomes visible. Slint 1.17.1/winit draws the first frame of a hidden
+  window and only then calls `set_visible(true)`; an event-loop callback is too
+  late and leaves a visible system title bar between those operations. Calling
   `app.show()` before the loop only queues creation, so the HWND is not available
   immediately afterward. Installation failure terminates the loop and is
   reported after normal cleanup.
@@ -157,18 +156,17 @@ explicitly excludes from its reset guarantee.
   `WM_WINDOWPOSCHANGING` before Windows applies it. This is the intended Win32
   extension point and needs neither a timer nor a corrective `SetWindowPos`.
 
-  Suppressing paint was not enough. Installation removes `WS_CAPTION` (including
-  `BORDER` and `DLGFRAME`) and decorative extended-edge styles.
+  Subclass installation removes `WS_CAPTION` (including `BORDER` and
+  `DLGFRAME`) and decorative extended-edge styles.
   `WM_STYLECHANGING` filters the same bits from later winit writes before Windows
   applies them. The backend retains control of all other styles, including
   `WS_THICKFRAME`, visibility, minimize/maximize, taskbar presence, and
-  transparency. Title and icon use the normal API. The earlier workaround that
-  briefly removed `WS_VISIBLE` has been deleted. Hidden-HWND tests cover repeated
-  style writes and activation messages; visual effects and Snap still require
-  manual acceptance.
+  transparency. Title and icon use the normal API. Hidden-HWND tests cover
+  repeated style writes and activation messages; visual effects and Snap still
+  require manual acceptance.
 
-  `WS_EX_WINDOWEDGE` is intentionally not filtered. Inspection of a real HWND
-  showed that user32 keeps it automatically with `WS_THICKFRAME`. Independent
+  `WS_EX_WINDOWEDGE` is intentionally not filtered because user32 keeps it
+  automatically with `WS_THICKFRAME`. Independent
   `CLIENTEDGE`, `STATICEDGE`, and `DLGMODALFRAME` bits are removed, while winit
   remains responsible for window size. During windowed live resize,
   `WM_NCCALCSIZE` returns `WVR_VALIDRECTS`: the exact intersection of the old and
@@ -195,11 +193,8 @@ Slint must keep the original GL context current through `RenderingTeardown`, and
 the selected libmpv build and driver must honor the documented render API. Oxide
 does not preserve the OpenGL debug callback, another state excluded by mpv's
 guarantee: FemtoVG does not install one, and a general implementation would
-require OpenGL 4.3. This is covered by the manual smoke test and must be checked
-again whenever the renderer or backend changes.
+require OpenGL 4.3. These assumptions are covered by a smoke test whenever the
+renderer or backend changes.
 
-The former child-HWND backend was removed in alpha.99 after the functional gate.
-`wid` with `vo=gpu` broke transparent ambient composition, covered Slint screens
-and drawers, flashed during transitions, and was unstable in borderless
-fullscreen. Failure of the target OpenGL render API now disables video and shows
-an explicit error state instead of enabling a visually broken fallback.
+Failure of the target OpenGL render API disables video and shows an explicit
+error state; the alternative child-HWND backend is not enabled.
