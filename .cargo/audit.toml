@@ -15,6 +15,14 @@ ignore = [
     # assets; neither notice describes a known vulnerability.
     "RUSTSEC-2026-0206", # rustybuzz 0.20.1 is unmaintained
     "RUSTSEC-2026-0192", # ttf-parser 0.25.1 is unmaintained
+
+    # Linux-only Slint/winit D-Bus graph. `cargo tree --target
+    # x86_64-pc-windows-msvc -i <crate>` is empty for all three; they are not
+    # linked into the Windows 1.0 product. These are maintenance notices, not
+    # known vulnerabilities, and stay visible in dependency review.
+    "RUSTSEC-2026-0371", # zbus_names 4.3.4 is unmaintained
+    "RUSTSEC-2026-0370", # zvariant 5.13.1 is unmaintained
+    "RUSTSEC-2026-0372", # zvariant_derive 5.13.1 is unmaintained
 ]
 informational_warnings = ["unmaintained", "unsound"]
 severity_threshold = "low"

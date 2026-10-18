@@ -45,8 +45,8 @@
 В PowerShell, находясь рядом с `oxide.exe`, выполните:
 
 ```powershell
-.\oxide.exe --build-info
-.\oxide.exe --native-info
+(& .\oxide.exe --build-info 2>&1 | Out-String).Trim()
+(& .\oxide.exe --native-info 2>&1 | Out-String).Trim()
 ```
 
 Первая команда печатает версию пакета, commit и состояние исходной сборки;

@@ -22,6 +22,8 @@ export component PlayerControls inherits Rectangle {
     in property <bool> converter_open;
     in property <bool> picture_in_picture_active;
     in property <string> next_file;
+    in property <float> scale-factor: 1.0;
+    private property <float> safe-scale: max(0.1, scale-factor);
     private property <bool> show_remaining_time: true;
     out property <bool> show-volume-slider: self.width >= 1080px;
     out property <bool> compact-volume-visible: !show-volume-slider
@@ -62,14 +64,20 @@ export component PlayerControls inherits Rectangle {
     border-width: 0px;
 
     deck := Rectangle {
-        property <length> controls-width: min(
+        property <length> controls-target-width: min(
             self.width - Theme.space-6,
             max(min(self.width * 0.52, 1040px), root.side-zone-width * 2 + 192px)
         );
-        property <length> timeline-width: min(
+        property <length> controls-width: Math.floor(
+            controls-target-width / 1px * root.safe-scale
+        ) / root.safe-scale * 1px;
+        property <length> timeline-target-width: min(
             self.width - Theme.space-6,
             max(self.width * 0.8, controls-width + Theme.space-12 * 2)
         );
+        property <length> timeline-width: Math.floor(
+            timeline-target-width / 1px * root.safe-scale
+        ) / root.safe-scale * 1px;
         property <length> content-height: 68px;
         property <length> content-y: (self.height - content-height) / 2;
 
@@ -86,7 +94,8 @@ export component PlayerControls inherits Rectangle {
         drop-shadow-offset-y: root.edge_to_edge ? 0px : Theme.elevation-low-y;
 
         timeline-row := Rectangle {
-            x: (parent.width - self.width) / 2;
+            x: Math.round((parent.width - self.width) / 2 / 1px * root.safe-scale)
+                / root.safe-scale * 1px;
             y: deck.content-y;
             width: deck.timeline-width;
             height: Theme.space-6;
@@ -150,7 +159,8 @@ export component PlayerControls inherits Rectangle {
         }
 
         controls-row := Rectangle {
-            x: (parent.width - self.width) / 2;
+            x: Math.round((parent.width - self.width) / 2 / 1px * root.safe-scale)
+                / root.safe-scale * 1px;
             y: deck.content-y + Theme.space-6;
             width: deck.controls-width;
             height: Theme.space-12 - Theme.space-1;
@@ -232,7 +242,8 @@ export component PlayerControls inherits Rectangle {
 
             transport-actions := Rectangle {
                 visible: !root.picture_in_picture_active;
-                x: (parent.width - self.width) / 2;
+                x: Math.round((parent.width - self.width) / 2 / 1px * root.safe-scale)
+                    / root.safe-scale * 1px;
                 y: 0px;
                 width: 124px + root.group-spacing * 2;
                 height: parent.height;
@@ -431,7 +442,8 @@ export component PlayerControls inherits Rectangle {
                         }
 
                         compact-volume-popover := Rectangle {
-                            x: (parent.width - self.width) / 2;
+                            x: Math.round((parent.width - self.width) / 2 / 1px * root.safe-scale)
+                                / root.safe-scale * 1px;
                             y: root.compact-volume-visible ? -self.height : -self.height + 4px;
                             width: 168px;
                             height: 56px;
@@ -517,7 +529,8 @@ export component PlayerControls inherits Rectangle {
             }
 
             if root.picture_in_picture_active : Rectangle {
-                x: (parent.width - self.width) / 2;
+                x: Math.round((parent.width - self.width) / 2 / 1px * root.safe-scale)
+                    / root.safe-scale * 1px;
                 y: 0px;
                 width: 172px;
                 height: parent.height;

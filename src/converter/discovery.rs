@@ -36,7 +36,16 @@ pub(super) fn discover(shutdown: &AtomicBool) -> Option<FfmpegInstallation> {
                     details,
                 });
             }
-            Err(error) => eprintln!("FFmpeg probe {}: {error}", candidate.display()),
+            // A missing optional FFmpeg executable is a normal state: playback
+            // uses the bundled libmpv runtime and the converter explains how to
+            // provide FFmpeg only when the user opens it. Keep individual probe
+            // failures available to developers without alarming release users.
+            Err(error) => {
+                #[cfg(debug_assertions)]
+                eprintln!("FFmpeg probe {}: {error}", candidate.display());
+                #[cfg(not(debug_assertions))]
+                let _ = error;
+            }
         }
     }
     None

@@ -11,6 +11,20 @@ $output = [System.IO.Path]::GetFullPath((Join-Path $repository $OutputDirectory)
 $runtime = [System.IO.Path]::GetFullPath((Join-Path $repository $RuntimeDirectory))
 $artifactRoot = [System.IO.Path]::GetFullPath((Join-Path $repository 'artifacts'))
 
+function Get-PeSubsystem([string]$Path) {
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    if ($bytes.Length -lt 256 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
+        throw "Файл не является PE executable: $Path"
+    }
+    $peOffset = [System.BitConverter]::ToInt32($bytes, 0x3C)
+    $optionalHeader = $peOffset + 24
+    if ($peOffset -lt 0 -or $optionalHeader + 70 -gt $bytes.Length -or
+        $bytes[$peOffset] -ne 0x50 -or $bytes[$peOffset + 1] -ne 0x45) {
+        throw "Некорректный PE header: $Path"
+    }
+    return [System.BitConverter]::ToUInt16($bytes, $optionalHeader + 68)
+}
+
 foreach ($path in @($output, $runtime)) {
     if (-not $path.StartsWith($artifactRoot + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Release-пути должны находиться внутри $artifactRoot`: $path"
@@ -55,7 +69,7 @@ try {
         # lld-link derive timestamp-like PE fields from content instead.
         $env:RUSTFLAGS = "-Lnative=$runtime -Clink-arg=-fuse-ld=lld -Clink-arg=/Brepro"
         $env:PATH = "$runtime;$previousPath"
-        & cargo build --release --locked
+        & cargo build --release --locked --features windows-gui
         if ($LASTEXITCODE -ne 0) {
             throw 'Release-сборка Oxide завершилась ошибкой.'
         }
@@ -68,6 +82,13 @@ try {
 
     $executable = Join-Path $repository 'target/release/oxide.exe'
     $updaterExecutable = Join-Path $repository 'target/release/oxide-updater.exe'
+    if ((Get-PeSubsystem $executable) -ne 2) {
+        throw 'Release oxide.exe должен использовать Windows GUI subsystem и не открывать консоль.'
+    }
+    $fileDescription = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($executable).FileDescription
+    if ($fileDescription.Trim() -ne 'Oxide media player') {
+        throw "Release oxide.exe содержит неожиданное описание процесса: $fileDescription"
+    }
     if (-not (Test-Path -LiteralPath $updaterExecutable -PathType Leaf)) {
         throw "Release updater helper не создан: $updaterExecutable"
     }

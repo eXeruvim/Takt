@@ -60,7 +60,7 @@ pub(super) fn install(
         app.set_update_message("Обновления проверяются автоматически".into());
     } else {
         app.set_update_status(STATUS_UNCONFIGURED);
-        app.set_update_message("Проверка доступна в релизной сборке".into());
+        app.set_update_message("Канал обновлений ещё не подключён к этой сборке".into());
     }
 
     let check_events = check_service.event_receiver();

@@ -5,6 +5,20 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Get-PeSubsystem([string]$Path) {
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    if ($bytes.Length -lt 256 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
+        throw "Файл не является PE executable: $Path"
+    }
+    $peOffset = [System.BitConverter]::ToInt32($bytes, 0x3C)
+    $optionalHeader = $peOffset + 24
+    if ($peOffset -lt 0 -or $optionalHeader + 70 -gt $bytes.Length -or
+        $bytes[$peOffset] -ne 0x50 -or $bytes[$peOffset + 1] -ne 0x45) {
+        throw "Некорректный PE header: $Path"
+    }
+    return [System.BitConverter]::ToUInt16($bytes, $optionalHeader + 68)
+}
 $repository = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $artifactRoot = [System.IO.Path]::GetFullPath((Join-Path $repository 'artifacts'))
 $smoke = [System.IO.Path]::GetFullPath((Join-Path $repository $SmokeRoot))
@@ -67,6 +81,13 @@ try {
         }
     }
     $installedExe = Join-Path $installDirectory 'oxide.exe'
+    if ((Get-PeSubsystem $installedExe) -ne 2) {
+        throw 'Установленный oxide.exe открывает консоль вместо Windows GUI subsystem.'
+    }
+    $fileDescription = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($installedExe).FileDescription
+    if ($fileDescription.Trim() -ne 'Oxide media player') {
+        throw "Установленный oxide.exe содержит неожиданное описание процесса: $fileDescription"
+    }
     $buildInfo = (& $installedExe --build-info 2>&1 | Out-String).Trim() | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0 -or [string]$buildInfo.package_version -ne $version) {
         throw 'Установленный oxide.exe не прошёл build-info probe.'

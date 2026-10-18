@@ -1,3 +1,8 @@
+#![cfg_attr(
+    all(windows, not(test), feature = "windows-gui"),
+    windows_subsystem = "windows"
+)]
+
 mod benchmark_diagnostics;
 mod converter;
 mod ipc;

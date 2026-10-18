@@ -48,7 +48,7 @@ export component AppWindow inherits Window {
     in property <string> app_version: "";
     in-out property <int> update_status: 0;
     in-out property <string> update_version: "";
-    in-out property <string> update_message: "Проверка доступна в релизной сборке";
+    in-out property <string> update_message: "Канал обновлений ещё не подключён к этой сборке";
     in-out property <string> update_notes: "";
     in-out property <float> update_progress: 0;
     in-out property <string> track_title: "";
@@ -878,6 +878,7 @@ export component AppWindow inherits Window {
                 converter_open: root.converter_visible;
                 picture_in_picture_active: root.picture_in_picture;
                 next_file: root.next_card_visible ? root.next_file : "";
+                scale-factor: root.window_scale_factor;
                 open_file => root.open_file();
                 open_folder => root.open_folder();
                 toggle_playlist => root.toggle_playlist();

@@ -371,6 +371,161 @@ component AccentChoice inherits Rectangle {
     }
 }
 
+component UpdateSettingsCard inherits Rectangle {
+    in property <string> app-version;
+    in property <int> update-status: 0;
+    in property <string> update-version: "";
+    in property <string> update-message: "";
+    in property <string> update-notes: "";
+    in property <float> update-progress: 0;
+    callback check-update();
+    callback download-update();
+    callback pause-update();
+    callback resume-update();
+    callback cancel-update();
+    callback skip-update();
+    callback install-update();
+
+    private property <bool> highlighted: update-status == 3 || update-status == 6;
+    private property <bool> transferring: update-status == 4 || update-status == 5;
+    private property <bool> has-actions: update-status != 0;
+    height: update-status == 0 ? 108px
+        : update-notes != "" ? 188px
+        : transferring ? 164px : 140px;
+    horizontal-stretch: 1;
+    border-radius: Theme.radius-large;
+    border-width: 1px;
+    border-color: highlighted ? Theme.accent : Theme.border-default;
+    background: highlighted ? Theme.accent-subtle : Theme.surface-control;
+
+    VerticalLayout {
+        padding: Theme.space-3;
+        spacing: Theme.space-2;
+
+        HorizontalLayout {
+            height: Theme.space-6;
+            spacing: Theme.space-2;
+
+            UiText {
+                horizontal-stretch: 1;
+                text: root.update-version == ""
+                    ? "Oxide " + root.app-version
+                    : "Доступен Oxide " + root.update-version;
+                variant: TextVariant.label;
+                vertical-alignment: center;
+            }
+
+            UiText {
+                text: root.update-status == 0 ? "Канал не подключён"
+                    : root.update-status == 1 ? "Автоматически"
+                    : root.update-status == 2 ? "Проверка"
+                    : root.update-status == 3 ? "Доступно"
+                    : root.update-status == 4 ? round(root.update-progress * 100) + "%"
+                    : root.update-status == 5 ? "Пауза"
+                    : root.update-status == 6 ? "Готово"
+                    : root.update-status == 7 ? "Актуально"
+                    : root.update-status == 8 ? "Ошибка"
+                    : "Пропущено";
+                variant: TextVariant.caption;
+                color: root.update-status == 8 ? Theme.danger
+                    : root.highlighted || root.transferring ? Theme.accent
+                    : Theme.text-muted;
+                vertical-alignment: center;
+            }
+        }
+
+        UiText {
+            height: root.update-status == 0 ? 36px : 32px;
+            text: root.update-message;
+            variant: TextVariant.caption;
+            color: root.update-status == 8 ? Theme.danger : Theme.text-secondary;
+            wrap: word-wrap;
+            vertical-alignment: center;
+        }
+
+        if root.update-notes != "" : UiText {
+            height: 30px;
+            text: root.update-notes;
+            variant: TextVariant.caption;
+            color: Theme.text-muted;
+            overflow: elide;
+            wrap: word-wrap;
+        }
+
+        if root.transferring : Rectangle {
+            height: 4px;
+            horizontal-stretch: 1;
+            border-radius: 2px;
+            background: Theme.border-default;
+
+            Rectangle {
+                width: max(4px, parent.width * root.update-progress);
+                height: parent.height;
+                border-radius: parent.border-radius;
+                background: Theme.accent;
+                animate width { duration: Theme.motion-fast; easing: ease-out; }
+            }
+        }
+
+        if root.has-actions : HorizontalLayout {
+            height: Theme.space-10;
+            spacing: Theme.space-2;
+
+            if root.update-status == 3 : Button {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                text: "Загрузить";
+                primary: true;
+                clicked => root.download-update();
+            }
+            if root.update-status == 3 : Button {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                text: "Пропустить";
+                clicked => root.skip-update();
+            }
+            if root.update-status == 4 : Button {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                text: "Пауза";
+                clicked => root.pause-update();
+            }
+            if root.update-status == 5 : Button {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                text: "Продолжить";
+                clicked => root.resume-update();
+            }
+            if root.transferring : Button {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                text: "Отмена";
+                clicked => root.cancel-update();
+            }
+            if root.update-status == 6 : Button {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                text: "Установить";
+                primary: true;
+                clicked => root.install-update();
+            }
+            if root.update-status != 3 && root.update-status != 4
+                && root.update-status != 5 && root.update-status != 6 : Button {
+                horizontal-stretch: 1;
+                text: "Проверить обновления";
+                enabled: root.update-status != 2;
+                loading: root.update-status == 2;
+                clicked => root.check-update();
+            }
+        }
+    }
+
+    animate background, border-color {
+        duration: Theme.motion-fast;
+        easing: cubic-bezier(0.2, 0, 0, 1);
+    }
+}
+
 export component MediaInspector inherits Rectangle {
     private property <int> settings-page: 0;
     // Keep the last page composed while the outer panel finishes its closing
@@ -1112,135 +1267,6 @@ export component MediaInspector inherits Rectangle {
                 Divider { }
 
                 UiText {
-                    text: "Обновления";
-                    variant: TextVariant.caption;
-                    color: Theme.text-muted;
-                }
-
-                Rectangle {
-                    height: 204px;
-                    horizontal-stretch: 1;
-                    border-radius: Theme.radius-large;
-                    border-width: 1px;
-                    border-color: root.update-status == 3 || root.update-status == 6
-                        ? Theme.accent : Theme.border-default;
-                    background: root.update-status == 3 || root.update-status == 6
-                        ? Theme.accent-subtle : Theme.surface-control;
-
-                    VerticalLayout {
-                        padding: Theme.space-3;
-                        spacing: Theme.space-2;
-
-                        HorizontalLayout {
-                            height: Theme.space-6;
-                            spacing: Theme.space-2;
-                            UiText {
-                                horizontal-stretch: 1;
-                                text: root.update-version == ""
-                                    ? "Oxide " + root.app-version
-                                    : "Доступен Oxide " + root.update-version;
-                                variant: TextVariant.label;
-                            }
-                            UiText {
-                                text: root.update-status == 2 ? "Проверяем…"
-                                    : root.update-status == 4 ? round(root.update-progress * 100) + "%"
-                                    : root.update-status == 5 ? "Пауза"
-                                    : root.update-status == 6 ? "Готово"
-                                    : "";
-                                variant: TextVariant.caption;
-                                color: Theme.accent;
-                            }
-                        }
-
-                        UiText {
-                            height: 42px;
-                            text: root.update-message;
-                            variant: TextVariant.caption;
-                            color: root.update-status == 8 ? Theme.danger : Theme.text-muted;
-                            wrap: word-wrap;
-                            vertical-alignment: center;
-                        }
-
-                        if root.update-notes != "" : UiText {
-                            height: 30px;
-                            text: root.update-notes;
-                            variant: TextVariant.caption;
-                            color: Theme.text-secondary;
-                            overflow: elide;
-                            wrap: word-wrap;
-                        }
-
-                        if root.update-status == 4 || root.update-status == 5 : Rectangle {
-                            height: 4px;
-                            horizontal-stretch: 1;
-                            border-radius: 2px;
-                            background: Theme.border-default;
-                            Rectangle {
-                                width: max(4px, parent.width * root.update-progress);
-                                height: parent.height;
-                                border-radius: parent.border-radius;
-                                background: Theme.accent;
-                                animate width { duration: Theme.motion-fast; easing: ease-out; }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            height: Theme.space-10;
-                            spacing: Theme.space-2;
-
-                            if root.update-status == 3 : Button {
-                                horizontal-stretch: 1;
-                                min-width: 0px;
-                                text: "Загрузить";
-                                primary: true;
-                                clicked => root.download-update();
-                            }
-                            if root.update-status == 3 : Button {
-                                horizontal-stretch: 1;
-                                min-width: 0px;
-                                text: "Пропустить";
-                                clicked => root.skip-update();
-                            }
-                            if root.update-status == 4 : Button {
-                                horizontal-stretch: 1;
-                                min-width: 0px;
-                                text: "Пауза";
-                                clicked => root.pause-update();
-                            }
-                            if root.update-status == 5 : Button {
-                                horizontal-stretch: 1;
-                                min-width: 0px;
-                                text: "Продолжить";
-                                clicked => root.resume-update();
-                            }
-                            if root.update-status == 4 || root.update-status == 5 : Button {
-                                horizontal-stretch: 1;
-                                min-width: 0px;
-                                text: "Отмена";
-                                clicked => root.cancel-update();
-                            }
-                            if root.update-status == 6 : Button {
-                                horizontal-stretch: 1;
-                                min-width: 0px;
-                                text: "Установить";
-                                primary: true;
-                                clicked => root.install-update();
-                            }
-                            if root.update-status != 3 && root.update-status != 4
-                                && root.update-status != 5 && root.update-status != 6 : Button {
-                                horizontal-stretch: 1;
-                                text: "Проверить обновления";
-                                enabled: root.update-status != 0 && root.update-status != 2;
-                                loading: root.update-status == 2;
-                                clicked => root.check-update();
-                            }
-                        }
-                    }
-                }
-
-                Divider { }
-
-                UiText {
                     text: "Сброс";
                     variant: TextVariant.caption;
                     color: Theme.text-muted;
@@ -1303,6 +1329,35 @@ export component MediaInspector inherits Rectangle {
                             }
                         }
                     }
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: transparent;
+                }
+
+                Divider { }
+
+                UiText {
+                    text: "Обновления";
+                    variant: TextVariant.caption;
+                    color: Theme.text-muted;
+                }
+
+                UpdateSettingsCard {
+                    app-version: root.app-version;
+                    update-status: root.update-status;
+                    update-version: root.update-version;
+                    update-message: root.update-message;
+                    update-notes: root.update-notes;
+                    update-progress: root.update-progress;
+                    check-update => root.check-update();
+                    download-update => root.download-update();
+                    pause-update => root.pause-update();
+                    resume-update => root.resume-update();
+                    cancel-update => root.cancel-update();
+                    skip-update => root.skip-update();
+                    install-update => root.install-update();
                 }
 
                 }
