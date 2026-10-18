@@ -19,7 +19,8 @@ ignore = [
     # Linux-only Slint/winit D-Bus graph. `cargo tree --target
     # x86_64-pc-windows-msvc -i <crate>` is empty for all three; they are not
     # linked into the Windows 1.0 product. These are maintenance notices, not
-    # known vulnerabilities, and stay visible in dependency review.
+    # known vulnerabilities. Keep the explicit IDs here until the dependency
+    # graph no longer contains them.
     "RUSTSEC-2026-0371", # zbus_names 4.3.4 is unmaintained
     "RUSTSEC-2026-0370", # zvariant 5.13.1 is unmaintained
     "RUSTSEC-2026-0372", # zvariant_derive 5.13.1 is unmaintained

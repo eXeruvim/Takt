@@ -6,7 +6,7 @@ all-features = true
 
 [advisories]
 ignore = [
-    { id = "RUSTSEC-2024-0436", reason = "unmaintained paste proc macro in Lofty/Slint build graph; tracked in dependency review" },
+    { id = "RUSTSEC-2024-0436", reason = "unmaintained paste proc macro is transitive through the pinned Lofty/Slint build graph; remove this exception when either dependency drops it" },
     { id = "RUSTSEC-2026-0206", reason = "unmaintained rustybuzz through Slint; tracked until the next Slint upgrade" },
     { id = "RUSTSEC-2026-0192", reason = "unmaintained ttf-parser through Slint; tracked until the next Slint upgrade" },
 ]

@@ -151,9 +151,9 @@ libass. Эти проверки ловят отсутствующие DLL/экс
 Per-Monitor-v2 DPI policy и зависимость Common Controls v6 в ресурсы приложения.
 
 `cargo audit` запускается в CI на каждом изменении и по еженедельному расписанию.
-Разобранные RustSec-исключения и отпечатки локального native runtime описаны в
-[dependency review](dependency review). Непроверенные локальные DLL больше не
-используются для CI или релизного пакета.
+Причина каждого временного RustSec-исключения записана непосредственно в
+`deny.toml`. Непроверенные локальные DLL не используются для CI или релизного
+пакета.
 
 Для `libmpv` используется локальное исправление закреплённого исходного кода
 в `vendor/libmpv`: освобождение контекста при ошибке initializer и строковых
@@ -422,11 +422,9 @@ dispatcher — её потоком. Ошибка или panic освобожда
 
 ## Документация
 
-- [Архитектура](ARCHITECTURE.md)
-- [Методика и запуск бенчмарков](BENCHMARKING.md)
-- [Подготовка и политика релиза](release guide)
-- [Поддержка, ограничения и сообщение об ошибке](SUPPORT.md)
+- Архитектура: [Русский](ARCHITECTURE.md) · [English](ARCHITECTURE.en.md)
+- Бенчмарки: [Русский](BENCHMARKING.md) · [English](BENCHMARKING.en.md)
+- Поддержка и сообщения об ошибках: [Русский](SUPPORT.md) · [English](SUPPORT.en.md)
 - [Лицензия GPL-3.0-or-later](LICENSE)
 - [Уведомления о сторонних компонентах](THIRD_PARTY_NOTICES.md)
-- [Аудит зависимостей](dependency review)
 - [Текущий CycloneDX SBOM](sbom/oxide.cdx.json)

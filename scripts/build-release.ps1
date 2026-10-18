@@ -178,9 +178,6 @@ try {
             $files = Get-ChildItem -LiteralPath $package -File -Recurse | Sort-Object { [System.IO.Path]::GetRelativePath($staging, $_.FullName).Replace('\', '/') }
             foreach ($file in $files) {
                 $entryName = [System.IO.Path]::GetRelativePath($staging, $file.FullName).Replace('\', '/')
-                if ($entryName -like '*internal notes*') {
-                    throw 'Приватный internal notes не должен попадать в release-пакет.'
-                }
                 $entry = $zip.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
                 $entry.LastWriteTime = $epoch
                 $input = [System.IO.File]::OpenRead($file.FullName)
@@ -218,9 +215,6 @@ try {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $smoke)
         $smokePackage = Join-Path $smoke $packageName
-        if (Test-Path -LiteralPath (Join-Path $smokePackage 'internal notes')) {
-            throw 'Приватный internal notes обнаружен после распаковки release.'
-        }
         $smokeExecutable = Join-Path $smokePackage 'oxide.exe'
         $smokeUpdater = Join-Path $smokePackage 'oxide-updater.exe'
         $smokeBuildInfo = (& $smokeExecutable --build-info 2>&1 | Out-String).Trim() | ConvertFrom-Json

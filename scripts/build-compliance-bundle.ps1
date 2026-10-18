@@ -15,7 +15,7 @@ if (-not $output.StartsWith($repository + [System.IO.Path]::DirectorySeparatorCh
     throw "Каталог compliance должен находиться внутри репозитория: $output"
 }
 
-foreach ($required in @('Cargo.toml', 'Cargo.lock', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'dependency review', 'deny.toml')) {
+foreach ($required in @('Cargo.toml', 'Cargo.lock', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'deny.toml')) {
     $requiredPath = Join-Path $repository $required
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Отсутствует обязательный compliance-файл: $required"
@@ -120,7 +120,7 @@ try {
         throw 'SBOM содержит локальный абсолютный путь.'
     }
 
-    foreach ($name in @('LICENSE', 'THIRD_PARTY_NOTICES.md', 'dependency review', 'CODEC_MATRIX.md')) {
+    foreach ($name in @('LICENSE', 'THIRD_PARTY_NOTICES.md', 'CODEC_MATRIX.md')) {
         Copy-Item -LiteralPath (Join-Path $repository $name) -Destination (Join-Path $output $name) -Force
     }
     Copy-Item -LiteralPath (Join-Path $repository 'sbom/native-runtime.cdx.json') -Destination (Join-Path $output 'native-runtime.cdx.json') -Force
