@@ -7,14 +7,15 @@ use slint::winit_030::{
     WinitWindowAccessor,
     winit::dpi::{PhysicalPosition, PhysicalSize},
 };
+#[cfg(feature = "windows-gui")]
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    IsIconic, SW_RESTORE, SetForegroundWindow, ShowWindow,
+};
 use windows_sys::Win32::{
     Foundation::{HWND, POINT},
     UI::{
         Input::KeyboardAndMouse::{ReleaseCapture, SetCapture},
-        WindowsAndMessaging::{
-            GetCursorPos, GetWindowPlacement, IsIconic, SW_RESTORE, SetForegroundWindow,
-            ShowWindow, WINDOWPLACEMENT,
-        },
+        WindowsAndMessaging::{GetCursorPos, GetWindowPlacement, WINDOWPLACEMENT},
     },
 };
 
@@ -34,6 +35,7 @@ pub(crate) fn native_window_handle(window: &slint::Window) -> Option<HWND> {
     Some(handle.hwnd.get() as HWND)
 }
 
+#[cfg(feature = "windows-gui")]
 pub(crate) fn activate_window(window: &slint::Window) {
     window.with_winit_window(|window| {
         window.set_minimized(false);
