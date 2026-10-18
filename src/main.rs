@@ -10,6 +10,8 @@ mod ipc;
 mod player;
 mod render;
 mod settings;
+#[cfg(all(windows, feature = "windows-gui"))]
+mod single_instance;
 mod storage;
 mod ui;
 use crossbeam_channel::bounded;
@@ -155,6 +157,22 @@ fn main() -> anyhow::Result<()> {
         StartupRequest::Run { path, update_probe } => (path, update_probe),
     };
 
+    #[cfg(all(windows, feature = "windows-gui"))]
+    let (single_instance, instance_rx) = {
+        let request = match startup_path.as_ref() {
+            Some(path) if path.is_dir() => single_instance::LaunchRequest::OpenFolder(path.clone()),
+            Some(path) => single_instance::LaunchRequest::OpenFile(path.clone()),
+            None => single_instance::LaunchRequest::Activate,
+        };
+        match single_instance::acquire(request)? {
+            single_instance::Acquisition::Forwarded => return Ok(()),
+            single_instance::Acquisition::Primary(instance) => {
+                let incoming = instance.incoming();
+                (instance, incoming)
+            }
+        }
+    };
+
     let (ui_tx, player_rx, command_errors) = player::commands::channel();
     if let Some(path) = startup_path {
         let command = if path.is_dir() {
@@ -206,8 +224,13 @@ fn main() -> anyhow::Result<()> {
             converter_rx: converter_event_rx,
             converter_control,
             update_probe,
+            #[cfg(all(windows, feature = "windows-gui"))]
+            instance_rx,
         },
     );
+
+    #[cfg(all(windows, feature = "windows-gui"))]
+    drop(single_instance);
 
     converter_shutdown.store(true, Ordering::Release);
     let _ = ui_tx.send(ipc::Command::Quit);

@@ -16,6 +16,8 @@ use crate::ui::shortcut_controller::ShortcutController;
 use crate::ui::system_notification;
 #[cfg(target_os = "windows")]
 use crate::ui::video_output::VideoOutputController;
+#[cfg(all(target_os = "windows", feature = "windows-gui"))]
+use crate::ui::window_interaction::activate_window;
 #[cfg(target_os = "windows")]
 use crate::ui::window_interaction::{WindowDragState, native_window_handle};
 #[cfg(target_os = "windows")]
@@ -31,6 +33,8 @@ pub struct UiResources {
     pub converter_rx: Receiver<ConverterEvent>,
     pub converter_control: Arc<crate::converter::ConverterControl>,
     pub update_probe: Option<std::path::PathBuf>,
+    #[cfg(all(target_os = "windows", feature = "windows-gui"))]
+    pub instance_rx: Receiver<crate::single_instance::LaunchRequest>,
 }
 
 pub fn run(
@@ -45,6 +49,8 @@ pub fn run(
         converter_rx,
         converter_control,
         update_probe,
+        #[cfg(all(target_os = "windows", feature = "windows-gui"))]
+        instance_rx,
     } = resources;
     let app = AppWindow::new()?;
     let error_weak = app.as_weak();
@@ -190,6 +196,43 @@ pub fn run(
 
     let converter_bridge = super::conversion_controller::spawn_event_bridge(&app, converter_rx)?;
 
+    #[cfg(all(target_os = "windows", feature = "windows-gui"))]
+    let instance_bridge = {
+        let app_weak = app.as_weak();
+        let tx = tx.clone();
+        super::event_delivery::spawn(
+            instance_rx,
+            |_, _| false,
+            move |requests, completion| {
+                let weak = app_weak.clone();
+                let tx = tx.clone();
+                slint::invoke_from_event_loop(move || {
+                    let _completion = completion;
+                    let Some(app) = weak.upgrade() else {
+                        return;
+                    };
+                    for request in requests {
+                        let command = match request {
+                            crate::single_instance::LaunchRequest::Activate => None,
+                            crate::single_instance::LaunchRequest::OpenFile(path) => {
+                                Some(Command::OpenFile(path))
+                            }
+                            crate::single_instance::LaunchRequest::OpenFolder(path) => {
+                                Some(Command::OpenFolder(path))
+                            }
+                        };
+                        if let Some(command) = command {
+                            let _ = tx.send(command);
+                        }
+                    }
+                    app.invoke_reveal_controls();
+                    activate_window(app.window());
+                })
+                .is_ok()
+            },
+        )?
+    };
+
     // `AppWindow::new()` does not guarantee that the winit window already
     // exists. Show it before restoring native coordinates; the event loop has
     // not started yet, so the default bounds are not painted as an extra frame.
@@ -262,6 +305,8 @@ pub fn run(
     #[cfg(target_os = "windows")]
     drop(render_source_bridge);
     drop(converter_bridge);
+    #[cfg(all(target_os = "windows", feature = "windows-gui"))]
+    drop(instance_bridge);
     drop(command_error_bridge);
     #[cfg(target_os = "windows")]
     if let Some(hwnd) = native_window_handle(app.window()) {

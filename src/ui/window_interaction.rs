@@ -11,7 +11,10 @@ use windows_sys::Win32::{
     Foundation::{HWND, POINT},
     UI::{
         Input::KeyboardAndMouse::{ReleaseCapture, SetCapture},
-        WindowsAndMessaging::{GetCursorPos, GetWindowPlacement, WINDOWPLACEMENT},
+        WindowsAndMessaging::{
+            GetCursorPos, GetWindowPlacement, IsIconic, SW_RESTORE, SetForegroundWindow,
+            ShowWindow, WINDOWPLACEMENT,
+        },
     },
 };
 
@@ -29,6 +32,25 @@ pub(crate) fn native_window_handle(window: &slint::Window) -> Option<HWND> {
         return None;
     };
     Some(handle.hwnd.get() as HWND)
+}
+
+pub(crate) fn activate_window(window: &slint::Window) {
+    window.with_winit_window(|window| {
+        window.set_minimized(false);
+        window.request_redraw();
+    });
+    let Some(hwnd) = native_window_handle(window) else {
+        return;
+    };
+    // SAFETY: hwnd belongs to the live Slint window. SW_RESTORE is used only
+    // for a minimized window; SetForegroundWindow may legally decline focus
+    // stealing, in which case Windows highlights the taskbar entry instead.
+    unsafe {
+        if IsIconic(hwnd) != 0 {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+        SetForegroundWindow(hwnd);
+    }
 }
 
 fn cursor_screen_position() -> Option<(i32, i32)> {
