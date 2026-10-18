@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs>
+    <linearGradient id="rust" x1="7" y1="5" x2="41" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E47B4F"/>
+      <stop offset="1" stop-color="#A83F2B"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="40" height="40" rx="11" fill="url(#rust)"/>
+  <path d="M18.75 15.65c0-1.72 1.86-2.78 3.33-1.89l12.98 7.8c1.44.87 1.44 2.96 0 3.82l-12.98 7.8c-1.47.89-3.33-.17-3.33-1.89V15.65Z" fill="#FFF8F2"/>
+</svg>
