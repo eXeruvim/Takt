@@ -84,6 +84,7 @@ cargo test --locked -p libmpv --lib ownership_tests
 - [Архитектура](ARCHITECTURE.md) · [English](ARCHITECTURE.en.md)
 - [Бенчмарки](BENCHMARKING.md) · [English](BENCHMARKING.en.md)
 - [Поддержка и известные ограничения](SUPPORT.md) · [English](SUPPORT.en.md)
+- [Политика безопасности](SECURITY.md)
 - [Матрица кодеков](CODEC_MATRIX.md)
 - [Уведомления о сторонних компонентах](THIRD_PARTY_NOTICES.md)
 

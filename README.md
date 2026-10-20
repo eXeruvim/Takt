@@ -84,6 +84,7 @@ cargo test --locked -p libmpv --lib ownership_tests
 - [Architecture](ARCHITECTURE.en.md) · [Русский](ARCHITECTURE.md)
 - [Benchmarking](BENCHMARKING.en.md) · [Русский](BENCHMARKING.md)
 - [Support and known limitations](SUPPORT.en.md) · [Русский](SUPPORT.md)
+- [Security policy](SECURITY.md)
 - [Codec matrix](CODEC_MATRIX.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
