@@ -186,9 +186,19 @@ jobs:
             "artifacts/release/takt-update-$channel.json",
             'artifacts/release/SHA256SUMS.txt'
           )
-          $arguments = @('release', 'create', $env:GITHUB_REF_NAME) + $assets + @(
-            '--verify-tag', '--generate-notes', '--title', "Takt $version"
-          )
-          if ($version.Contains('-')) { $arguments += '--prerelease' }
-          & gh @arguments
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & gh release view $env:GITHUB_REF_NAME --json tagName *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+          if ($releaseExists) {
+            $arguments = @('release', 'upload', $env:GITHUB_REF_NAME) + $assets + @('--clobber')
+            & gh @arguments
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & gh release edit $env:GITHUB_REF_NAME --title "Takt $version"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            $arguments = @('release', 'create', $env:GITHUB_REF_NAME) + $assets + @(
+              '--verify-tag', '--generate-notes', '--title', "Takt $version"
+            )
+            if ($version.Contains('-')) { $arguments += '--prerelease' }
+            & gh @arguments
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
