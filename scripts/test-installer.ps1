@@ -75,7 +75,19 @@ try {
     }
     $installed = $true
 
-    foreach ($file in @('takt.exe', 'takt-updater.exe', 'libmpv-2.dll', 'LICENSE', 'SUPPORT.md', 'THIRD_PARTY_NOTICES.md', 'unins000.exe')) {
+    foreach ($file in @(
+        'takt.exe',
+        'takt-updater.exe',
+        'libmpv-2.dll',
+        'LICENSE',
+        'SUPPORT.md',
+        'THIRD_PARTY_NOTICES.md',
+        'CODEC_MATRIX.md',
+        'native-runtime.json',
+        'sbom/takt.cdx.json',
+        'sbom/native-runtime.cdx.json',
+        'unins000.exe'
+    )) {
         if (-not (Test-Path -LiteralPath (Join-Path $installDirectory $file) -PathType Leaf)) {
             throw "После установки отсутствует файл: $file"
         }

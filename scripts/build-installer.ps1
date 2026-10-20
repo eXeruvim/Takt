@@ -117,16 +117,10 @@ try {
         throw "Некорректные Version Info установщика: $($installerInfo.ProductName) $($installerInfo.ProductVersion)"
     }
 
-    $standaloneArtifacts = @(
-        @((Join-Path $repository 'sbom/takt.cdx.json'), "Takt-$version-sbom.cdx.json"),
-        @((Join-Path $repository 'sbom/native-runtime.cdx.json'), "Takt-$version-native-runtime.cdx.json"),
-        @((Join-Path $repository 'THIRD_PARTY_NOTICES.md'), "Takt-$version-THIRD-PARTY-NOTICES.md"),
-        @((Join-Path $repository 'CODEC_MATRIX.md'), "Takt-$version-CODEC-MATRIX.md")
-    )
-    foreach ($artifact in $standaloneArtifacts) {
-        Copy-Item -LiteralPath $artifact[0] -Destination (Join-Path $output $artifact[1]) -Force
-    }
-    $releaseFiles = @($portableArchive, $installerPath) + @($standaloneArtifacts | ForEach-Object { Join-Path $output $_[1] }) | Sort-Object
+    # Compliance documents and SBOMs are already part of the portable payload
+    # and therefore of the installer. Keep the public release asset list focused
+    # on files an end user needs to choose between.
+    $releaseFiles = @($portableArchive, $installerPath) | Sort-Object
     $hashLines = foreach ($file in $releaseFiles) {
         $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $(Split-Path -Leaf $file)"

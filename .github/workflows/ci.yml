@@ -183,10 +183,6 @@ jobs:
           $assets = @(
             "artifacts/release/Takt-$version-setup-x86_64.exe",
             "artifacts/release/Takt-$version-windows-x86_64.zip",
-            "artifacts/release/Takt-$version-sbom.cdx.json",
-            "artifacts/release/Takt-$version-native-runtime.cdx.json",
-            "artifacts/release/Takt-$version-THIRD-PARTY-NOTICES.md",
-            "artifacts/release/Takt-$version-CODEC-MATRIX.md",
             "artifacts/release/takt-update-$channel.json",
             'artifacts/release/SHA256SUMS.txt'
           )
