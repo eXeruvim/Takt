@@ -12,7 +12,8 @@ COFF import archive.
   (win64, lgpl)` job `115067544505`;
 - workflow: `.github/workflows/build.yml` at the pinned commit;
 - build entry point: `ci/build-mingw64-full.sh` at the pinned commit;
-- upstream archive and source hashes: `release/native-runtime.json`.
+- upstream archive, stable runtime mirror, and source hashes:
+  `release/native-runtime.json`.
 
 The loaded runtime identifies embedded FFmpeg as commit
 `0eeb79fcc5b2761e8fdd3d0cfc5e5ba0e786645a` and libass as 0.17.5 (tag commit
@@ -41,8 +42,14 @@ From the Takt repository:
 ./scripts/verify-native-runtime.ps1
 ```
 
-The script downloads only the URL fixed in `release/native-runtime.json`, checks
-the archive before extraction, checks every copied member, and writes:
+The rolling upstream release removes old development assets whenever a new mpv
+build is published. Takt therefore keeps an exact, checksum-pinned mirror of the
+three required files in its own GitHub release. The original upstream URL,
+asset ID, Actions run, and archive hash remain in the manifest as provenance.
+
+The script downloads only the stable mirror URL fixed in
+`release/native-runtime.json`, checks the archive before extraction, checks
+every copied member, and writes:
 
 - `libmpv-2.dll` — the runtime loaded by Takt;
 - `mpv.lib` — the unchanged COFF archive bytes from `libmpv.dll.a`;

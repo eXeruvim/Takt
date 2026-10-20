@@ -22,7 +22,7 @@ if ($native.release_eligible -ne $true -or @($native.components).Count -ne 1) {
     throw 'Native manifest не утверждён или содержит неожиданный набор компонентов.'
 }
 $component = @($native.components)[0]
-$asset = $native.upstream_asset
+$asset = $native.runtime_asset
 foreach ($value in @($asset.url, $asset.sha256, $component.binary, $component.sha256,
         $component.import_library_archive_member, $component.import_library_sha256)) {
     if ([string]::IsNullOrWhiteSpace([string]$value)) {
@@ -46,7 +46,19 @@ if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
         Remove-Item -LiteralPath $partial -Force
     }
     try {
-        Invoke-WebRequest -Uri ([string]$asset.url) -OutFile $partial
+        $request = @{
+            Uri = [string]$asset.url
+            OutFile = $partial
+        }
+        if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN) -and
+            ([Uri]$asset.url).Host.EndsWith('github.com', [StringComparison]::OrdinalIgnoreCase)) {
+            $request.Headers = @{
+                Authorization = "Bearer $env:GITHUB_TOKEN"
+                Accept = 'application/octet-stream'
+                'X-GitHub-Api-Version' = '2022-11-28'
+            }
+        }
+        Invoke-WebRequest @request
         Move-Item -LiteralPath $partial -Destination $archive
     }
     finally {

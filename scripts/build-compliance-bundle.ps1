@@ -137,6 +137,11 @@ try {
                 throw "Native manifest: не заполнено upstream_asset.$field."
             }
         }
+        foreach ($field in @('url', 'sha256', 'size')) {
+            if ($RequireReleaseRuntime -and [string]::IsNullOrWhiteSpace([string]$native.runtime_asset.$field)) {
+                throw "Native manifest: не заполнено runtime_asset.$field."
+            }
+        }
         foreach ($field in @('mpv', 'ffmpeg', 'libass')) {
             if ($RequireReleaseRuntime -and [string]::IsNullOrWhiteSpace([string]$native.runtime_versions.$field)) {
                 throw "Native manifest: не заполнено runtime_versions.$field."

@@ -34,6 +34,8 @@ jobs:
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
       - name: Provision verified native runtime
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/fetch-native-runtime.ps1
       - name: Install pinned compliance tools
         shell: pwsh
@@ -71,6 +73,8 @@ jobs:
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
       - name: Provision verified native runtime
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           ./scripts/fetch-native-runtime.ps1
           $runtime = (Resolve-Path artifacts/native-runtime).Path
@@ -110,6 +114,8 @@ jobs:
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
       - name: Provision verified build tools
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           ./scripts/fetch-native-runtime.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
