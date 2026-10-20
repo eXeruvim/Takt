@@ -19,7 +19,7 @@ use windows_sys::Win32::{
     },
 };
 
-const OXIDE_NOTIFICATION_ID: u32 = 0x4f58_4944;
+const TAKT_NOTIFICATION_ID: u32 = 0x5441_4b54;
 const NOTIFICATION_LIFETIME: Duration = Duration::from_secs(10);
 static NOTIFICATION_GENERATION: AtomicU64 = AtomicU64::new(0);
 
@@ -37,7 +37,7 @@ pub fn show(hwnd: usize, title: &str, message: &str, kind: NotificationKind) -> 
     let mut data = notification_data(hwnd);
     data.uFlags = NIF_ICON | NIF_TIP;
     data.hIcon = window_icon(hwnd as HWND);
-    write_wide(&mut data.szTip, "Oxide");
+    write_wide(&mut data.szTip, "Takt");
 
     // Adding an already registered id can fail while a previous notification is visible.
     // NIM_MODIFY below intentionally updates that existing icon in this case.
@@ -89,7 +89,7 @@ fn notification_data(hwnd: usize) -> NOTIFYICONDATAW {
     NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd as HWND,
-        uID: OXIDE_NOTIFICATION_ID,
+        uID: TAKT_NOTIFICATION_ID,
         ..Default::default()
     }
 }
@@ -122,11 +122,11 @@ mod tests {
     #[test]
     fn wide_notification_text_is_terminated_and_truncated_safely() {
         let mut target = [0xffff; 5];
-        write_wide(&mut target, "Oxide player");
+        write_wide(&mut target, "Takt player");
 
         assert_eq!(
             &target[..4],
-            &[b'O' as u16, b'x' as u16, b'i' as u16, b'd' as u16]
+            &[b'T' as u16, b'a' as u16, b'k' as u16, b't' as u16]
         );
         assert_eq!(target[4], 0);
     }

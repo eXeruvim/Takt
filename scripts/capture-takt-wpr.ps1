@@ -16,7 +16,7 @@ param(
     [ValidateRange(0, 300)]
     [int]$WarmupSeconds = 5,
 
-    [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\oxide.exe'),
+    [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\takt.exe'),
 
     [string]$MediaPath = '',
 
@@ -62,17 +62,17 @@ function Close-TraceProcess {
         return
     }
     if (-not $Process.CloseMainWindow()) {
-        throw "Oxide PID $($Process.Id) не принял обычный запрос закрытия. Процесс оставлен пользователю."
+        throw "Takt PID $($Process.Id) не принял обычный запрос закрытия. Процесс оставлен пользователю."
     }
     if (-not $Process.WaitForExit(10000)) {
-        throw "Oxide PID $($Process.Id) не закрылся за 10 секунд. Процесс оставлен пользователю."
+        throw "Takt PID $($Process.Id) не закрылся за 10 секунд. Процесс оставлен пользователю."
     }
 }
 
 $repository = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $executablePath = [System.IO.Path]::GetFullPath($Executable)
 $expectedExecutable = [System.IO.Path]::GetFullPath(
-    (Join-Path $repository 'target\profiling\oxide.exe')
+    (Join-Path $repository 'target\profiling\takt.exe')
 )
 $resultRoot = [System.IO.Path]::GetFullPath((Join-Path $repository 'benchmark-results\wpr'))
 if (-not $resultRoot.StartsWith(
@@ -156,7 +156,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Не удалось проверить состояние WPR: $status"
 }
 if ($status -notmatch '(?i)not recording') {
-    throw 'WPR уже записывает другую трассу. Oxide не будет вмешиваться в эту сессию.'
+    throw 'WPR уже записывает другую трассу. Takt не будет вмешиваться в эту сессию.'
 }
 
 New-Item -ItemType Directory -Path $resultRoot -Force | Out-Null
@@ -181,16 +181,16 @@ try {
     if ($Profile -eq 'Heap') {
         $heapTracingStatus = Invoke-CheckedWpr -Arguments @(
             '-HeapTracingConfig',
-            'oxide.exe'
+            'takt.exe'
         )
         if ($heapTracingStatus -notmatch '(?i)heap tracing is enabled') {
             [void](Invoke-CheckedWpr -Arguments @(
                 '-HeapTracingConfig',
-                'oxide.exe',
+                'takt.exe',
                 'enable'
             ))
             $heapTracingChanged = $true
-            Write-Host 'Heap tracing для oxide.exe временно включён.'
+            Write-Host 'Heap tracing для takt.exe временно включён.'
         }
     }
     Write-Warning 'ETL содержит системные события, имена процессов и может содержать локальные пути. Не публикуйте трассу без проверки.'
@@ -198,10 +198,10 @@ try {
         $startOutput = Invoke-CheckedWpr -Arguments @('-start', $Profile, '-filemode')
         $recordingStarted = $true
         $startedAt = [DateTimeOffset]::UtcNow
-        Write-Host "WPR $Profile запущен до Oxide, чтобы увидеть стартовые выделения."
+        Write-Host "WPR $Profile запущен до Takt, чтобы увидеть стартовые выделения."
     }
 
-    $hardwareDecoderVariable = 'OXIDE_BENCHMARK_HWDEC'
+    $hardwareDecoderVariable = 'TAKT_BENCHMARK_HWDEC'
     $oldHardwareDecoder = [Environment]::GetEnvironmentVariable(
         $hardwareDecoderVariable,
         [EnvironmentVariableTarget]::Process
@@ -225,7 +225,7 @@ try {
             [EnvironmentVariableTarget]::Process
         )
     }
-    Write-Host "Oxide запущен с PID $($process.Id)."
+    Write-Host "Takt запущен с PID $($process.Id)."
     if ($Scenario -ne 'idle') {
         $scenarioInstruction = switch ($Scenario) {
             'audio' { 'Запустите аудиофайл и дождитесь стабильного воспроизведения.' }
@@ -233,7 +233,7 @@ try {
             'video-4k' { 'Запустите видео 4K и дождитесь стабильного воспроизведения.' }
             'hdd-video' { 'Откройте видео именно с HDD. Во время записи: пауза на 5 секунд, продолжение, через 10 секунд одна перемотка и затем обычное воспроизведение.' }
             'paused' { 'Запустите медиафайл, поставьте воспроизведение на паузу и не двигайте мышь.' }
-            'minimized' { 'Запустите медиафайл и сверните окно Oxide на панель задач.' }
+            'minimized' { 'Запустите медиафайл и сверните окно Takt на панель задач.' }
         }
         Write-Host $scenarioInstruction
         Read-Host 'Когда сценарий готов, вернитесь в терминал и нажмите Enter'
@@ -244,7 +244,7 @@ try {
     }
     $process.Refresh()
     if ($process.HasExited) {
-        throw "Oxide завершился до начала трассы с кодом $($process.ExitCode)"
+        throw "Takt завершился до начала трассы с кодом $($process.ExitCode)"
     }
 
     if (-not $captureBeforeLaunch) {
@@ -254,7 +254,7 @@ try {
     }
     $scenarioStartedAt = [DateTimeOffset]::UtcNow
     if ($Scenario -eq 'hdd-video') {
-        Write-Host "WPR $Profile записывает $DurationSeconds с. Выполните указанные действия в Oxide."
+        Write-Host "WPR $Profile записывает $DurationSeconds с. Выполните указанные действия в Takt."
     }
     else {
         Write-Host "WPR $Profile записывает $DurationSeconds с. Не взаимодействуйте с компьютером."
@@ -264,14 +264,14 @@ try {
     $stopOutput = Invoke-CheckedWpr -Arguments @(
         '-stop',
         $tracePath,
-        "Oxide $Scenario $Profile"
+        "Takt $Scenario $Profile"
     )
     $recordingStopped = $true
     $finishedAt = [DateTimeOffset]::UtcNow
 
     $metadata = [ordered]@{
         schema = 1
-        kind = 'oxide-wpr-trace'
+        kind = 'takt-wpr-trace'
         scenario = $Scenario
         profile = $Profile
         started_utc = $startedAt.ToString('O')
@@ -334,14 +334,14 @@ finally {
         try {
             [void](Invoke-CheckedWpr -Arguments @(
                 '-HeapTracingConfig',
-                'oxide.exe',
+                'takt.exe',
                 'disable'
             ))
             Write-Host 'Временная конфигурация heap tracing отключена.'
         }
         catch {
             Write-Warning (
-                'Не удалось отключить heap tracing для oxide.exe: ' +
+                'Не удалось отключить heap tracing для takt.exe: ' +
                 $_.Exception.Message
             )
         }

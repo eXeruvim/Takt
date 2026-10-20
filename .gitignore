@@ -12,7 +12,7 @@
 /dhat-heap.json
 /artifacts/
 /.release-secrets/
-/oxide.cdx.json
-/oxide.cdx.json.json
-/.oxide-cdx-tmp.json
+/takt.cdx.json
+/takt.cdx.json.json
+/.takt-cdx-tmp.json
 /Screenshot_*.png

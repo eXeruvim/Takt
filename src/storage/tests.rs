@@ -15,7 +15,7 @@ impl TestDirectory {
             .as_nanos();
         let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "oxide-storage-test-{}-{nonce}-{id}",
+            "takt-storage-test-{}-{nonce}-{id}",
             std::process::id()
         ));
         fs::create_dir(&path).unwrap();
@@ -57,7 +57,7 @@ fn assert_no_temps(files: &TestDirectory) {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .contains(".oxide-save-")
+            .contains(".takt-save-")
     }));
 }
 
@@ -72,6 +72,38 @@ fn legacy_data_migrates_without_changing_its_schema_and_keeps_backup() {
     assert_eq!(open(&path).1, SECOND);
     assert_eq!(fs::read(sidecar(&path, ".bak")).unwrap(), FIRST.as_bytes());
     assert_no_temps(&files);
+}
+
+#[test]
+fn pre_rename_envelope_remains_readable() {
+    let content = FIRST;
+    let bytes = format!(
+        "OXIDE_STORAGE\t1\t{}\t{:016x}\n{content}",
+        content.len(),
+        checksum(content.as_bytes())
+    );
+    assert_eq!(decode(bytes.as_bytes()).unwrap(), content);
+}
+
+#[test]
+fn pre_rename_files_are_copied_to_the_takt_directory_without_removing_source() {
+    let files = TestDirectory::new();
+    let legacy = files.path("Oxide").join("settings.txt");
+    let preferred = files.path("Takt").join("settings.txt");
+    fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    fs::write(&legacy, FIRST).unwrap();
+    fs::write(sidecar(&legacy, ".bak"), SECOND).unwrap();
+
+    assert_eq!(
+        migrate_legacy_path(preferred.clone(), legacy.clone()),
+        preferred
+    );
+    assert_eq!(fs::read(&preferred).unwrap(), FIRST.as_bytes());
+    assert_eq!(
+        fs::read(sidecar(&preferred, ".bak")).unwrap(),
+        SECOND.as_bytes()
+    );
+    assert_eq!(fs::read(&legacy).unwrap(), FIRST.as_bytes());
 }
 
 #[test]
@@ -125,7 +157,7 @@ fn unknown_versions_and_unrecoverable_corruption_are_never_overwritten() {
     let path = files.path("state.txt");
     for bytes in [
         b"STATE_V2\nnewer".as_slice(),
-        b"OXIDE_STORAGE\t2\t0\t0\n",
+        b"TAKT_STORAGE\t2\t0\t0\n",
         b"broken",
     ] {
         fs::write(&path, bytes).unwrap();
@@ -304,9 +336,9 @@ fn child(files: &TestDirectory, mode: &str, label: &str) -> ChildGuard {
             "--ignored",
             "--nocapture",
         ])
-        .env("OXIDE_STORAGE_TEST_DIR", &files.0)
-        .env("OXIDE_STORAGE_TEST_MODE", mode)
-        .env("OXIDE_STORAGE_TEST_LABEL", label)
+        .env("TAKT_STORAGE_TEST_DIR", &files.0)
+        .env("TAKT_STORAGE_TEST_MODE", mode)
+        .env("TAKT_STORAGE_TEST_LABEL", label)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -329,9 +361,9 @@ fn wait_until(mut ready: impl FnMut() -> bool) {
 #[test]
 #[ignore = "disposable storage subprocess fixture; invoked by parent tests"]
 fn helper_child() {
-    let root = PathBuf::from(std::env::var_os("OXIDE_STORAGE_TEST_DIR").unwrap());
-    let mode = std::env::var("OXIDE_STORAGE_TEST_MODE").unwrap();
-    let label = std::env::var("OXIDE_STORAGE_TEST_LABEL").unwrap();
+    let root = PathBuf::from(std::env::var_os("TAKT_STORAGE_TEST_DIR").unwrap());
+    let mode = std::env::var("TAKT_STORAGE_TEST_MODE").unwrap();
+    let label = std::env::var("TAKT_STORAGE_TEST_LABEL").unwrap();
     let path = root.join("state.txt");
     match mode.as_str() {
         "abort" => {
@@ -386,7 +418,7 @@ fn process_exit_mid_write_leaves_complete_primary_and_orphan_temp_only() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .contains(".oxide-save-")
+            .contains(".takt-save-")
     }));
 }
 

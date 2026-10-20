@@ -113,7 +113,7 @@ impl CheckService {
         let (commands, worker_commands) = bounded(COMMAND_CAPACITY);
         let (worker_events, events) = bounded(EVENT_CAPACITY);
         let worker = thread::Builder::new()
-            .name("oxide-update-check".to_owned())
+            .name("takt-update-check".to_owned())
             .spawn(move || run_worker(worker_commands, worker_events, fetch))?;
         Ok(Self {
             commands: Some(commands),
@@ -192,7 +192,7 @@ mod tests {
             packages: vec![UpdatePackage {
                 kind: PackageKind::Installer,
                 architecture: "x86_64-windows".to_owned(),
-                url: "https://github.com/example/oxide/setup.exe".to_owned(),
+                url: "https://github.com/example/takt/setup.exe".to_owned(),
                 sha256: "11".repeat(32),
                 size: 1024,
             }],

@@ -1,4 +1,4 @@
-// Oxide regression tests for the local resource-ownership patch.
+// Takt regression tests for the local resource-ownership patch.
 // These tests use the real libmpv allocator, with no media, window or audio output.
 use super::*;
 use std::{cell::Cell, panic::catch_unwind};

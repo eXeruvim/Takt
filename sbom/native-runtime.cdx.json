@@ -17,11 +17,11 @@
       ],
       "properties": [
         {
-          "name": "oxide:provenance",
+          "name": "takt:provenance",
           "value": "mpv-player/mpv GitHub Actions run 38326895870, job 115067544505"
         },
         {
-          "name": "oxide:coverage",
+          "name": "takt:coverage",
           "value": "Components whose exact runtime versions are exposed by libmpv. Additional static build dependencies are governed by the pinned upstream workflow and source tree."
         }
       ]

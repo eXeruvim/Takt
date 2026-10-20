@@ -21,7 +21,7 @@ function Read-GpuSummary {
     }
     $summary = Get-Content -LiteralPath $resolved -Raw -Encoding utf8 |
         ConvertFrom-Json -ErrorAction Stop
-    if ($summary.schema -ne 1 -or $summary.kind -ne 'oxide-gpu-summary') {
+    if ($summary.schema -ne 1 -or $summary.kind -ne 'takt-gpu-summary') {
         throw "Неподдерживаемая GPU-сводка: $resolved"
     }
     return [pscustomobject]@{
@@ -114,9 +114,9 @@ Assert-SameValue 'media.size_bytes' $software.data.media.size_bytes $hardware.da
 
 $softwareDuration = [double]$software.data.trace_duration_seconds
 $hardwareDuration = [double]$hardware.data.trace_duration_seconds
-$oxideComparison = Compare-EngineTotals `
-    -Software (Get-EngineTotals @($software.data.oxide_engines)) `
-    -Hardware (Get-EngineTotals @($hardware.data.oxide_engines)) `
+$taktComparison = Compare-EngineTotals `
+    -Software (Get-EngineTotals @($software.data.takt_engines)) `
+    -Hardware (Get-EngineTotals @($hardware.data.takt_engines)) `
     -SoftwareDuration $softwareDuration `
     -HardwareDuration $hardwareDuration
 $systemComparison = Compare-EngineTotals `
@@ -125,20 +125,20 @@ $systemComparison = Compare-EngineTotals `
     -SoftwareDuration $softwareDuration `
     -HardwareDuration $hardwareDuration
 
-$softwareOxideTasks = 0
-foreach ($engine in @($software.data.oxide_engines)) {
-    $softwareOxideTasks += [int]$engine.task_count
+$softwareTaktTasks = 0
+foreach ($engine in @($software.data.takt_engines)) {
+    $softwareTaktTasks += [int]$engine.task_count
 }
-$hardwareOxideTasks = 0
-foreach ($engine in @($hardware.data.oxide_engines)) {
-    $hardwareOxideTasks += [int]$engine.task_count
+$hardwareTaktTasks = 0
+foreach ($engine in @($hardware.data.takt_engines)) {
+    $hardwareTaktTasks += [int]$engine.task_count
 }
-$directXHardwareActivityObserved = $hardwareOxideTasks -gt 0 -and `
-    $hardwareOxideTasks -gt $softwareOxideTasks
+$directXHardwareActivityObserved = $hardwareTaktTasks -gt 0 -and `
+    $hardwareTaktTasks -gt $softwareTaktTasks
 
 $comparison = [ordered]@{
     schema = 1
-    kind = 'oxide-gpu-comparison'
+    kind = 'takt-gpu-comparison'
     software_summary = [System.IO.Path]::GetFileName($software.path)
     hardware_summary = [System.IO.Path]::GetFileName($hardware.path)
     software_trace = [string]$software.data.source_trace
@@ -154,7 +154,7 @@ $comparison = [ordered]@{
     hardware_duration_seconds = $hardwareDuration
     directx_hardware_path_activity_observed = $directXHardwareActivityObserved
     video_decode_engine_label_observed = [bool]$hardware.data.video_decode_observed
-    oxide_engine_deltas = @($oxideComparison)
+    takt_engine_deltas = @($taktComparison)
     system_engine_deltas = @($systemComparison)
     interpretation = if ($directXHardwareActivityObserved) {
         'Парный прогон подтверждает дополнительную GPU-работу в аппаратном copy-back режиме. Метка движка отражает атрибуцию драйвера, а не обязательно физический блок декодирования.'
@@ -166,7 +166,7 @@ $comparison = [ordered]@{
 }
 
 $resolvedOutput = if ([string]::IsNullOrWhiteSpace($OutputPath)) {
-    Join-Path (Split-Path -Parent $hardware.path) 'oxide-gpu-comparison.json'
+    Join-Path (Split-Path -Parent $hardware.path) 'takt-gpu-comparison.json'
 }
 else {
     [System.IO.Path]::GetFullPath($OutputPath)

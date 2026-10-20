@@ -32,8 +32,8 @@ export component AppWindow inherits Window {
     no-frame: true;
     always-on-top: self.picture_in_picture;
     resize-border-width: self.edge_to_edge ? 0px : 6px;
-    title: "Oxide";
-    icon: @image-url("icons/oxide.svg");
+    title: "Takt";
+    icon: @image-url("icons/takt.svg");
 
     in-out property <string> file_name: "Не выбран файл";
     in-out property <string> audio_display_name: "Не выбран файл";
@@ -764,7 +764,7 @@ export component AppWindow inherits Window {
                     Image {
                         x: 0px;
                         y: (parent.height - self.height) / 2;
-                        source: @image-url("icons/oxide.svg");
+                        source: @image-url("icons/takt.svg");
                         width: Theme.icon-small;
                         height: Theme.icon-small;
                         image-fit: contain;
@@ -774,7 +774,7 @@ export component AppWindow inherits Window {
                         x: Theme.space-6;
                         width: parent.width - self.x;
                         height: parent.height;
-                        text: "Oxide";
+                        text: "Takt";
                         variant: TextVariant.label;
                         vertical-alignment: center;
                     }

@@ -34,7 +34,7 @@ fn main() -> ExitCode {
             "{}",
             serde_json::json!({
                 "schema": 1,
-                "component": "oxide-updater",
+                "component": "takt-updater",
                 "package_version": env!("CARGO_PKG_VERSION"),
             })
         );
@@ -42,9 +42,14 @@ fn main() -> ExitCode {
     }
     if arguments.len() == 2
         && arguments[0] == std::ffi::OsStr::new("--update-applied")
-        && std::env::var_os("OXIDE_UPDATER_TEST_PROBE").as_deref()
+        && std::env::var_os("TAKT_UPDATER_TEST_PROBE").as_deref()
             == Some(std::ffi::OsStr::new("enabled"))
     {
+        if std::env::var_os("TAKT_UPDATER_TEST_REJECT_FIRST_START").as_deref()
+            == Some(std::ffi::OsStr::new("enabled"))
+        {
+            return ExitCode::FAILURE;
+        }
         let marker = PathBuf::from(&arguments[1]);
         let expected = state_root().join("update-probes");
         if marker.parent() == Some(expected.as_path())
@@ -68,7 +73,7 @@ fn main() -> ExitCode {
             let _ = wait_for_process(request.wait_pid, Duration::from_secs(7));
         }
         if !process_is_running(request.wait_pid) {
-            let executable = request.target.join("oxide.exe");
+            let executable = request.target.join("takt.exe");
             if executable.is_file() {
                 let _ = Command::new(executable).spawn();
             }
@@ -131,9 +136,9 @@ fn apply(request: &Request) -> io::Result<()> {
         .parent()
         .ok_or_else(|| invalid("нет родительского каталога"))?;
     let token = request.wait_pid;
-    let backup = parent.join(format!(".oxide-update-backup-{token}"));
-    let staging = parent.join(format!(".oxide-update-stage-{token}"));
-    let failed = parent.join(format!(".oxide-update-failed-{token}"));
+    let backup = parent.join(format!(".takt-update-backup-{token}"));
+    let staging = parent.join(format!(".takt-update-stage-{token}"));
+    let failed = parent.join(format!(".takt-update-failed-{token}"));
     ensure_absent(&backup)?;
     ensure_absent(&staging)?;
     ensure_absent(&failed)?;
@@ -154,7 +159,7 @@ fn apply(request: &Request) -> io::Result<()> {
         return Err(error);
     }
 
-    let executable = request.target.join("oxide.exe");
+    let executable = request.target.join("takt.exe");
     let child = Command::new(&executable)
         .arg("--update-applied")
         .arg(&request.marker)
@@ -206,8 +211,8 @@ fn validate_request(request: &Request) -> io::Result<()> {
     {
         return Err(invalid("каталог установки не должен быть ссылкой"));
     }
-    if !request.target.join("oxide.exe").is_file() {
-        return Err(invalid("в каталоге установки нет oxide.exe"));
+    if !request.target.join("takt.exe").is_file() {
+        return Err(invalid("в каталоге установки нет takt.exe"));
     }
     let expected_probe_root = state_root().join("update-probes");
     if request.marker.parent() != Some(expected_probe_root.as_path())
@@ -292,7 +297,7 @@ fn extract_portable(package: &Path, staging: &Path) -> io::Result<()> {
             output.flush()?;
         }
     }
-    if !staging.join("oxide.exe").is_file() || !staging.join("oxide-updater.exe").is_file() {
+    if !staging.join("takt.exe").is_file() || !staging.join("takt-updater.exe").is_file() {
         return Err(invalid("portable-пакет не содержит обязательные файлы"));
     }
     Ok(())
@@ -368,7 +373,7 @@ fn wait_for_process(pid: u32, timeout: Duration) -> io::Result<()> {
     } else {
         Err(io::Error::new(
             io::ErrorKind::TimedOut,
-            "Oxide не закрылся вовремя",
+            "Takt не закрылся вовремя",
         ))
     }
 }
@@ -426,14 +431,14 @@ fn write_diagnostic(message: &str) -> io::Result<()> {
 }
 
 fn state_root() -> PathBuf {
-    if std::env::var_os("OXIDE_UPDATER_TEST_PROBE").as_deref()
+    if std::env::var_os("TAKT_UPDATER_TEST_PROBE").as_deref()
         == Some(std::ffi::OsStr::new("enabled"))
-        && let Some(root) = std::env::var_os("OXIDE_UPDATER_TEST_ROOT").map(PathBuf::from)
+        && let Some(root) = std::env::var_os("TAKT_UPDATER_TEST_ROOT").map(PathBuf::from)
         && root.is_absolute()
     {
         return root;
     }
-    std::env::temp_dir().join("Oxide")
+    std::env::temp_dir().join("Takt")
 }
 
 fn invalid(message: impl Into<String>) -> io::Error {
@@ -457,7 +462,7 @@ mod tests {
                 .join("target/updater-tests");
             fs::create_dir_all(&root).unwrap();
             let path = root.join(format!(
-                "oxide-updater-test-{}-{}",
+                "takt-updater-test-{}-{}",
                 std::process::id(),
                 NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
             ));
@@ -480,7 +485,7 @@ mod tests {
                     "apply",
                     "portable",
                     "relative.zip",
-                    "C:\\Oxide",
+                    "C:\\Takt",
                     "4",
                     "C:\\probe.ready",
                 ]
@@ -499,7 +504,7 @@ mod tests {
         let archive_path = files.0.join("package.zip");
         let archive = File::create(&archive_path).unwrap();
         let mut writer = ZipWriter::new(archive);
-        for name in ["Oxide-1/oxide.exe", "Oxide-1/oxide-updater.exe"] {
+        for name in ["Takt-1/takt.exe", "Takt-1/takt-updater.exe"] {
             writer
                 .start_file(name, SimpleFileOptions::default())
                 .unwrap();
@@ -509,25 +514,25 @@ mod tests {
 
         let staging = files.0.join("stage");
         extract_portable(&archive_path, &staging).unwrap();
-        assert!(staging.join("oxide.exe").is_file());
-        assert!(staging.join("oxide-updater.exe").is_file());
-        assert!(!files.0.join("Oxide-1").exists());
+        assert!(staging.join("takt.exe").is_file());
+        assert!(staging.join("takt-updater.exe").is_file());
+        assert!(!files.0.join("Takt-1").exists());
     }
 
     #[test]
     fn rollback_restores_the_previous_directory_and_removes_failed_files() {
         let files = TestDirectory::new();
-        let target = files.0.join("Oxide");
+        let target = files.0.join("Takt");
         let backup = files.0.join("backup");
         let failed = files.0.join("failed");
         fs::create_dir(&target).unwrap();
         fs::create_dir(&backup).unwrap();
         fs::write(target.join("new.exe"), b"new").unwrap();
-        fs::write(backup.join("oxide.exe"), b"old").unwrap();
+        fs::write(backup.join("takt.exe"), b"old").unwrap();
 
         restore_directory(&target, &backup, &failed).unwrap();
 
-        assert_eq!(fs::read(target.join("oxide.exe")).unwrap(), b"old");
+        assert_eq!(fs::read(target.join("takt.exe")).unwrap(), b"old");
         assert!(!target.join("new.exe").exists());
         assert!(!backup.exists());
         assert!(!failed.exists());

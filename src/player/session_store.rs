@@ -1,4 +1,4 @@
-use crate::storage::Persistence;
+use crate::storage::{Persistence, migrate_legacy_path};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded};
 use std::{
     fmt::Write as _,
@@ -11,8 +11,10 @@ use std::{
 mod positions;
 use positions::{MAX_PATH_BYTES, Positions, path_bytes};
 
-const STATE_HEADER: &str = "OXIDE_PLAYBACK_STATE_V2";
-const LEGACY_HEADER: &str = "OXIDE_PLAYBACK_STATE_V1";
+const STATE_HEADER: &str = "TAKT_PLAYBACK_STATE_V2";
+const LEGACY_HEADER: &str = "TAKT_PLAYBACK_STATE_V1";
+const OXIDE_STATE_HEADER: &str = "OXIDE_PLAYBACK_STATE_V2";
+const OXIDE_LEGACY_HEADER: &str = "OXIDE_PLAYBACK_STATE_V1";
 const MAX_RECENT_FILES: usize = 10;
 const MAX_RECENT_PATH_BYTES: usize = 256 * 1024;
 const RESUME_MIN_SECONDS: f64 = 5.0;
@@ -37,7 +39,7 @@ impl BackgroundSave {
         let (requests, pending) = bounded::<SaveRequest>(1);
         let (completed, results) = bounded(1);
         let worker = thread::Builder::new()
-            .name("oxide-session-save".into())
+            .name("takt-session-save".into())
             .spawn(move || {
                 while let Ok(request) = pending.recv() {
                     let result = persistence
@@ -141,10 +143,15 @@ impl SessionStore {
     fn parse(content: &str) -> std::io::Result<Self> {
         let mut lines = content.lines();
         let header = lines.next().unwrap_or_default();
-        let legacy = header == LEGACY_HEADER;
+        let legacy = matches!(
+            header,
+            LEGACY_HEADER | OXIDE_STATE_HEADER | OXIDE_LEGACY_HEADER
+        );
         if header != STATE_HEADER && !legacy {
             return Err(std::io::Error::new(
-                if header.starts_with("OXIDE_PLAYBACK_STATE_V") {
+                if header.starts_with("TAKT_PLAYBACK_STATE_V")
+                    || header.starts_with("OXIDE_PLAYBACK_STATE_V")
+                {
                     std::io::ErrorKind::Unsupported
                 } else {
                     std::io::ErrorKind::InvalidData
@@ -433,7 +440,12 @@ fn default_storage_path() -> Option<PathBuf> {
         std::env::var_os("LOCALAPPDATA")
             .or_else(|| std::env::var_os("APPDATA"))
             .map(PathBuf::from)
-            .map(|directory| directory.join("Oxide").join("playback-state.txt"))
+            .map(|directory| {
+                migrate_legacy_path(
+                    directory.join("Takt").join("playback-state.txt"),
+                    directory.join("Oxide").join("playback-state.txt"),
+                )
+            })
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -444,7 +456,12 @@ fn default_storage_path() -> Option<PathBuf> {
                     .map(PathBuf::from)
                     .map(|home| home.join(".local").join("state"))
             })
-            .map(|directory| directory.join("oxide").join("playback-state.txt"))
+            .map(|directory| {
+                migrate_legacy_path(
+                    directory.join("takt").join("playback-state.txt"),
+                    directory.join("oxide").join("playback-state.txt"),
+                )
+            })
     }
 }
 
@@ -539,7 +556,7 @@ mod tests {
     #[test]
     fn oversized_legacy_history_keeps_recent_positions_even_when_recent_lines_come_last() {
         let started = std::time::Instant::now();
-        let mut content = String::from("OXIDE_PLAYBACK_STATE_V1\n");
+        let mut content = String::from("TAKT_PLAYBACK_STATE_V1\n");
         let keep = Path::new("old-but-recent.mp4");
         writeln!(content, "position\t30\t{}", encode_path(keep)).unwrap();
         for index in 0..20_000 {
@@ -779,7 +796,7 @@ mod tests {
     fn newer_history_schema_is_not_silently_reset() {
         let files = TestDirectory::new();
         let path = files.path("playback-state.txt");
-        std::fs::write(&path, "OXIDE_PLAYBACK_STATE_V3\n").unwrap();
+        std::fs::write(&path, "TAKT_PLAYBACK_STATE_V3\n").unwrap();
         assert_eq!(
             SessionStore::load_from(&path).unwrap_err().kind(),
             std::io::ErrorKind::Unsupported

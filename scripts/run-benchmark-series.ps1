@@ -19,7 +19,7 @@ param(
     [ValidateRange(0, 60)]
     [int]$CooldownSeconds = 3,
 
-    [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\oxide.exe'),
+    [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\takt.exe'),
 
     [ValidateSet('not-recorded', 'software', 'hardware-auto-copy', 'nvdec', 'nvdec-copy', 'd3d11va-copy')]
     [string]$DecoderMode = 'not-recorded',
@@ -49,7 +49,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repository = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$measureScript = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'measure-oxide.ps1'))
+$measureScript = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'measure-takt.ps1'))
 $summaryScript = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'summarize-benchmark-results.ps1'))
 foreach ($script in @($measureScript, $summaryScript)) {
     if (-not (Test-Path -LiteralPath $script -PathType Leaf)) {
@@ -93,10 +93,10 @@ if ($AllowDirty) {
 $automaticIdle = $Scenario -eq 'idle'
 Write-Host "Серия ${Scenario}: $Runs прогонов по $DurationSeconds с, прогрев $WarmupSeconds с."
 if ($automaticIdle) {
-    Write-Host 'Idle-сценарий не требует действий: не перемещайте мышь над окнами Oxide до завершения серии.'
+    Write-Host 'Idle-сценарий не требует действий: не перемещайте мышь над окнами Takt до завершения серии.'
 }
 else {
-    Write-Host 'В каждом прогоне настройте сценарий в новом окне Oxide и подтвердите готовность в терминале.'
+    Write-Host 'В каждом прогоне настройте сценарий в новом окне Takt и подтвердите готовность в терминале.'
 }
 
 for ($run = 1; $run -le $Runs; $run++) {

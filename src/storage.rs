@@ -9,7 +9,8 @@ use std::{
 };
 
 const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
-const ENVELOPE: &str = "OXIDE_STORAGE";
+const ENVELOPE: &str = "TAKT_STORAGE";
+const LEGACY_ENVELOPE: &str = "OXIDE_STORAGE";
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Default)]
@@ -147,7 +148,7 @@ impl StateFile {
         lock.try_lock().map_err(|error| match error {
             fs::TryLockError::WouldBlock => io::Error::new(
                 io::ErrorKind::WouldBlock,
-                "Хранилище занято другим экземпляром Oxide. Повторите сохранение",
+                "Хранилище занято другим экземпляром Takt. Повторите сохранение",
             ),
             fs::TryLockError::Error(error) => error,
         })?;
@@ -236,18 +237,22 @@ fn encode(content: &str) -> io::Result<Vec<u8>> {
 fn decode(bytes: &[u8]) -> io::Result<&str> {
     let text =
         std::str::from_utf8(bytes).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
-    if !text.starts_with(ENVELOPE) {
+    let envelope = if text.starts_with(ENVELOPE) {
+        ENVELOPE
+    } else if text.starts_with(LEGACY_ENVELOPE) {
+        LEGACY_ENVELOPE
+    } else {
         return Ok(text); // Existing versioned schemas remain readable.
-    }
+    };
     let (header, content) = text.split_once('\n').ok_or(io::ErrorKind::InvalidData)?;
     let fields: Vec<_> = header.splitn(5, '\t').collect();
-    if fields.len() != 4 || fields[0] != ENVELOPE {
+    if fields.len() != 4 || fields[0] != envelope {
         return Err(io::ErrorKind::InvalidData.into());
     }
     if fields[1] != "1" {
         return Err(io::Error::new(
             io::ErrorKind::Unsupported,
-            "Файл записан другой версией хранилища Oxide",
+            "Файл записан другой версией хранилища Takt",
         ));
     }
     if fields[2].parse::<usize>().ok() != Some(content.len())
@@ -256,6 +261,61 @@ fn decode(bytes: &[u8]) -> io::Result<&str> {
         return Err(io::ErrorKind::InvalidData.into());
     }
     Ok(content)
+}
+
+/// Copy a pre-rename state file into the current application directory once.
+/// The old file remains untouched so a rollback to an older build is safe.
+pub(crate) fn migrate_legacy_path(preferred: PathBuf, legacy: PathBuf) -> PathBuf {
+    if preferred.is_file() || sidecar(&preferred, ".bak").is_file() {
+        return preferred;
+    }
+
+    let legacy_backup = sidecar(&legacy, ".bak");
+    if !legacy.is_file() && !legacy_backup.is_file() {
+        return preferred;
+    }
+
+    let Some(parent) = preferred.parent() else {
+        return legacy;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return legacy;
+    }
+
+    let mut copied_any = false;
+    for (source, destination) in [
+        (&legacy, preferred.clone()),
+        (&legacy_backup, sidecar(&preferred, ".bak")),
+    ] {
+        let bytes = match read_optional(source) {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => continue,
+            Err(_) => return legacy.clone(),
+        };
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&destination)
+        {
+            Ok(mut file) => {
+                if file
+                    .write_all(&bytes)
+                    .and_then(|()| file.sync_all())
+                    .is_err()
+                {
+                    let _ = fs::remove_file(&destination);
+                    return legacy.clone();
+                }
+                copied_any = true;
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                copied_any = true;
+            }
+            Err(_) => return legacy.clone(),
+        }
+    }
+
+    if copied_any { preferred } else { legacy }
 }
 
 struct TemporaryFile(PathBuf);
@@ -292,7 +352,7 @@ fn atomic_write_with(
         let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
         let temp = sidecar(
             path,
-            &format!(".oxide-save-{}-{nonce}-{id}.tmp", std::process::id()),
+            &format!(".takt-save-{}-{nonce}-{id}.tmp", std::process::id()),
         );
         match OpenOptions::new().write(true).create_new(true).open(&temp) {
             Ok(file) => {

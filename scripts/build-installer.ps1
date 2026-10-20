@@ -42,11 +42,11 @@ try {
 
     $manifestText = Get-Content -LiteralPath (Join-Path $repository 'Cargo.toml') -Raw
     if ($manifestText -notmatch '(?m)^version\s*=\s*"([^"]+)"\s*$') {
-        throw 'Не удалось прочитать версию Oxide из Cargo.toml.'
+        throw 'Не удалось прочитать версию Takt из Cargo.toml.'
     }
     $version = $Matches[1]
     if ($version -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-[^.]+\.(\d+))?$') {
-        throw "Версия Oxide не преобразуется в Windows version quad: $version"
+        throw "Версия Takt не преобразуется в Windows version quad: $version"
     }
     $numericVersion = "$($Matches[1]).$($Matches[2]).$($Matches[3]).$(if ($Matches[4]) { $Matches[4] } else { '0' })"
 
@@ -55,7 +55,7 @@ try {
         throw 'Не удалось прочитать MEDIA_EXTENSIONS из player/playlist.rs.'
     }
     $mediaExtensions = @([regex]::Matches($Matches[1], '"([^"]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
-    $installerSource = Get-Content -LiteralPath (Join-Path $repository 'installer/oxide.iss') -Raw
+    $installerSource = Get-Content -LiteralPath (Join-Path $repository 'installer/takt.iss') -Raw
     $openWithExtensions = @([regex]::Matches($installerSource, 'Classes\\\.([A-Za-z0-9]+)\\OpenWithProgids') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
     $supportedTypeExtensions = @([regex]::Matches($installerSource, 'ValueName:\s*"\.([A-Za-z0-9]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
     foreach ($set in @($openWithExtensions, $supportedTypeExtensions)) {
@@ -74,7 +74,7 @@ try {
         throw 'Не удалось подготовить portable payload для установщика.'
     }
 
-    $portableName = "Oxide-$version-windows-x86_64"
+    $portableName = "Takt-$version-windows-x86_64"
     $portableArchive = Join-Path $output "$portableName.zip"
     $staging = Join-Path $output '.installer-staging'
     if (Test-Path -LiteralPath $staging) {
@@ -89,7 +89,7 @@ try {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         [System.IO.Compression.ZipFile]::ExtractToDirectory($portableArchive, $staging)
         $payload = Join-Path $staging $portableName
-        $installerName = "Oxide-$version-setup-x86_64"
+        $installerName = "Takt-$version-setup-x86_64"
         & $compilerPath --quiet-progress --no-ide-signtools `
             "--output-dir=$output" `
             "--output-filename=$installerName" `
@@ -97,7 +97,7 @@ try {
             "--define=MyNumericVersion=$numericVersion" `
             "--define=PayloadDir=$payload" `
             "--define=RepositoryRoot=$repository" `
-            (Join-Path $repository 'installer/oxide.iss')
+            (Join-Path $repository 'installer/takt.iss')
         if ($LASTEXITCODE -ne 0) {
             throw "ISCC завершился с кодом $LASTEXITCODE."
         }
@@ -108,20 +108,20 @@ try {
         }
     }
 
-    $installerPath = Join-Path $output "Oxide-$version-setup-x86_64.exe"
+    $installerPath = Join-Path $output "Takt-$version-setup-x86_64.exe"
     if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
         throw "Установщик не создан: $installerPath"
     }
     $installerInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($installerPath)
-    if ($installerInfo.ProductName.Trim() -ne 'Oxide' -or $installerInfo.ProductVersion.Trim() -ne $numericVersion) {
+    if ($installerInfo.ProductName.Trim() -ne 'Takt' -or $installerInfo.ProductVersion.Trim() -ne $numericVersion) {
         throw "Некорректные Version Info установщика: $($installerInfo.ProductName) $($installerInfo.ProductVersion)"
     }
 
     $standaloneArtifacts = @(
-        @((Join-Path $repository 'sbom/oxide.cdx.json'), "Oxide-$version-sbom.cdx.json"),
-        @((Join-Path $repository 'sbom/native-runtime.cdx.json'), "Oxide-$version-native-runtime.cdx.json"),
-        @((Join-Path $repository 'THIRD_PARTY_NOTICES.md'), "Oxide-$version-THIRD-PARTY-NOTICES.md"),
-        @((Join-Path $repository 'CODEC_MATRIX.md'), "Oxide-$version-CODEC-MATRIX.md")
+        @((Join-Path $repository 'sbom/takt.cdx.json'), "Takt-$version-sbom.cdx.json"),
+        @((Join-Path $repository 'sbom/native-runtime.cdx.json'), "Takt-$version-native-runtime.cdx.json"),
+        @((Join-Path $repository 'THIRD_PARTY_NOTICES.md'), "Takt-$version-THIRD-PARTY-NOTICES.md"),
+        @((Join-Path $repository 'CODEC_MATRIX.md'), "Takt-$version-CODEC-MATRIX.md")
     )
     foreach ($artifact in $standaloneArtifacts) {
         Copy-Item -LiteralPath $artifact[0] -Destination (Join-Path $output $artifact[1]) -Force

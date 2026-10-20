@@ -22,7 +22,7 @@ impl WorkingOutput {
             .as_nanos();
         for _ in 0..32 {
             let id = NEXT_STAGING_ID.fetch_add(1, Ordering::Relaxed);
-            let directory = parent.join(format!(".oxide-part-{}-{nonce}-{id}", std::process::id()));
+            let directory = parent.join(format!(".takt-part-{}-{nonce}-{id}", std::process::id()));
             match Self::reserve(directory, output) {
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
                 result => return result,

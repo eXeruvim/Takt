@@ -92,7 +92,7 @@ impl EqualizerSettings {
         // deliberately last so those overlaps cannot clip the output.
         filters.push("alimiter=limit=0.95:level=false:latency=true".to_owned());
 
-        Some(format!("@oxide-eq:lavfi=[{}]", filters.join(",")))
+        Some(format!("@takt-eq:lavfi=[{}]", filters.join(",")))
     }
 
     pub fn band_gains_db(self) -> [f64; 5] {
@@ -149,7 +149,7 @@ mod tests {
         let settings = EqualizerSettings::default().with_preset(EqualizerPreset::Bass);
         let filter = settings.mpv_filter().expect("enabled equalizer filter");
 
-        assert!(filter.starts_with("@oxide-eq:lavfi=[volume=volume=-4dB"));
+        assert!(filter.starts_with("@takt-eq:lavfi=[volume=volume=-4dB"));
         assert_eq!(filter.matches("equalizer=f=").count(), 5);
         assert!(filter.contains("equalizer=f=60:t=q:w=1:g=4"));
         assert!(filter.ends_with("alimiter=limit=0.95:level=false:latency=true]"));

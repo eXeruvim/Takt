@@ -1,6 +1,6 @@
 [package]
-name = "oxide"
-version = "1.0.0-rc.2"
+name = "takt"
+version = "1.0.0-rc.3"
 edition = "2024"
 build = "build.rs"
 license = "GPL-3.0-or-later"
@@ -15,17 +15,17 @@ fuzzing = []
 windows-gui = []
 
 [[bin]]
-name = "oxide-playlist-bench"
+name = "takt-playlist-bench"
 path = "src/playlist_bench.rs"
 required-features = ["benchmark-tools"]
 
 [[bin]]
-name = "oxide-update-manifest"
-path = "src/bin/oxide_update_manifest.rs"
+name = "takt-update-manifest"
+path = "src/bin/takt_update_manifest.rs"
 
 [[bin]]
-name = "oxide-updater"
-path = "src/bin/oxide_updater.rs"
+name = "takt-updater"
+path = "src/bin/takt_updater.rs"
 
 [dependencies]
 slint = { version = "1.17.1", default-features = false, features = [
@@ -86,12 +86,12 @@ slint-build = { version = "1.17.1" }
 winresource = "=0.1.34"
 
 [package.metadata.winresource]
-CompanyName = "Oxide contributors"
-FileDescription = "Oxide media player"
-InternalName = "oxide"
-LegalCopyright = "Copyright © 2026 Oxide contributors"
-OriginalFilename = "oxide.exe"
-ProductName = "Oxide"
+CompanyName = "Takt contributors"
+FileDescription = "Takt media player"
+InternalName = "takt"
+LegalCopyright = "Copyright © 2026 Takt contributors"
+OriginalFilename = "takt.exe"
+ProductName = "Takt"
 
 [profile.profiling]
 inherits = "release"

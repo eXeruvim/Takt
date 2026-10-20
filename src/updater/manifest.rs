@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use url::Url;
 
-const MANIFEST_DOMAIN: &[u8] = b"oxide-update-manifest-v1\0";
+const MANIFEST_DOMAIN: &[u8] = b"takt-update-manifest-v1\0";
 pub const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 pub const MAX_RELEASE_NOTES: usize = 24;
 pub const MAX_RELEASE_NOTE_BYTES: usize = 4 * 1024;
@@ -362,7 +362,7 @@ mod tests {
                 UpdatePackage {
                     kind: PackageKind::Installer,
                     architecture: "x86_64-windows".to_owned(),
-                    url: "https://github.com/example/oxide/releases/download/v1.2.0/setup.exe"
+                    url: "https://github.com/example/takt/releases/download/v1.2.0/setup.exe"
                         .to_owned(),
                     sha256: "11".repeat(32),
                     size: 42,
@@ -370,7 +370,7 @@ mod tests {
                 UpdatePackage {
                     kind: PackageKind::Portable,
                     architecture: "x86_64-windows".to_owned(),
-                    url: "https://github.com/example/oxide/releases/download/v1.2.0/portable.zip"
+                    url: "https://github.com/example/takt/releases/download/v1.2.0/portable.zip"
                         .to_owned(),
                     sha256: "22".repeat(32),
                     size: 84,
@@ -504,7 +504,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "oxide-update-hash-{}-{unique}.bin",
+            "takt-update-hash-{}-{unique}.bin",
             std::process::id()
         ));
         fs::write(&path, b"verified update payload").unwrap();

@@ -1,4 +1,4 @@
-# Oxide: pinned libmpv-sys source
+# Takt: pinned libmpv-sys source
 
 Copied from `ParadoxSpiral/libmpv-rs` commit
 `3e6c389b716f52a595cc5e8e3fa1f96cb76b3de7` for offline, reproducible builds.

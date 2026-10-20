@@ -393,7 +393,7 @@ unsafe extern "C" fn request_redraw(context: *mut c_void) {
 ///
 /// The `Rc` marker deliberately makes this type `!Send` and `!Sync`: mpv requires
 /// every render operation and destruction to happen with the same current GL
-/// context. Oxide owns it only inside Slint's rendering notifier.
+/// context. Takt owns it only inside Slint's rendering notifier.
 pub struct MpvOpenGlRenderer {
     context: NonNull<mpv_render_context>,
     _update_target: Box<UpdateTarget>,
@@ -551,7 +551,7 @@ impl Drop for MpvOpenGlRenderer {
         // resources. Preserve it for the Slint teardown path as well.
         let _state = self.gl_state.capture();
         self.gl_state.prepare_for_mpv(None);
-        // SAFETY: The type is !Send and Oxide drops it only from Slint's
+        // SAFETY: The type is !Send and Takt drops it only from Slint's
         // RenderingTeardown (or a render failure), where Slint keeps the same
         // OpenGL context current. The callback is removed first. The Box stays
         // alive through context_free, covering a synchronous final callback.

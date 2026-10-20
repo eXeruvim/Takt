@@ -1,4 +1,4 @@
-# Измерения Oxide
+# Измерения Takt
 
 [English](BENCHMARKING.en.md) · **Русский**
 
@@ -16,7 +16,7 @@
 
    В executable встраиваются commit, версия пакета и признак чистоты
    отслеживаемых исходников. Перед настоящим замером скрипт вызывает
-   `oxide.exe --build-info` и откажется подписывать старую либо собранную из
+   `takt.exe --build-info` и откажется подписывать старую либо собранную из
    изменённого дерева программу текущим commit. После каждого benchmark-коммита
    профильную сборку поэтому нужно выполнить заново. `-AllowUnverifiedBuild`
    предназначен только для чернового одиночного прогона; в серии ему соответствует
@@ -25,14 +25,14 @@
 2. Запустите один сценарий, например двухминутное воспроизведение аудио:
 
    ```powershell
-   .\scripts\measure-oxide.ps1 -Scenario audio -DurationSeconds 120
+   .\scripts\measure-takt.ps1 -Scenario audio -DurationSeconds 120
    ```
 
    Для видео режим декодирования и фактический backend указываются явно, чтобы
    результаты разных путей вывода нельзя было случайно смешать:
 
    ```powershell
-   .\scripts\measure-oxide.ps1 `
+   .\scripts\measure-takt.ps1 `
      -Scenario video-1080p `
      -DecoderMode hardware-auto-copy `
      -RendererBackend integrated-opengl `
@@ -44,7 +44,7 @@
    Основные режимы декодера: `software`, `hardware-auto-copy`; backend:
    `integrated-opengl`, `native-hwnd-fallback`. Для video-сценариев эти два
    параметра обязательны. Историческое имя `hardware-auto-copy` означает
-   продуктовую автоматическую цепочку Oxide: прямой NVDEC на совместимой NVIDIA,
+   продуктовую автоматическую цепочку Takt: прямой NVDEC на совместимой NVIDIA,
    затем NVDEC copy-back и безопасный кросс-вендорный copy-back fallback.
    Фактические значения после запуска видео показаны в
    Inspector → «Настройки воспроизведения» в строке аппаратного декодирования:
@@ -60,7 +60,7 @@
    `mpv-2.dll` рядом с executable под ожидаемым загрузчиком именем
    `libmpv-2.dll`. Нестандартный executable должен поставляться со своей DLL.
 
-3. Скрипт откроет Oxide. Настройте указанный сценарий, дождитесь стабилизации и
+3. Скрипт откроет Takt. Настройте указанный сценарий, дождитесь стабилизации и
    нажмите Enter в терминале. Во время записи не выполняйте посторонних действий;
    оставшееся время отображается индикатором в терминале.
 
@@ -73,7 +73,7 @@
 указанный файл и оставьте панели закрытыми. Для первых 100 циклов используйте:
 
 ```powershell
-.\scripts\measure-oxide.ps1 -Scenario ui-panels -DurationSeconds 136 -UiCycleCount 100 -MediaPath "C:\Медиа\sample.mp4" -CloseAfterMeasurement
+.\scripts\measure-takt.ps1 -Scenario ui-panels -DurationSeconds 136 -UiCycleCount 100 -MediaPath "C:\Медиа\sample.mp4" -CloseAfterMeasurement
 ```
 
 Скрипт проверит число действительно завершённых циклов по внутреннему отчёту,
@@ -102,7 +102,7 @@ local/non-local являются двумя классификациями од�
 Самопроверка без запуска окна:
 
 ```powershell
-.\scripts\measure-oxide.ps1 -Scenario idle -ValidateOnly
+.\scripts\measure-takt.ps1 -Scenario idle -ValidateOnly
 ```
 
 ## Предрелизный smoke-тест
@@ -111,7 +111,7 @@ local/non-local являются двумя классификациями од�
 создаёт главное окно, остаётся запущенным и принимает штатный запрос закрытия:
 
 ```powershell
-.\scripts\smoke-oxide.ps1
+.\scripts\smoke-takt.ps1
 ```
 
 Скрипт работает только со своим PID, не использует `Stop-Process` и при отказе
@@ -123,14 +123,14 @@ local/non-local являются двумя классификациями од�
 таймлайн:
 
 ```powershell
-.\scripts\smoke-oxide.ps1 -MediaPath "C:\Медиа\короткое видео.mp4" -VisibleSeconds 8
+.\scripts\smoke-takt.ps1 -MediaPath "C:\Медиа\короткое видео.mp4" -VisibleSeconds 8
 ```
 
 Скрипт проверяет жизненный цикл процесса, но не пытается программно оценивать
 содержимое кадра или звук. Проверка путей без GUI:
 
 ```powershell
-.\scripts\smoke-oxide.ps1 -ValidateOnly
+.\scripts\smoke-takt.ps1 -ValidateOnly
 ```
 
 ## Сводка повторных прогонов
@@ -145,9 +145,9 @@ local/non-local являются двумя классификациями од�
 ```
 
 Для `idle` запуск, прогрев, замер и обычное закрытие каждого созданного экземпляра
-Oxide выполняются автоматически. В аудио-, видео- и playlist-сценариях перед
+Takt выполняются автоматически. В аудио-, видео- и playlist-сценариях перед
 каждым прогоном остаётся осознанный ручной шаг: откройте нужный файл, проверьте
-фактический decoder/backend и нажмите Enter. Скрипт никогда не завершает Oxide
+фактический decoder/backend и нажмите Enter. Скрипт никогда не завершает Takt
 принудительно: если обычное закрытие не сработало за 10 секунд, серия
 останавливается, а окно оставляется пользователю.
 
@@ -235,7 +235,7 @@ UTF-8-подписей, преобразование в `SharedString`, созд
 cargo build `
   --profile profiling `
   --features benchmark-tools `
-  --bin oxide-playlist-bench `
+  --bin takt-playlist-bench `
   --locked `
   --offline
 
@@ -292,7 +292,7 @@ RTX 4070 SUPER, Windows 11 build 26200, 2560×1440/165 Гц и профиля в
 110,06–110,54 МиБ Working Set p95, 168,40–171,02 МиБ Private Bytes p95 и
 443–445 handles. Выброс хранится в исходных данных и не исключается; отдельный
 cold-start/file-picker сценарий нужен, прежде чем приписывать его конкретному
-компоненту Windows или Oxide.
+компоненту Windows или Takt.
 
 Для pause обязательны 0 постоянных кадров и CPU, неотличимый от idle; для
 minimized — 0 кадров Slint и не более 0,25% общей CPU-мощности на этой машине.
@@ -311,11 +311,11 @@ Recorder. Сначала соберите profiling-версию из чисто
 отдельную системную ETL-трассу:
 
 ```powershell
-.\scripts\capture-oxide-wpr.ps1 -Scenario idle -Profile CPU -DurationSeconds 30
-.\scripts\capture-oxide-wpr.ps1 -Scenario video-1080p -Profile GPU -DurationSeconds 30 -MediaPath C:\media\sample.mp4 -DecoderMode hardware-auto-copy -RendererBackend integrated-opengl -WindowMode windowed -Theme dark
+.\scripts\capture-takt-wpr.ps1 -Scenario idle -Profile CPU -DurationSeconds 30
+.\scripts\capture-takt-wpr.ps1 -Scenario video-1080p -Profile GPU -DurationSeconds 30 -MediaPath C:\media\sample.mp4 -DecoderMode hardware-auto-copy -RendererBackend integrated-opengl -WindowMode windowed -Theme dark
 ```
 
-Для media-сценария скрипт откроет Oxide и подождёт подтверждения после настройки
+Для media-сценария скрипт откроет Takt и подождёт подтверждения после настройки
 воспроизведения. `idle` выполняется автоматически. Доступны штатные профили `CPU`,
 `GPU`, `Power`, `GeneralProfile`, `Heap`, `Video`, `ResidentSet`, `ReferenceSet`
 и `VirtualAllocation`. Один прогон отвечает на один вопрос; не объединяйте
@@ -337,28 +337,28 @@ ETL является системной трассой: она содержит 
 Для просмотра стеков, CPU Usage, Context Switches и GPU engines нужен
 Windows Performance Analyzer из Windows Performance Toolkit. Наличие WPR без WPA
 позволяет записать данные, но не даёт честно определить горячие функции.
-Dedicated/shared GPU memory измеряет `measure-oxide.ps1` напрямую; штатный WPA
+Dedicated/shared GPU memory измеряет `measure-takt.ps1` напрямую; штатный WPA
 Exporter может не выгрузить VidMm-таблицу даже из GPU ETL, поэтому отсутствие
 такого CSV не интерпретируется как нулевой расход VRAM.
 Системные профили обычно требуют PowerShell, запущенный от имени администратора,
 либо права Windows «Profile system performance». При отказе `0xc5585011` скрипт
-не создаёт трассу, закрывает запущенный Oxide и не оставляет активную WPR-сессию.
+не создаёт трассу, закрывает запущенный Takt и не оставляет активную WPR-сессию.
 
 Самопроверка путей и доступности профиля без запуска приложения и записи ETL:
 
 ```powershell
-.\scripts\capture-oxide-wpr.ps1 -Scenario idle -Profile CPU -ValidateOnly
+.\scripts\capture-takt-wpr.ps1 -Scenario idle -Profile CPU -ValidateOnly
 ```
 
-После записи CPU-трассы экспортировать срезы Oxide по модулю, функции, sampled
+После записи CPU-трассы экспортировать срезы Takt по модулю, функции, sampled
 потоку и точным context switches можно без ручной настройки таблиц WPA. Скрипт
 по умолчанию выбирает самый свежий паспорт в `benchmark-results/wpr`, берёт из
 него точный PID процесса и сохраняет производные CSV рядом в игнорируемом
-каталоге `analysis`. Там же создаётся `oxide-cpu-summary.json` с агрегатами по
+каталоге `analysis`. Там же создаётся `takt-cpu-summary.json` с агрегатами по
 модулям, функциям, потокам и источникам пробуждения самого активного потока:
 
 ```powershell
-.\scripts\export-oxide-wpa.ps1
+.\scripts\export-takt-wpa.ps1
 ```
 
 `-Symbols` включает разрешение имён только через PDB текущей сборки из
@@ -368,11 +368,11 @@ Exporter может не выгрузить VidMm-таблицу даже из G
 ### GPU engines и парное сравнение декодеров
 
 Для профиля `GPU` используется отдельный экспортёр. Он берёт точный PID и режимы
-из паспорта, создаёт две таблицы — только Oxide и системную — и группирует задачи
+из паспорта, создаёт две таблицы — только Takt и системную — и группирует задачи
 по типу GPU-движка:
 
 ```powershell
-.\scripts\export-oxide-gpu.ps1
+.\scripts\export-takt-gpu.ps1
 ```
 
 `one_engine_timeline_percent` — сумма GPU time, делённая на длительность трассы
@@ -384,22 +384,22 @@ fallback, поскольку драйвер может атрибутирова�
 `software` и `hardware-auto-copy`, экспортируйте оба и сравните их:
 
 ```powershell
-.\scripts\compare-oxide-gpu.ps1 -SoftwareSummaryPath C:\path\software\oxide-gpu-summary.json -HardwareSummaryPath C:\path\hardware\oxide-gpu-summary.json
+.\scripts\compare-takt-gpu.ps1 -SoftwareSummaryPath C:\path\software\takt-gpu-summary.json -HardwareSummaryPath C:\path\hardware\takt-gpu-summary.json
 ```
 
 Скрипт откажется сравнивать разные SHA-256 бинарника, mpv или медиа, commit,
 renderer, режим окна, тему и сценарий. Сравнение GPU не заменяет отдельные CPU,
 frame pacing, energy и dedicated/shared GPU-memory измерения.
 
-Лёгкие замеры CPU и памяти из `measure-oxide.ps1` сравниваются отдельно. Передайте
+Лёгкие замеры CPU и памяти из `measure-takt.ps1` сравниваются отдельно. Передайте
 парные результаты `software` и `hardware-auto-copy`; анализатор также проверит commit,
 SHA-256, медиа, длительность, окно, тему, оборудование и питание:
 
 ```powershell
-.\scripts\compare-oxide-decoder.ps1 -SoftwareResultPath .\benchmark-results\software.json -HardwareResultPath .\benchmark-results\hardware.json
+.\scripts\compare-takt-decoder.ps1 -SoftwareResultPath .\benchmark-results\software.json -HardwareResultPath .\benchmark-results\hardware.json
 ```
 
-Выходной `oxide-decoder-comparison.json` содержит абсолютные и относительные
+Выходной `takt-decoder-comparison.json` содержит абсолютные и относительные
 дельты CPU, Working Set, Private Bytes, dedicated/shared GPU memory, трендов
 памяти, handles и threads. Для старой пары без GPU-счётчиков эти поля помечаются
 как недоступные, поэтому прежние результаты остаются совместимыми. Если
@@ -421,11 +421,11 @@ VO/decoder drops, delayed/mistimed, частота и A/V sync. Одна
 `video` и `audio`: интервал кадров, участок Slint `BeforeRendering` →
 `AfterRendering` и его остаток после вычитания вложенного `mpv_render`. Последний
 показатель включает отрисовку Slint и служебный notifier-код, но не является
-чистым временем layout. Это frame pacing внутри Oxide/Slint, а не фактическая
+чистым временем layout. Это frame pacing внутри Takt/Slint, а не фактическая
 задержка показа DWM, ожидание GPU или дисплея; внешний PresentMon/WPA по-прежнему
 нужен для end-to-end.
 Временный диагностический файл удаляется после
-слияния со сводкой; обычный запуск Oxide его не создаёт. Счётчики охватывают
+слияния со сводкой; обычный запуск Takt его не создаёт. Счётчики охватывают
 текущий файл с момента загрузки, включая ручную настройку и прогрев. Поэтому
 сравнивайте только одинаковые действия и длительность. `vo-delayed-frame-count`
 является эвристикой mpv, а не точным доказательством пропуска кадра; frame-time
@@ -438,20 +438,20 @@ p50/p95/p99 по этим счётчикам не вычисляется.
 `ResidentSet` из PowerShell, запущенного от имени администратора:
 
 ```powershell
-.\scripts\capture-oxide-wpr.ps1 -Scenario audio -Profile ResidentSet -DurationSeconds 30 -WarmupSeconds 5
-.\scripts\export-oxide-memory.ps1
+.\scripts\capture-takt-wpr.ps1 -Scenario audio -Profile ResidentSet -DurationSeconds 30 -WarmupSeconds 5
+.\scripts\export-takt-memory.ps1
 ```
 
 Экспортёр берёт точный PID из паспорта и создаёт четыре независимых среза:
 итог по процессу, списки памяти, категории страниц и описания файлов/образов.
-Итоговый `oxide-resident-memory-summary.json` не складывает уровни иерархии WPA
+Итоговый `takt-resident-memory-summary.json` не складывает уровни иерархии WPA
 между собой. `Resident Set` — снимок страниц в физической памяти в конце записи;
 он не равен Private Bytes/commit и сам по себе не доказывает утечку. Если рост
 Private Bytes повторяется после прогрева, следующим отдельным экспериментом
 используйте `VirtualAllocation`, а heap-трассу снимайте только для подтверждённого
 роста и заранее выбранного процесса.
 
-Для `VirtualAllocation`, `ReferenceSet` и `Heap` сборщик запускает WPR до Oxide,
+Для `VirtualAllocation`, `ReferenceSet` и `Heap` сборщик запускает WPR до Takt,
 чтобы не потерять стартовые выделения. Поэтому их ETL включает также время ручной
 настройки сценария и прогрев; паспорт отдельно хранит начало всей записи и начало
 фиксированного окна измерения. CPU/GPU и Resident Set по-прежнему записываются
@@ -469,11 +469,11 @@ Private Bytes повторяется после прогрева, следующ
 экспортируйте её через WPA:
 
 ```powershell
-.\scripts\capture-oxide-wpr.ps1 -Scenario audio -Profile VirtualAllocation -DurationSeconds 30 -WarmupSeconds 5
-.\scripts\export-oxide-virtual-allocation.ps1 -Symbols
+.\scripts\capture-takt-wpr.ps1 -Scenario audio -Profile VirtualAllocation -DurationSeconds 30 -WarmupSeconds 5
+.\scripts\export-takt-virtual-allocation.ps1 -Symbols
 ```
 
-Экспортёр создаёт `oxide-virtual-allocation-summary.json`, четыре исходных CSV и
+Экспортёр создаёт `takt-virtual-allocation-summary.json`, четыре исходных CSV и
 производный WPA-профиль. `Outstanding Committed` — объём виртуальной памяти, для
 которой система обязалась предоставить RAM или pagefile; это не то же самое, что
 физически резидентный Working Set. `Outstanding Reserved` лишь занимает диапазоны
@@ -484,5 +484,5 @@ Private Bytes повторяется после прогрева, следующ
 Сводка отдельно хранит непересекающиеся ветви на глубине 3 и ориентиры максимального
 включающего объёма для функций/модулей. Ориентиры нельзя складывать между собой;
 они нужны, чтобы найти путь крупного выделения и затем поставить отдельный A/B
-эксперимент. Полное дерево остаётся в CSV. `-Symbols` разрешает имена Oxide через
+эксперимент. Полное дерево остаётся в CSV. `-Symbols` разрешает имена Takt через
 локальную PDB; отсутствие PDB системных DLL не мешает итогам по байтам.

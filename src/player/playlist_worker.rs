@@ -51,7 +51,7 @@ impl PlaylistWorker {
     fn with_loader(wake: WakeCallback, loader: PlaylistLoader) -> anyhow::Result<Self> {
         Ok(Self {
             worker: LatestWorker::new(
-                "oxide-playlist",
+                "takt-playlist",
                 "Не удалось запустить поток формирования очереди",
                 "Поток формирования очереди завершился с паникой",
                 wake,

@@ -1,10 +1,10 @@
-# Oxide Architecture
+# Takt Architecture
 
 **English** · [Русский](ARCHITECTURE.md)
 
 ## System boundaries
 
-Oxide separates the UI thread from the player thread. All libmpv control calls
+Takt separates the UI thread from the player thread. All libmpv control calls
 are confined to the player thread, with commands and events crossing bounded
 channels. The render API is the only deliberate exception: Slint calls it from
 the rendering notifier while the window's OpenGL context is current.
@@ -115,7 +115,7 @@ without resizing the video target when controls appear or auto-hide.
 destroys the render context on the UI/render thread, resolves OpenGL symbols
 through FemtoVG, and turns mpv's update callback into a Slint redraw request. The
 UI confirms that the render context is ready before playback begins. After
-context creation, every frame, and teardown, Oxide restores framebuffer,
+context creation, every frame, and teardown, Takt restores framebuffer,
 viewport, scissor, blending, clear color, and dithering state—the state libmpv
 explicitly excludes from its reset guarantee.
 
@@ -182,15 +182,15 @@ explicitly excludes from its reset guarantee.
   `Microsoft.Windows.Common-Controls` v6. `GetWindowSubclass` is not a named
   export of the legacy `System32/comctl32.dll`; without the manifest the process
   exits before `main` with `STATUS_ENTRYPOINT_NOT_FOUND`. A packaged application
-  must therefore be smoke-tested with `target/debug/oxide.exe --build-info`—a
+  must therefore be smoke-tested with `target/debug/takt.exe --build-info`—a
   successful link is not enough. Caption filtering is centralized in
   `native_frame`; placement stays with winit. `WS_THICKFRAME` remains available
   for resize and Snap, and the guard does not alter position, size, taskbar state,
-  or z-order. Oxide chrome is the only visible title bar.
+  or z-order. Takt chrome is the only visible title bar.
 
 The remaining external assumptions are tested against the release native runtime.
 Slint must keep the original GL context current through `RenderingTeardown`, and
-the selected libmpv build and driver must honor the documented render API. Oxide
+the selected libmpv build and driver must honor the documented render API. Takt
 does not preserve the OpenGL debug callback, another state excluded by mpv's
 guarantee: FemtoVG does not install one, and a general implementation would
 require OpenGL 4.3. These assumptions are covered by a smoke test whenever the

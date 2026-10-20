@@ -3392,35 +3392,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxide"
-version = "1.0.0-rc.2"
-dependencies = [
- "anyhow",
- "base64 0.23.1",
- "crossbeam-channel",
- "ed25519-dalek",
- "getrandom 0.3.4",
- "image",
- "libc",
- "libmpv",
- "libmpv-sys",
- "lofty",
- "raw-window-handle",
- "rfd",
- "semver",
- "serde",
- "serde_json",
- "sha2",
- "slint",
- "slint-build",
- "url",
- "windows-sys 0.61.2",
- "winit",
- "winresource",
- "zip",
-]
-
-[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4684,6 +4655,35 @@ dependencies = [
  "grid",
  "serde",
  "slotmap",
+]
+
+[[package]]
+name = "takt"
+version = "1.0.0-rc.3"
+dependencies = [
+ "anyhow",
+ "base64 0.23.1",
+ "crossbeam-channel",
+ "ed25519-dalek",
+ "getrandom 0.3.4",
+ "image",
+ "libc",
+ "libmpv",
+ "libmpv-sys",
+ "lofty",
+ "raw-window-handle",
+ "rfd",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "slint",
+ "slint-build",
+ "url",
+ "windows-sys 0.61.2",
+ "winit",
+ "winresource",
+ "zip",
 ]
 
 [[package]]

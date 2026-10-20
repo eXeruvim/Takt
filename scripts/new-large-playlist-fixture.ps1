@@ -104,7 +104,7 @@ Write-Progress -Activity 'Создание большой очереди' -Compl
 $manifestPath = Join-Path $outputDirectory 'fixture.json'
 $manifest = [ordered]@{
     schema = 1
-    kind = 'oxide-large-playlist'
+    kind = 'takt-large-playlist'
     file_count = $FileCount
     duration_seconds = $DurationSeconds
     audio = [ordered]@{

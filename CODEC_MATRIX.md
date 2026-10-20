@@ -1,4 +1,4 @@
-# Media and codec policy for Oxide 1.0
+# Media and codec policy for Takt 1.0
 
 This matrix describes the shipped Windows package. Codec patents and required
 royalties vary by country and use case; an open-source license does not grant a
@@ -6,7 +6,7 @@ universal patent clearance.
 
 ## Playback
 
-Oxide ships one upstream LGPL libmpv/FFmpeg runtime. Actual detection is based on
+Takt ships one upstream LGPL libmpv/FFmpeg runtime. Actual detection is based on
 the file contents, not the filename extension.
 
 | Family | Typical containers | 1.0 playback | Source-code license route | Patent note |
@@ -26,14 +26,14 @@ play. DRM circumvention is not included.
 
 ## Conversion
 
-Oxide 1.0 does **not** redistribute `ffmpeg.exe`. The converter uses, in order,
-the explicit `OXIDE_FFMPEG` path, `ffmpeg.exe` beside Oxide, `tools/ffmpeg.exe`,
+Takt 1.0 does **not** redistribute `ffmpeg.exe`. The converter uses, in order,
+the explicit `TAKT_FFMPEG` path, `ffmpeg.exe` beside Takt, `tools/ffmpeg.exe`,
 or the user's `PATH`. Its probe reports when that executable is missing or
 incompatible.
 
 The UI can request MP4/H.264, MP4/H.265, WebM, MP3, AAC/M4A, FLAC, WAV, Opus and
 stream-copy profiles, but availability and license obligations are properties of
-the exact user-supplied FFmpeg build. Oxide never silently downloads a codec or
+the exact user-supplied FFmpeg build. Takt never silently downloads a codec or
 claims that a click transfers the distribution or patent responsibility.
 
 ## Full GPL versus selected LGPL runtime
@@ -43,7 +43,7 @@ Both variants were downloaded from upstream run `38326895870` and hash-checked:
 | Variant | Archive | DLL | Relevant difference |
 | --- | ---: | ---: | --- |
 | GPL full | 64,901,987 bytes | 157,854,720 bytes | Adds GPL-only dependencies/features such as DVD navigation and Rubber Band. |
-| LGPL selected for 1.0 | 56,765,949 bytes | 127,147,520 bytes | Retains the local-file decoding needed by Oxide with `-Dgpl=false`. |
+| LGPL selected for 1.0 | 56,765,949 bytes | 127,147,520 bytes | Retains the local-file decoding needed by Takt with `-Dgpl=false`. |
 
 The LGPL variant saves 8,136,038 compressed bytes and 30,707,200 installed
 bytes. A future royalty-free-only modular media pack remains a post-1.0 research

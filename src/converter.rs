@@ -255,7 +255,7 @@ pub fn run(
                 let Some(installation) = installation.as_ref() else {
                     let _ = tx.send(ConverterEvent::Rejected {
                         output,
-                        message: "FFmpeg не найден. Поместите ffmpeg.exe рядом с Oxide или добавьте его в PATH"
+                        message: "FFmpeg не найден. Поместите ffmpeg.exe рядом с Takt или добавьте его в PATH"
                             .to_owned(),
                         active: active_job.is_some(),
                     });
@@ -328,7 +328,7 @@ fn spawn_job(
     let worker_tx = tx.clone();
     let worker_cancel = cancel.clone();
     let worker = thread::Builder::new()
-        .name("oxide-conversion".into())
+        .name("takt-conversion".into())
         .spawn(move || {
             run_job(&executable, job, &worker_cancel, &worker_tx);
         });
@@ -354,7 +354,7 @@ fn send_availability(tx: &Sender<ConverterEvent>, installation: Option<&FfmpegIn
         .unwrap_or_else(|| {
             (
                 false,
-                "FFmpeg не найден: добавьте его в PATH или положите ffmpeg.exe рядом с Oxide"
+                "FFmpeg не найден: добавьте его в PATH или положите ffmpeg.exe рядом с Takt"
                     .to_owned(),
             )
         });
@@ -636,7 +636,7 @@ mod tests {
     fn builds_safe_h264_command_arguments() {
         let arguments = ffmpeg_arguments(
             Path::new("C:/video/input file.mov"),
-            Path::new("C:/video/.output.oxide-part-1.mp4"),
+            Path::new("C:/video/.output.takt-part-1.mp4"),
             ConversionPreset::Mp4H264,
             ConversionOptions::default(),
         )
@@ -659,7 +659,7 @@ mod tests {
         );
         assert_eq!(
             arguments.last().map(String::as_str),
-            Some("C:/video/.output.oxide-part-1.mp4")
+            Some("C:/video/.output.takt-part-1.mp4")
         );
     }
 

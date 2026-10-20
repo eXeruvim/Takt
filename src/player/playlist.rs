@@ -641,7 +641,7 @@ mod tests {
             .expect("system time must be after Unix epoch")
             .as_nanos();
         let directory =
-            std::env::temp_dir().join(format!("oxide-playlist-{}-{unique}", std::process::id()));
+            std::env::temp_dir().join(format!("takt-playlist-{}-{unique}", std::process::id()));
 
         fs::create_dir(&directory).expect("temporary playlist directory must be created");
         for name in [

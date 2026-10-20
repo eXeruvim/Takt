@@ -8,13 +8,13 @@ use std::{
 };
 
 use anyhow::Result;
-use oxide::updater::{
+use slint::ComponentHandle;
+use takt::updater::{
     config,
     download::{DownloadEvent, DownloadRequest, DownloadService},
     manifest::{PackageKind, VerifiedUpdate},
     service::{CheckEvent, CheckRequest, CheckService},
 };
-use slint::ComponentHandle;
 
 use crate::settings::AppSettings;
 
@@ -182,7 +182,7 @@ fn register_callbacks(
         let Some(update) = update else {
             return;
         };
-        let directory = std::env::temp_dir().join("Oxide").join("updates");
+        let directory = std::env::temp_dir().join("Takt").join("updates");
         if let Err(error) = download.start(DownloadRequest { update, directory })
             && let Some(app) = download_app.upgrade()
         {
@@ -260,8 +260,8 @@ fn launch_update_helper(kind: PackageKind, package: &std::path::Path) -> std::io
     let executable = std::env::current_exe()?;
     let target = executable
         .parent()
-        .ok_or_else(|| std::io::Error::other("не найден каталог Oxide"))?;
-    let bundled_helper = target.join("oxide-updater.exe");
+        .ok_or_else(|| std::io::Error::other("не найден каталог Takt"))?;
+    let bundled_helper = target.join("takt-updater.exe");
     if !bundled_helper.is_file() || !package.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -277,13 +277,13 @@ fn launch_update_helper(kind: PackageKind, package: &std::path::Path) -> std::io
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     random.fill(0);
-    let temporary_root = std::env::temp_dir().join("Oxide");
+    let temporary_root = std::env::temp_dir().join("Takt");
     let run_directory = temporary_root.join("update-runs").join(&token);
     let probe_directory = temporary_root.join("update-probes");
     fs::create_dir_all(run_directory.parent().expect("run directory has parent"))?;
     fs::create_dir_all(&probe_directory)?;
     fs::create_dir(&run_directory)?;
-    let helper = run_directory.join("oxide-updater.exe");
+    let helper = run_directory.join("takt-updater.exe");
     fs::copy(&bundled_helper, &helper)?;
     let marker = probe_directory.join(format!("{token}.ready"));
 

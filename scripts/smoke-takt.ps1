@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\oxide.exe'),
+    [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\takt.exe'),
 
     [string]$MediaPath = '',
 
@@ -25,7 +25,7 @@ Set-StrictMode -Version Latest
 $repository = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $executablePath = [System.IO.Path]::GetFullPath($Executable)
 $expectedExecutable = [System.IO.Path]::GetFullPath(
-    (Join-Path $repository 'target\profiling\oxide.exe')
+    (Join-Path $repository 'target\profiling\takt.exe')
 )
 $resolvedMediaPath = $null
 
@@ -41,7 +41,7 @@ if ($Fault -eq 'RendererInit' -and $null -eq $resolvedMediaPath) {
 }
 
 if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
-    throw "Сборка Oxide не найдена: $executablePath"
+    throw "Сборка Takt не найдена: $executablePath"
 }
 
 $runtimePath = Join-Path (Split-Path -Parent $executablePath) 'libmpv-2.dll'
@@ -104,32 +104,32 @@ try {
     $startInfo.RedirectStandardError = $true
     # A smoke launch must not inherit stale handles or report paths from an
     # earlier profiling session in the caller's terminal.
-    [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_DIAGNOSTICS_PATH')
-    [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_RENDER_GATE')
-    [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_HWDEC')
-    [void]$startInfo.Environment.Remove('OXIDE_BENCHMARK_FAULT')
+    [void]$startInfo.Environment.Remove('TAKT_BENCHMARK_DIAGNOSTICS_PATH')
+    [void]$startInfo.Environment.Remove('TAKT_BENCHMARK_RENDER_GATE')
+    [void]$startInfo.Environment.Remove('TAKT_BENCHMARK_HWDEC')
+    [void]$startInfo.Environment.Remove('TAKT_BENCHMARK_FAULT')
     $expectedFaultMarker = $null
     $expectedAdditionalMarker = $null
     if ($Fault -eq 'MpvInit') {
-        $startInfo.Environment['OXIDE_BENCHMARK_FAULT'] = 'mpv-init'
-        $expectedFaultMarker = 'OXIDE_DIAGNOSTIC_FAULT:mpv-init'
+        $startInfo.Environment['TAKT_BENCHMARK_FAULT'] = 'mpv-init'
+        $expectedFaultMarker = 'TAKT_DIAGNOSTIC_FAULT:mpv-init'
     }
     elseif ($Fault -eq 'RendererInit') {
-        $startInfo.Environment['OXIDE_BENCHMARK_FAULT'] = 'renderer-init'
-        $expectedFaultMarker = 'OXIDE_DIAGNOSTIC_FAULT:renderer-init'
-        $expectedAdditionalMarker = 'OXIDE_DIAGNOSTIC_STATE:renderer-error'
+        $startInfo.Environment['TAKT_BENCHMARK_FAULT'] = 'renderer-init'
+        $expectedFaultMarker = 'TAKT_DIAGNOSTIC_FAULT:renderer-init'
+        $expectedAdditionalMarker = 'TAKT_DIAGNOSTIC_STATE:renderer-error'
     }
     elseif ($Fault -eq 'DialogOpen') {
-        $startInfo.Environment['OXIDE_BENCHMARK_FAULT'] = 'dialog-open'
-        $expectedFaultMarker = 'OXIDE_DIAGNOSTIC_FAULT:dialog-open'
-        $expectedAdditionalMarker = 'OXIDE_DIAGNOSTIC_FAULT:dialog-shutdown'
+        $startInfo.Environment['TAKT_BENCHMARK_FAULT'] = 'dialog-open'
+        $expectedFaultMarker = 'TAKT_DIAGNOSTIC_FAULT:dialog-open'
+        $expectedAdditionalMarker = 'TAKT_DIAGNOSTIC_FAULT:dialog-shutdown'
     }
     if ($null -ne $resolvedMediaPath) {
         [void]$startInfo.ArgumentList.Add($resolvedMediaPath)
     }
     $process = [Diagnostics.Process]::Start($startInfo)
     if ($null -eq $process) {
-        throw 'Не удалось запустить процесс Oxide.'
+        throw 'Не удалось запустить процесс Takt.'
     }
     $standardErrorTask = $process.StandardError.ReadToEndAsync()
 
@@ -137,7 +137,7 @@ try {
     while ($startedAt.Elapsed -lt $startupDeadline) {
         $process.Refresh()
         if ($process.HasExited) {
-            throw "Oxide завершился до появления окна с кодом $($process.ExitCode)."
+            throw "Takt завершился до появления окна с кодом $($process.ExitCode)."
         }
         if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
             break
@@ -147,11 +147,11 @@ try {
 
     $process.Refresh()
     if ($process.MainWindowHandle -eq [IntPtr]::Zero) {
-        throw "Главное окно Oxide не появилось за $StartupTimeoutSeconds с. Процесс оставлен пользователю."
+        throw "Главное окно Takt не появилось за $StartupTimeoutSeconds с. Процесс оставлен пользователю."
     }
 
     $startupMilliseconds = [math]::Round($startedAt.Elapsed.TotalMilliseconds, 1)
-    Write-Host "Окно Oxide PID $($process.Id) появилось за $startupMilliseconds мс."
+    Write-Host "Окно Takt PID $($process.Id) появилось за $startupMilliseconds мс."
     if ($null -ne $resolvedMediaPath) {
         Write-Host "Открыт файл: $([System.IO.Path]::GetFileName($resolvedMediaPath))"
     }
@@ -161,22 +161,22 @@ try {
     if ($Fault -eq 'DialogOpen') {
         if (-not $process.HasExited -and
             -not $process.WaitForExit($ShutdownTimeoutSeconds * 1000)) {
-            throw "Oxide PID $($process.Id) не закрылся при открытом системном диалоге за $ShutdownTimeoutSeconds с. Процесс оставлен пользователю."
+            throw "Takt PID $($process.Id) не закрылся при открытом системном диалоге за $ShutdownTimeoutSeconds с. Процесс оставлен пользователю."
         }
     }
     elseif ($process.HasExited) {
-        throw "Oxide неожиданно завершился с кодом $($process.ExitCode)."
+        throw "Takt неожиданно завершился с кодом $($process.ExitCode)."
     }
     else {
         if (-not $process.CloseMainWindow()) {
-            throw "Oxide PID $($process.Id) не принял обычный запрос закрытия. Процесс оставлен пользователю."
+            throw "Takt PID $($process.Id) не принял обычный запрос закрытия. Процесс оставлен пользователю."
         }
         if (-not $process.WaitForExit($ShutdownTimeoutSeconds * 1000)) {
-            throw "Oxide PID $($process.Id) не закрылся за $ShutdownTimeoutSeconds с. Процесс оставлен пользователю."
+            throw "Takt PID $($process.Id) не закрылся за $ShutdownTimeoutSeconds с. Процесс оставлен пользователю."
         }
     }
     if ($process.ExitCode -ne 0) {
-        throw "Oxide завершился с кодом $($process.ExitCode)."
+        throw "Takt завершился с кодом $($process.ExitCode)."
     }
 
     $standardError = $standardErrorTask.GetAwaiter().GetResult()
@@ -203,7 +203,7 @@ catch {
     if ($null -ne $process) {
         $process.Refresh()
         if (-not $process.HasExited) {
-            Write-Warning "Oxide PID $($process.Id) не завершается принудительно; закройте окно вручную."
+            Write-Warning "Takt PID $($process.Id) не завершается принудительно; закройте окно вручную."
         }
     }
     throw

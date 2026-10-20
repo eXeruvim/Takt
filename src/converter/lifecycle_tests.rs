@@ -11,7 +11,7 @@ impl TestFiles {
             .unwrap()
             .as_nanos();
         let path =
-            std::env::temp_dir().join(format!("oxide-converter-{}-{nonce}", std::process::id()));
+            std::env::temp_dir().join(format!("takt-converter-{}-{nonce}", std::process::id()));
         fs::create_dir(&path).unwrap();
         Self(path)
     }
@@ -48,8 +48,8 @@ fn helper_command(mode: &str, pid_path: &Path) -> Command {
             "--ignored",
             "--nocapture",
         ])
-        .env("OXIDE_TEST_CHILD_MODE", mode)
-        .env("OXIDE_TEST_CHILD_PID", pid_path);
+        .env("TAKT_TEST_CHILD_MODE", mode)
+        .env("TAKT_TEST_CHILD_PID", pid_path);
     command
 }
 
@@ -92,13 +92,13 @@ fn assert_child_exited(pid_path: &Path) {
 #[test]
 #[ignore = "subprocess fixture; run only through lifecycle tests"]
 fn helper_child() {
-    let mode = std::env::var("OXIDE_TEST_CHILD_MODE").expect("fixture mode required");
+    let mode = std::env::var("TAKT_TEST_CHILD_MODE").expect("fixture mode required");
     fs::write(
-        std::env::var_os("OXIDE_TEST_CHILD_PID").unwrap(),
+        std::env::var_os("TAKT_TEST_CHILD_PID").unwrap(),
         std::process::id().to_string(),
     )
     .unwrap();
-    if let Some(path) = std::env::var_os("OXIDE_TEST_CHILD_OUTPUT") {
+    if let Some(path) = std::env::var_os("TAKT_TEST_CHILD_OUTPUT") {
         fs::write(path, b"partial output").unwrap();
     }
     match mode.as_str() {
@@ -125,12 +125,11 @@ fn helper_child() {
                 .unwrap();
         },
         "tree" => {
-            let go = PathBuf::from(std::env::var_os("OXIDE_TEST_CHILD_GO").unwrap());
+            let go = PathBuf::from(std::env::var_os("TAKT_TEST_CHILD_GO").unwrap());
             while !go.exists() {
                 thread::sleep(Duration::from_millis(10));
             }
-            let descendant =
-                PathBuf::from(std::env::var_os("OXIDE_TEST_CHILD_DESCENDANT").unwrap());
+            let descendant = PathBuf::from(std::env::var_os("TAKT_TEST_CHILD_DESCENDANT").unwrap());
             let mut child = helper_command("hang", &descendant);
             // Keep inherited pipes open deliberately; the owned process tree must stop them.
             child.spawn().unwrap().wait().unwrap();
@@ -226,7 +225,7 @@ fn cancel_stalled_conversion_reaps_child_and_removes_partial_output() {
         run_job_with(spec, &worker_cancel, &tx, |working| {
             path_tx.send(working.to_owned()).unwrap();
             let mut command = helper_command("hang", &pid);
-            command.env("OXIDE_TEST_CHILD_OUTPUT", working);
+            command.env("TAKT_TEST_CHILD_OUTPUT", working);
             command
         })
     });
@@ -255,7 +254,7 @@ fn dropping_active_job_cancels_and_joins_task() {
     let worker = thread::spawn(move || {
         run_job_with(spec, &worker_cancel, &tx, |path| {
             let mut command = helper_command("hang", &pid);
-            command.env("OXIDE_TEST_CHILD_OUTPUT", path);
+            command.env("TAKT_TEST_CHILD_OUTPUT", path);
             command
         })
     });
@@ -283,7 +282,7 @@ fn failed_conversion_keeps_final_diagnostic_and_cleans_output() {
     run_job_with(files.spec(), &AtomicBool::new(false), &tx, |path| {
         working = path.to_owned();
         let mut command = helper_command("fail", &files.path("pid"));
-        command.env("OXIDE_TEST_CHILD_OUTPUT", path);
+        command.env("TAKT_TEST_CHILD_OUTPUT", path);
         command
     });
     assert!(rx.try_iter().any(|event| matches!(event, ConverterEvent::Failed { message, .. } if message.contains("fixture encoder failed without newline"))));
@@ -309,7 +308,7 @@ fn cancellation_reaps_encoder_when_event_queue_is_full_before_or_after_started()
             run_job_with(spec, &worker_cancel, &tx, |path| {
                 path_tx.send(path.to_owned()).unwrap();
                 let mut command = helper_command("progress-flood", &pid);
-                command.env("OXIDE_TEST_CHILD_OUTPUT", path);
+                command.env("TAKT_TEST_CHILD_OUTPUT", path);
                 command
             });
         });
@@ -339,7 +338,7 @@ fn successful_conversion_commits_result_and_reports_completion() {
     let (tx, rx) = crossbeam_channel::unbounded();
     run_job_with(files.spec(), &AtomicBool::new(false), &tx, |path| {
         let mut command = helper_command("success", &files.path("pid"));
-        command.env("OXIDE_TEST_CHILD_OUTPUT", path);
+        command.env("TAKT_TEST_CHILD_OUTPUT", path);
         command
     });
     assert_eq!(
@@ -389,8 +388,8 @@ fn dropping_owner_stops_descendant_that_keeps_pipes_open() {
     let files = TestFiles::new();
     let mut command = helper_command("tree", &files.path("pid"));
     command
-        .env("OXIDE_TEST_CHILD_GO", files.path("go"))
-        .env("OXIDE_TEST_CHILD_DESCENDANT", files.path("descendant"));
+        .env("TAKT_TEST_CHILD_GO", files.path("go"))
+        .env("TAKT_TEST_CHILD_DESCENDANT", files.path("descendant"));
     let child = ManagedChild::spawn(command).unwrap();
     fs::write(files.path("go"), b"go").unwrap();
     wait_until(|| files.path("descendant").exists());
@@ -412,7 +411,7 @@ fn destination_created_after_validation_is_not_replaced_or_reported_as_completed
         fs::write(&output, b"created by another application").unwrap();
         staging = path.parent().unwrap().to_owned();
         let mut command = helper_command("success", &files.path("pid"));
-        command.env("OXIDE_TEST_CHILD_OUTPUT", path);
+        command.env("TAKT_TEST_CHILD_OUTPUT", path);
         command
     });
     assert_eq!(fs::read(output).unwrap(), b"created by another application");
@@ -438,7 +437,7 @@ fn late_destination_alias_cannot_replace_the_source_file() {
     run_job_with(spec, &AtomicBool::new(false), &tx, |path| {
         fs::hard_link(&source, &output).unwrap();
         let mut command = helper_command("success", &files.path("pid"));
-        command.env("OXIDE_TEST_CHILD_OUTPUT", path);
+        command.env("TAKT_TEST_CHILD_OUTPUT", path);
         command
     });
     assert_eq!(fs::read(source).unwrap(), b"test source");

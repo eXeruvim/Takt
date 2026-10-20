@@ -5,8 +5,8 @@ use std::{ffi::OsStr, sync::Arc};
 use anyhow::Context;
 use libmpv::{Format, Mpv, events::EventContext};
 
-const BENCHMARK_LOCAL_CACHE_ENV: &str = "OXIDE_BENCHMARK_LOCAL_CACHE";
-const BENCHMARK_HWDEC_ENV: &str = "OXIDE_BENCHMARK_HWDEC";
+const BENCHMARK_LOCAL_CACHE_ENV: &str = "TAKT_BENCHMARK_LOCAL_CACHE";
+const BENCHMARK_HWDEC_ENV: &str = "TAKT_BENCHMARK_HWDEC";
 
 pub(super) fn mpv_error<T>(result: Result<T, libmpv::Error>) -> anyhow::Result<T> {
     result.map_err(|error| anyhow::anyhow!("{error:?}"))
@@ -42,12 +42,12 @@ pub(super) fn playback_failure_message(error: i32) -> String {
 
 pub(super) fn create() -> anyhow::Result<Arc<Mpv>> {
     if crate::benchmark_diagnostics::fault_requested("mpv-init") {
-        anyhow::bail!("OXIDE_DIAGNOSTIC_FAULT:mpv-init");
+        anyhow::bail!("TAKT_DIAGNOSTIC_FAULT:mpv-init");
     }
 
     Mpv::with_initializer(|initializer| {
         configure_seek_osd(&initializer)?;
-        // Oxide renders embedded artwork inside its own audio scene. Prevent mpv
+        // Takt renders embedded artwork inside its own audio scene. Prevent mpv
         // from promoting the attached picture to the native video surface.
         initializer.set_property("audio-display", "no".to_owned())?;
         // Keep the audio device open for compatible consecutive tracks without
@@ -173,7 +173,7 @@ pub(super) fn set_loaded_media_paused(mpv: &Mpv, paused: bool) -> anyhow::Result
 }
 
 fn configure_seek_osd(initializer: &libmpv::MpvInitializer) -> Result<(), libmpv::Error> {
-    // Oxide's timeline already shows seeking. Disable mpv's duplicate overlay,
+    // Takt's timeline already shows seeking. Disable mpv's duplicate overlay,
     // not subtitle rendering or the application's own feedback.
     initializer.set_property("osd-on-seek", "no")?;
     initializer.set_property("osd-bar", false)

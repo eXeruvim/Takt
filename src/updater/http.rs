@@ -160,7 +160,7 @@ mod platform {
     where
         F: FnMut(&[u8]) -> io::Result<StreamAction>,
     {
-        let agent = wide("Oxide updater/1");
+        let agent = wide("Takt updater/1");
         // SAFETY: all strings are terminated UTF-16 buffers and optional WinHTTP
         // pointers are null as required by the synchronous API.
         let session = InternetHandle::new(unsafe {

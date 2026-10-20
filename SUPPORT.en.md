@@ -1,18 +1,18 @@
-# Oxide 1.0 Support
+# Takt 1.0 Support
 
 **English** · [Русский](SUPPORT.md)
 
-This guide explains the known limitations of Oxide 1.0 and the information we
+This guide explains the known limitations of Takt 1.0 and the information we
 need for a reproducible bug report. Do not attach the media file, its full path,
 your playback history, or a memory dump unless a maintainer asks for it and you
 have reviewed the contents.
 
 ## Known limitations in Windows 1.0
 
-- Oxide supports 64-bit Windows 10 and 11. Linux support is planned after 1.0.
+- Takt supports 64-bit Windows 10 and 11. Linux support is planned after 1.0.
   ARM64 and macOS are not currently planned.
 - DWM does not guarantee live window transparency in maximized or fullscreen
-  mode. Oxide uses an opaque fallback with matching colors instead of capturing
+  mode. Takt uses an opaque fallback with matching colors instead of capturing
   the desktop. This avoids extra load and latency and prevents accidental capture
   of private or DRM-protected content.
 - Hardware decoding depends on the GPU, driver, and media format. If it produces
@@ -20,22 +20,22 @@ have reviewed the contents.
   fallback. The codecs available in the bundled libmpv/FFmpeg build are listed
   in `CODEC_MATRIX.md`.
 - A slow or worn hard drive may pause briefly on first open, seeking, or a
-  transition to another large file. Oxide uses bounded read-ahead; it does not
+  transition to another large file. Takt uses bounded read-ahead; it does not
   load an entire local file into memory or hide a real I/O stall.
-- The converter requires a user-provided `ffmpeg.exe`. Oxide 1.0 neither bundles
+- The converter requires a user-provided `ffmpeg.exe`. Takt 1.0 neither bundles
   nor downloads it, and playback does not depend on it.
 - Packages are not Authenticode-signed yet, so SmartScreen may warn about an
   early, low-reputation release. Verify the SHA-256 value published with the
   release. The built-in updater separately verifies the project Ed25519
   signature and the SHA-256 digest before launching a package.
-- A portable update needs write access to the directory where Oxide was
+- A portable update needs write access to the directory where Takt was
   extracted. If permissions or disk space are insufficient, the current version
   remains intact and restarts; the reason is shown on the next launch.
 
 ## Before filing a report
 
 1. Reproduce the issue on the latest available release and record the exact steps.
-2. Check whether it still occurs after restarting Oxide.
+2. Check whether it still occurs after restarting Takt.
 3. For video artifacts, compare hardware decoding on and off.
 4. For slow media, mention the storage type (SSD, HDD, or network), but omit the
    full path.
@@ -44,11 +44,11 @@ have reviewed the contents.
 
 ## Safe diagnostics
 
-Run these commands in PowerShell from the directory containing `oxide.exe`:
+Run these commands in PowerShell from the directory containing `takt.exe`:
 
 ```powershell
-(& .\oxide.exe --build-info 2>&1 | Out-String).Trim()
-(& .\oxide.exe --native-info 2>&1 | Out-String).Trim()
+(& .\takt.exe --build-info 2>&1 | Out-String).Trim()
+(& .\takt.exe --native-info 2>&1 | Out-String).Trim()
 ```
 
 The first command prints the package version, commit, and source-tree state. The
@@ -66,13 +66,13 @@ cargo clippy --locked --all-targets -- -D warnings
 For installation or update issues, state whether you used the installer or the
 portable package, identify the failing stage (check, download, apply, first
 launch, or rollback), and include the exact message. The updater helper keeps its
-last local error in the Windows temporary directory only until the next Oxide
+last local error in the Windows temporary directory only until the next Takt
 launch, then deletes it after display.
 
 ## Report template
 
 ```text
-Oxide: <output of --build-info>
+Takt: <output of --build-info>
 Native runtime: <output of --native-info>
 Windows: <10/11 and version>, display scaling: <%>
 GPU and driver: <if relevant to video>

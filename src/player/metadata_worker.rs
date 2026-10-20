@@ -36,7 +36,7 @@ impl MetadataWorker {
     fn with_loader(wake: WakeCallback, loader: MetadataLoader) -> anyhow::Result<Self> {
         Ok(Self {
             worker: LatestWorker::new(
-                "oxide-metadata",
+                "takt-metadata",
                 "Не удалось запустить поток чтения метаданных",
                 "Поток чтения метаданных завершился с паникой",
                 wake,

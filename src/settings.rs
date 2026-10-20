@@ -1,4 +1,4 @@
-use crate::storage::Persistence;
+use crate::storage::{Persistence, migrate_legacy_path};
 #[cfg(test)]
 use std::path::Path;
 use std::{
@@ -6,7 +6,8 @@ use std::{
     path::PathBuf,
 };
 
-const SETTINGS_FORMAT: &str = "OXIDE_SETTINGS";
+const SETTINGS_FORMAT: &str = "TAKT_SETTINGS";
+const LEGACY_SETTINGS_FORMAT: &str = "OXIDE_SETTINGS";
 const SETTINGS_VERSION: u32 = 2;
 const DEFAULT_VOLUME: f32 = 0.65;
 const DEFAULT_SPEED: f32 = 1.0;
@@ -452,7 +453,11 @@ impl AppSettings {
         let version = header_fields
             .next()
             .and_then(|value| value.parse::<u32>().ok());
-        if format != Some(SETTINGS_FORMAT) || header_fields.next().is_some() || version.is_none() {
+        let legacy_format = format == Some(LEGACY_SETTINGS_FORMAT);
+        if (format != Some(SETTINGS_FORMAT) && !legacy_format)
+            || header_fields.next().is_some()
+            || version.is_none()
+        {
             return Err(Error::new(
                 ErrorKind::InvalidData,
                 "повреждён заголовок настроек",
@@ -562,7 +567,7 @@ impl AppSettings {
                 _ => {}
             }
         }
-        settings.dirty = version != Some(SETTINGS_VERSION);
+        settings.dirty = legacy_format || version != Some(SETTINGS_VERSION);
         Ok(settings)
     }
 }
@@ -591,7 +596,12 @@ fn default_storage_path() -> Option<PathBuf> {
         std::env::var_os("LOCALAPPDATA")
             .or_else(|| std::env::var_os("APPDATA"))
             .map(PathBuf::from)
-            .map(|directory| directory.join("Oxide").join("settings.txt"))
+            .map(|directory| {
+                migrate_legacy_path(
+                    directory.join("Takt").join("settings.txt"),
+                    directory.join("Oxide").join("settings.txt"),
+                )
+            })
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -602,7 +612,12 @@ fn default_storage_path() -> Option<PathBuf> {
                     .map(PathBuf::from)
                     .map(|home| home.join(".config"))
             })
-            .map(|directory| directory.join("oxide").join("settings.txt"))
+            .map(|directory| {
+                migrate_legacy_path(
+                    directory.join("takt").join("settings.txt"),
+                    directory.join("oxide").join("settings.txt"),
+                )
+            })
     }
 }
 
@@ -672,7 +687,7 @@ mod tests {
     fn invalid_theme_value_falls_back_to_system() {
         let files = TestDirectory::new();
         let path = files.path("settings.txt");
-        std::fs::write(&path, "OXIDE_SETTINGS\t1\ntheme\tneon\n").expect("fixture must be written");
+        std::fs::write(&path, "TAKT_SETTINGS\t1\ntheme\tneon\n").expect("fixture must be written");
 
         let loaded = AppSettings::load_from(&path).expect("known version must be loaded");
         assert_eq!(loaded.theme(), ThemePreference::System);
@@ -716,7 +731,7 @@ mod tests {
         let mut state = 0xd1b5_4a32_d192_ed03_u64;
 
         for _ in 0..2_000 {
-            let mut content = String::from("OXIDE_SETTINGS\t1\n");
+            let mut content = String::from("TAKT_SETTINGS\t1\n");
             for _ in 0..24 {
                 state ^= state << 13;
                 state ^= state >> 7;
@@ -827,7 +842,7 @@ mod tests {
         let mut first = AppSettings::load_from(&path).unwrap();
         first.set_theme(ThemePreference::Light);
         first.save_if_dirty().unwrap();
-        std::fs::write(&path, "OXIDE_SETTINGS\t3\ntheme\tdark\n").unwrap();
+        std::fs::write(&path, "TAKT_SETTINGS\t3\ntheme\tdark\n").unwrap();
         assert_eq!(
             AppSettings::load_from(&path).unwrap_err().kind(),
             std::io::ErrorKind::Unsupported
@@ -838,7 +853,7 @@ mod tests {
     fn invalid_playback_defaults_are_ignored_or_clamped() {
         let files = TestDirectory::new();
         let path = files.path("settings.txt");
-        std::fs::write(&path, "OXIDE_SETTINGS\t1\nvolume\t5\nspeed\tnot-a-number\n")
+        std::fs::write(&path, "TAKT_SETTINGS\t1\nvolume\t5\nspeed\tnot-a-number\n")
             .expect("fixture must be written");
 
         let loaded = AppSettings::load_from(&path).expect("known version must be loaded");
@@ -855,7 +870,7 @@ mod tests {
     #[test]
     fn invalid_window_placements_are_ignored_without_rejecting_settings() {
         let valid =
-            AppSettings::parse("OXIDE_SETTINGS\t1\nwindow_placement\t-1920\t40\t1280\t760\n")
+            AppSettings::parse("TAKT_SETTINGS\t1\nwindow_placement\t-1920\t40\t1280\t760\n")
                 .unwrap();
         assert_eq!(
             valid.window_placement(),
@@ -871,7 +886,7 @@ mod tests {
             "left\t0\t1280\t760",
         ] {
             let parsed =
-                AppSettings::parse(&format!("OXIDE_SETTINGS\t1\nwindow_placement\t{value}\n"))
+                AppSettings::parse(&format!("TAKT_SETTINGS\t1\nwindow_placement\t{value}\n"))
                     .unwrap();
             assert_eq!(parsed.window_placement(), None, "fixture: {value}");
         }
@@ -879,7 +894,7 @@ mod tests {
 
     #[test]
     fn shortcut_payloads_and_counts_are_bounded_while_parsing_and_setting() {
-        let mut content = String::from("OXIDE_SETTINGS\t1\n");
+        let mut content = String::from("TAKT_SETTINGS\t1\n");
         content.push_str(&format!(
             "shortcut\t-1\t{}\t0\n",
             "x".repeat(MAX_SHORTCUT_KEY_BYTES + 1)
@@ -968,7 +983,7 @@ mod tests {
         let path = files.path("settings.txt");
         std::fs::write(
             &path,
-            "OXIDE_SETTINGS\t1\nvolume\t0.4\ncompletion_behavior\trepeat-playlist\n",
+            "TAKT_SETTINGS\t1\nvolume\t0.4\ncompletion_behavior\trepeat-playlist\n",
         )
         .unwrap();
 
@@ -984,11 +999,27 @@ mod tests {
 
         migrated.save_if_dirty().unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("\nOXIDE_SETTINGS\t2\n"));
+        assert!(content.contains("\nTAKT_SETTINGS\t2\n"));
         assert!(content.contains("\nmuted\tfalse\n"));
         assert!(content.contains("\nshuffle\tfalse\n"));
 
         let reloaded = AppSettings::load_from(&path).unwrap();
         assert!(!reloaded.dirty);
+    }
+
+    #[test]
+    fn pre_rename_settings_format_is_migrated_on_next_save() {
+        let files = TestDirectory::new();
+        let path = files.path("settings.txt");
+        std::fs::write(&path, "OXIDE_SETTINGS\t2\ntheme\tdark\nvolume\t0.4\n").unwrap();
+
+        let mut settings = AppSettings::load_from(&path).unwrap();
+        assert_eq!(settings.theme(), ThemePreference::Dark);
+        assert_eq!(settings.default_volume(), 0.4);
+        assert!(settings.dirty);
+
+        settings.save_if_dirty().unwrap();
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(content.contains("\nTAKT_SETTINGS\t2\n"));
     }
 }

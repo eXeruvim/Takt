@@ -1,7 +1,7 @@
 # Native runtime provenance
 
-Oxide 1.0 uses the x86-64 LGPL `libmpv` artifact produced by the upstream mpv
-repository. This is an unmodified upstream binary; Oxide only renames its GNU
+Takt 1.0 uses the x86-64 LGPL `libmpv` artifact produced by the upstream mpv
+repository. This is an unmodified upstream binary; Takt only renames its GNU
 import library from `libmpv.dll.a` to `mpv.lib`, which LLVM/lld accepts as a
 COFF import archive.
 
@@ -29,12 +29,12 @@ build container:
 That script configures FFmpeg as static and shared libraries as disabled, then
 configures mpv with `-Dgpl=false`, `--default-library=shared`, static FFmpeg
 linkage and `libmpv` enabled. The exact script and workflow are retained by the
-pinned mpv source commit; the resulting archive and each file used by Oxide are
+pinned mpv source commit; the resulting archive and each file used by Takt are
 independently SHA-256 checked.
 
-## Recreating the Oxide runtime directory
+## Recreating the Takt runtime directory
 
-From the Oxide repository:
+From the Takt repository:
 
 ```powershell
 ./scripts/fetch-native-runtime.ps1
@@ -44,7 +44,7 @@ From the Oxide repository:
 The script downloads only the URL fixed in `release/native-runtime.json`, checks
 the archive before extraction, checks every copied member, and writes:
 
-- `libmpv-2.dll` — the runtime loaded by Oxide;
+- `libmpv-2.dll` — the runtime loaded by Takt;
 - `mpv.lib` — the unchanged COFF archive bytes from `libmpv.dll.a`;
 - `LICENSE.LGPL` — the license file shipped in the upstream archive;
 - `native-runtime.json` — the manifest that selected the artifact.

@@ -89,7 +89,7 @@ fn parse_startup_request(
     };
 
     if args.next().is_some() {
-        anyhow::bail!("Oxide принимает только один путь при запуске");
+        anyhow::bail!("Takt принимает только один путь при запуске");
     }
 
     Ok(StartupRequest::Run {
@@ -99,7 +99,7 @@ fn parse_startup_request(
 }
 
 fn validate_update_probe(path: &std::path::Path) -> anyhow::Result<()> {
-    let expected = std::env::temp_dir().join("Oxide").join("update-probes");
+    let expected = std::env::temp_dir().join("Takt").join("update-probes");
     if !path.is_absolute()
         || path.parent() != Some(expected.as_path())
         || path.extension().and_then(|value| value.to_str()) != Some("ready")
@@ -115,9 +115,9 @@ fn print_build_info() {
         serde_json::json!({
             "schema": 1,
             "package_version": env!("CARGO_PKG_VERSION"),
-            "git_commit": env!("OXIDE_BUILD_GIT_COMMIT"),
-            "tracked_clean": env!("OXIDE_BUILD_TRACKED_CLEAN") == "true",
-            "tracked_state": env!("OXIDE_BUILD_TRACKED_CLEAN"),
+            "git_commit": env!("TAKT_BUILD_GIT_COMMIT"),
+            "tracked_clean": env!("TAKT_BUILD_TRACKED_CLEAN") == "true",
+            "tracked_state": env!("TAKT_BUILD_TRACKED_CLEAN"),
         })
     );
 }

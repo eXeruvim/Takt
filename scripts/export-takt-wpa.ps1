@@ -51,11 +51,11 @@ if ([string]::IsNullOrWhiteSpace($TracePath)) {
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
     if ($null -eq $passport) {
-        throw 'Паспорт WPR-трассы не найден. Сначала выполните capture-oxide-wpr.ps1.'
+        throw 'Паспорт WPR-трассы не найден. Сначала выполните capture-takt-wpr.ps1.'
     }
     $metadata = Get-Content -LiteralPath $passport.FullName -Raw -ErrorAction Stop |
         ConvertFrom-Json -ErrorAction Stop
-    if ($metadata.kind -ne 'oxide-wpr-trace' -or $metadata.schema -ne 1) {
+    if ($metadata.kind -ne 'takt-wpr-trace' -or $metadata.schema -ne 1) {
         throw "Неизвестный формат паспорта: $($passport.FullName)"
     }
     $trace = Join-Path $passport.DirectoryName ([string]$metadata.trace_file)
@@ -82,7 +82,7 @@ if (-not (Test-Path -LiteralPath $trace -PathType Leaf)) {
     throw "ETL-трасса не найдена: $trace"
 }
 if ([int]$metadata.process_id -le 0) {
-    throw 'В паспорте отсутствует корректный PID Oxide.'
+    throw 'В паспорте отсутствует корректный PID Takt.'
 }
 
 $wpaExporter = Get-Command wpaexporter.exe -ErrorAction SilentlyContinue
@@ -105,7 +105,7 @@ $traceBaseName = [System.IO.Path]::GetFileNameWithoutExtension($trace)
 $analysisRoot = Join-Path $traceRoot 'analysis'
 $output = Join-Path $analysisRoot "$traceBaseName-$([DateTimeOffset]::Now.ToString('yyyyMMdd-HHmmss'))"
 New-Item -ItemType Directory -Path $output -ErrorAction Stop | Out-Null
-$derivedProfile = Join-Path $output 'oxide-cpu.wpaProfile'
+$derivedProfile = Join-Path $output 'takt-cpu.wpaProfile'
 
 [xml]$profile = Get-Content -LiteralPath $sourceProfile -Raw -ErrorAction Stop
 $namespace = $profile.DocumentElement.NamespaceURI
@@ -129,9 +129,9 @@ $graphs = $cpuGraph.ParentNode
 $cpuView = $graphs.ParentNode
 
 $templates = @(
-    @{ Name = 'Oxide by Module'; Column = 'Module' },
-    @{ Name = 'Oxide by Function'; Column = 'Function' },
-    @{ Name = 'Oxide by Thread'; Column = 'Thread ID' }
+    @{ Name = 'Takt by Module'; Column = 'Module' },
+    @{ Name = 'Takt by Function'; Column = 'Function' },
+    @{ Name = 'Takt by Thread'; Column = 'Thread ID' }
 )
 $generatedGraphs = [System.Collections.Generic.List[System.Xml.XmlNode]]::new()
 foreach ($template in $templates) {
@@ -140,7 +140,7 @@ foreach ($template in $templates) {
     Set-AttributeValue $preset 'Name' $template.Name
     Set-AttributeValue $preset 'KeyColumnCount' '1'
     Set-AttributeValue $preset 'InitialFilterQuery' `
-        "[Process]:=`"oxide.exe ($([int]$metadata.process_id))`""
+        "[Process]:=`"takt.exe ($([int]$metadata.process_id))`""
     Set-AttributeValue $preset 'InitialFilterShouldKeep' 'true'
     Set-AttributeValue $preset 'InitialSelectionQuery' `
         "([Series Name]:=`"$($template.Column)`")"
@@ -173,10 +173,10 @@ foreach ($template in $templates) {
 
 $contextGraph = $preciseGraph.CloneNode($true)
 $contextPreset = $contextGraph.SelectSingleNode('w:Preset', $manager)
-Set-AttributeValue $contextPreset 'Name' 'Oxide Context Switches by Thread'
+Set-AttributeValue $contextPreset 'Name' 'Takt Context Switches by Thread'
 Set-AttributeValue $contextPreset 'KeyColumnCount' '1'
 Set-AttributeValue $contextPreset 'InitialFilterQuery' `
-    "[New Process]:=`"oxide.exe ($([int]$metadata.process_id))`""
+    "[New Process]:=`"takt.exe ($([int]$metadata.process_id))`""
 Set-AttributeValue $contextPreset 'InitialFilterShouldKeep' 'true'
 Set-AttributeValue $contextPreset 'InitialSelectionQuery' `
     '([Series Name]:="New Thread Id")'
@@ -272,10 +272,10 @@ if ($tables.Count -ne $expectedTableCount) {
     throw "Ожидалось $expectedTableCount CPU-таблицы, получено $($tables.Count)."
 }
 
-$moduleTable = $tables | Where-Object Name -Like '*_Oxide_by_Module.csv'
-$functionTable = $tables | Where-Object Name -Like '*_Oxide_by_Function.csv'
-$threadTable = $tables | Where-Object Name -Like '*_Oxide_by_Thread.csv'
-$preciseTable = $tables | Where-Object Name -Like '*_Oxide_Context_Switches_by_Thread.csv'
+$moduleTable = $tables | Where-Object Name -Like '*_Takt_by_Module.csv'
+$functionTable = $tables | Where-Object Name -Like '*_Takt_by_Function.csv'
+$threadTable = $tables | Where-Object Name -Like '*_Takt_by_Thread.csv'
+$preciseTable = $tables | Where-Object Name -Like '*_Takt_Context_Switches_by_Thread.csv'
 $sampledByModule = Measure-SampledTable $moduleTable.FullName 'Module'
 $sampledByFunction = Measure-SampledTable $functionTable.FullName 'Function'
 $sampledByThread = Measure-SampledTable $threadTable.FullName 'Thread ID'
@@ -336,7 +336,7 @@ $topWakers = @($preciseRows | Where-Object { [int]$_.ThreadId -eq $busiestThread
 
 $summary = [ordered]@{
     schema = 1
-    kind = 'oxide-wpa-cpu-summary'
+    kind = 'takt-wpa-cpu-summary'
     trace_file = [System.IO.Path]::GetFileName($trace)
     git_commit = [string]$metadata.git_commit
     package_version = [string]$metadata.package_version
@@ -355,11 +355,11 @@ $summary = [ordered]@{
     context_switches_by_thread = $contextByThread
     busiest_thread_top_wakers = $topWakers
 }
-$summaryPath = Join-Path $output 'oxide-cpu-summary.json'
+$summaryPath = Join-Path $output 'takt-cpu-summary.json'
 $summary | ConvertTo-Json -Depth 8 |
     Set-Content -LiteralPath $summaryPath -Encoding utf8 -ErrorAction Stop
 
-Write-Host "CPU-анализ Oxide: $output"
+Write-Host "CPU-анализ Takt: $output"
 Write-Host (
     'Sampled CPU: {0} мс; {1}% одного ядра; {2}% системы ({3} логических процессоров).' -f
         $summary.sampled_cpu_ms,

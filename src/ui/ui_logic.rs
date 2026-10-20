@@ -271,7 +271,7 @@ pub fn run(
                 let Some(app) = app_weak.upgrade() else {
                     return;
                 };
-                eprintln!("OXIDE_DIAGNOSTIC_FAULT:dialog-open");
+                eprintln!("TAKT_DIAGNOSTIC_FAULT:dialog-open");
                 app.invoke_open_file();
             },
         );
@@ -281,7 +281,7 @@ pub fn run(
             slint::TimerMode::SingleShot,
             std::time::Duration::from_millis(1_500),
             || {
-                eprintln!("OXIDE_DIAGNOSTIC_FAULT:dialog-shutdown");
+                eprintln!("TAKT_DIAGNOSTIC_FAULT:dialog-shutdown");
                 let _ = slint::quit_event_loop();
             },
         );
@@ -329,7 +329,7 @@ pub fn run(
 
 fn write_update_probe(path: &std::path::Path) -> std::io::Result<()> {
     use std::io::Write as _;
-    let expected = std::env::temp_dir().join("Oxide").join("update-probes");
+    let expected = std::env::temp_dir().join("Takt").join("update-probes");
     if path.parent() != Some(expected.as_path())
         || path.extension().and_then(|value| value.to_str()) != Some("ready")
     {
@@ -350,7 +350,7 @@ fn write_update_probe(path: &std::path::Path) -> std::io::Result<()> {
 fn take_update_diagnostic() -> Option<String> {
     const MAX_DIAGNOSTIC_BYTES: u64 = 16 * 1024;
     let path = std::env::temp_dir()
-        .join("Oxide")
+        .join("Takt")
         .join("last-update-error.txt");
     let metadata = std::fs::symlink_metadata(&path).ok()?;
     if !metadata.file_type().is_file() || metadata.len() > MAX_DIAGNOSTIC_BYTES {

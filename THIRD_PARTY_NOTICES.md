@@ -1,13 +1,13 @@
 # Third-party notices
 
-Oxide is distributed under `GPL-3.0-or-later`. The complete license text is in
+Takt is distributed under `GPL-3.0-or-later`. The complete license text is in
 `LICENSE`. This document records the release policy for third-party components;
 it is not legal advice and does not replace the license text of any component.
 
 ## Build-only installer tooling
 
 Windows installer artifacts are produced with Inno Setup 7.1.0. Inno Setup is
-build tooling and is not bundled into or redistributed with Oxide. Its pinned
+build tooling and is not bundled into or redistributed with Takt. Its pinned
 official download, digest, source and license locations are recorded in
 `release/installer-tool.json`.
 
@@ -20,7 +20,7 @@ from the locked graph with:
 ```powershell
 cargo install cargo-cyclonedx --version 0.5.9 --locked
 cargo cyclonedx --all-features --target x86_64-pc-windows-msvc `
-  --format json --spec-version 1.5 --override-filename oxide.cdx
+  --format json --spec-version 1.5 --override-filename takt.cdx
 ```
 
 The release archive must contain this notice, `LICENSE`, the generated SBOM and
@@ -54,12 +54,12 @@ any missing member, size change or hash mismatch. Local development DLLs with a
 different hash are **not approved for redistribution**.
 
 FFmpeg is optional for playback and is currently supplied by the user for the
-converter. Oxide must not download or bundle an FFmpeg build until the same
+converter. Takt must not download or bundle an FFmpeg build until the same
 native-runtime gate has been satisfied for that exact binary.
 
 ## No warranty
 
-Oxide and the listed third-party software are supplied without warranty to the
+Takt and the listed third-party software are supplied without warranty to the
 extent permitted by their respective licenses. Patent rules for media codecs
 vary by jurisdiction; an open-source license audit does not establish patent
 clearance.

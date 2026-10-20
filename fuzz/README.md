@@ -1,6 +1,6 @@
-# Oxide fuzz targets
+# Takt fuzz targets
 
-Этот пакет изолирован от обычной сборки Oxide и предназначен только для
+Этот пакет изолирован от обычной сборки Takt и предназначен только для
 продолжительных проверок парсеров. `cargo-fuzz` использует nightly-компилятор и
 libFuzzer. На Windows требуются MSVC v143 x64/x86 build tools и x64 runtime
 AddressSanitizer из компонента C++ AddressSanitizer или LLVM.

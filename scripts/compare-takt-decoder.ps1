@@ -161,7 +161,7 @@ $identityPaths = [ordered]@{
     gpu = 'environment.gpu'
     active_power_plan = 'environment.active_power_plan'
     power_line_status = 'environment.power_line_status'
-    oxide_window = 'environment.oxide_window'
+    takt_window = 'environment.takt_window'
 }
 foreach ($identity in $identityPaths.GetEnumerator()) {
     Assert-SameValue `
@@ -226,8 +226,8 @@ $hardwareDiagnostics = Get-NestedValue -Object $hardware.data -Path 'playback_di
 $frameDiagnostics = $null
 if ($null -ne $softwareDiagnostics -and $null -ne $hardwareDiagnostics) {
     if ($softwareDiagnostics.schema -ne 1 -or $hardwareDiagnostics.schema -ne 1 `
-        -or $softwareDiagnostics.kind -ne 'oxide-mpv-playback-diagnostics' `
-        -or $hardwareDiagnostics.kind -ne 'oxide-mpv-playback-diagnostics') {
+        -or $softwareDiagnostics.kind -ne 'takt-mpv-playback-diagnostics' `
+        -or $hardwareDiagnostics.kind -ne 'takt-mpv-playback-diagnostics') {
         throw 'A/B содержит неподдерживаемую схему playback_diagnostics.'
     }
     $softwareActualDecoder = ([string]$softwareDiagnostics.decoder).Trim().ToLowerInvariant()
@@ -318,7 +318,7 @@ if ($null -ne $softwareDiagnostics -and $null -ne $hardwareDiagnostics) {
 
 $comparison = [ordered]@{
     schema = 1
-    kind = 'oxide-decoder-comparison'
+    kind = 'takt-decoder-comparison'
     created_utc = [DateTimeOffset]::UtcNow.ToString('O')
     software_result = [System.IO.Path]::GetFileName($software.path)
     hardware_result = [System.IO.Path]::GetFileName($hardware.path)
@@ -339,7 +339,7 @@ $comparison = [ordered]@{
 }
 
 $resolvedOutput = if ([string]::IsNullOrWhiteSpace($OutputPath)) {
-    Join-Path (Split-Path -Parent $hardware.path) 'oxide-decoder-comparison.json'
+    Join-Path (Split-Path -Parent $hardware.path) 'takt-decoder-comparison.json'
 }
 else {
     [System.IO.Path]::GetFullPath($OutputPath)

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "release_eligible": true,
-  "decision": "Oxide 1.0 uses mpv's upstream LGPL libmpv build. The GPL build was rejected because it is 8,136,038 bytes larger when compressed and Oxide does not require its GPL-only DVD or audio-filter features.",
+  "decision": "Takt 1.0 uses mpv's upstream LGPL libmpv build. The GPL build was rejected because it is 8,136,038 bytes larger when compressed and Takt does not require its GPL-only DVD or audio-filter features.",
   "upstream_asset": {
     "url": "https://github.com/mpv-player/mpv/releases/download/git-release/libmpv-v0.41.0-dev-gc3ac7f395-38326895870-x86_64-w64-mingw32-lgpl.zip",
     "sha256": "9FFBED7A8AA013DA07A925DFBB046116683796AF76A9B635E4E7B3328D44F9D5",

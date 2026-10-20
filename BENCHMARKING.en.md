@@ -1,4 +1,4 @@
-# Measuring Oxide
+# Measuring Takt
 
 **English** · [Русский](BENCHMARKING.md)
 
@@ -15,7 +15,7 @@ for CPU, memory, or latency comparisons.
    ```
 
    The executable embeds its commit, package version, and tracked-source state.
-   Before recording, the script calls `oxide.exe --build-info` and refuses to
+   Before recording, the script calls `takt.exe --build-info` and refuses to
    label a stale or locally modified binary with the current commit. Rebuild the
    profiling target after every benchmark commit. `-AllowUnverifiedBuild` is for
    a draft single run only; `-AllowDirty` is its series equivalent, and neither
@@ -24,14 +24,14 @@ for CPU, memory, or latency comparisons.
 2. Run one scenario. This example records two minutes of audio playback:
 
    ```powershell
-   .\scripts\measure-oxide.ps1 -Scenario audio -DurationSeconds 120
+   .\scripts\measure-takt.ps1 -Scenario audio -DurationSeconds 120
    ```
 
    Video measurements must name the requested decoder path and renderer so that
    incompatible output paths cannot be grouped by accident:
 
    ```powershell
-   .\scripts\measure-oxide.ps1 `
+   .\scripts\measure-takt.ps1 `
      -Scenario video-1080p `
      -DecoderMode hardware-auto-copy `
      -RendererBackend integrated-opengl `
@@ -42,7 +42,7 @@ for CPU, memory, or latency comparisons.
 
    The main decoder modes are `software` and `hardware-auto-copy`; renderer
    values are `integrated-opengl` and `native-hwnd-fallback`. Both fields are
-   required for video. The historical `hardware-auto-copy` name denotes Oxide's
+   required for video. The historical `hardware-auto-copy` name denotes Takt's
    automatic product chain: direct NVDEC on compatible NVIDIA hardware, then
    NVDEC copy-back, then a safe cross-vendor copy-back fallback. After playback
    starts, the actual values appear in Inspector under **Playback settings**.
@@ -58,7 +58,7 @@ for CPU, memory, or latency comparisons.
    `mpv-2.dll` beside the executable as `libmpv-2.dll`, the name expected by the
    loader. A custom executable must provide its own DLL.
 
-3. Oxide opens and waits. Configure the requested scenario, let it settle, then
+3. Takt opens and waits. Configure the requested scenario, let it settle, then
    press Enter in the terminal. Do not interact with unrelated applications
    during the sample; the terminal shows the remaining time.
 
@@ -72,10 +72,10 @@ measurement begins. Before pressing Enter, open the requested media and leave al
 drawers closed. A 100-cycle run looks like this:
 
 ```powershell
-.\scripts\measure-oxide.ps1 -Scenario ui-panels -DurationSeconds 136 -UiCycleCount 100 -MediaPath "C:\Media\sample.mp4" -CloseAfterMeasurement
+.\scripts\measure-takt.ps1 -Scenario ui-panels -DurationSeconds 136 -UiCycleCount 100 -MediaPath "C:\Media\sample.mp4" -CloseAfterMeasurement
 ```
 
-The script validates completed cycles from Oxide's internal report instead of
+The script validates completed cycles from Takt's internal report instead of
 trusting elapsed time. Slint timers are serviced on frame boundaries, so the
 duration budget includes frame alignment and normal scheduler jitter in addition
 to the nominal 380 ms step. A 1,000-cycle run needs at least 1,270 seconds. This
@@ -101,7 +101,7 @@ it never substitutes zero.
 Validate script mechanics without opening a window:
 
 ```powershell
-.\scripts\measure-oxide.ps1 -Scenario idle -ValidateOnly
+.\scripts\measure-takt.ps1 -Scenario idle -ValidateOnly
 ```
 
 ## Pre-release smoke test
@@ -110,7 +110,7 @@ After building a clean commit, verify that the profiling executable creates its
 main window, stays responsive, and handles a normal close request:
 
 ```powershell
-.\scripts\smoke-oxide.ps1
+.\scripts\smoke-takt.ps1
 ```
 
 The script operates only on the PID it created. It never calls `Stop-Process`; if
@@ -121,14 +121,14 @@ Pass a short video to exercise media startup. While the window is visible,
 confirm picture and sound, automatic playback, and timeline progress:
 
 ```powershell
-.\scripts\smoke-oxide.ps1 -MediaPath "C:\Media\short video.mp4" -VisibleSeconds 8
+.\scripts\smoke-takt.ps1 -MediaPath "C:\Media\short video.mp4" -VisibleSeconds 8
 ```
 
 The script checks process lifecycle, not pixels or audio output. Validate paths
 without opening the UI:
 
 ```powershell
-.\scripts\smoke-oxide.ps1 -ValidateOnly
+.\scripts\smoke-takt.ps1 -ValidateOnly
 ```
 
 ## Repeated-run summaries
@@ -145,7 +145,7 @@ Run a five-sample series with one command:
 For `idle`, startup, warmup, capture, and normal close are automatic. Audio,
 video, and playlist scenarios retain one deliberate manual step per run: open
 the requested file, confirm the actual decoder and renderer, then press Enter.
-The series never kills Oxide. If a normal close takes more than ten seconds, it
+The series never kills Takt. If a normal close takes more than ten seconds, it
 stops and leaves the window open.
 
 The final run triggers aggregation automatically. To aggregate existing results:
@@ -229,7 +229,7 @@ Build the tool from a clean commit and pass the fixture manifest:
 cargo build `
   --profile profiling `
   --features benchmark-tools `
-  --bin oxide-playlist-bench `
+  --bin takt-playlist-bench `
   --locked `
   --offline
 
@@ -286,7 +286,7 @@ by release of 5.12/25.48 MiB and 325 handles. The other four processes measured
 110.06–110.54 MiB Working Set p95, 168.40–171.02 MiB Private Bytes p95, and
 443–445 handles. The outlier remains in the raw data. A dedicated cold-start and
 file-picker scenario is required before assigning it to a particular Windows or
-Oxide component.
+Takt component.
 
 Pause requires zero continuous frames and CPU indistinguishable from idle.
 Minimized mode requires zero Slint frames and at most 0.25% total CPU capacity on
@@ -304,11 +304,11 @@ wakeup source. Use Windows Performance Recorder for that. Build the profiling
 target from a clean commit, then record one ETL trace per question:
 
 ```powershell
-.\scripts\capture-oxide-wpr.ps1 -Scenario idle -Profile CPU -DurationSeconds 30
-.\scripts\capture-oxide-wpr.ps1 -Scenario video-1080p -Profile GPU -DurationSeconds 30 -MediaPath C:\media\sample.mp4 -DecoderMode hardware-auto-copy -RendererBackend integrated-opengl -WindowMode windowed -Theme dark
+.\scripts\capture-takt-wpr.ps1 -Scenario idle -Profile CPU -DurationSeconds 30
+.\scripts\capture-takt-wpr.ps1 -Scenario video-1080p -Profile GPU -DurationSeconds 30 -MediaPath C:\media\sample.mp4 -DecoderMode hardware-auto-copy -RendererBackend integrated-opengl -WindowMode windowed -Theme dark
 ```
 
-For media scenarios the script opens Oxide and waits for confirmation after you
+For media scenarios the script opens Takt and waits for confirmation after you
 configure playback. `idle` is automatic. Available WPR profiles are `CPU`, `GPU`,
 `Power`, `GeneralProfile`, `Heap`, `Video`, `ResidentSet`, `ReferenceSet`, and
 `VirtualAllocation`. Do not combine heavy profiles or compare runs with different
@@ -321,48 +321,48 @@ written to the JSON manifest. Record the state actually selected in the UI.
 
 The script rejects dirty or stale builds and does not interfere with an existing
 WPR session. On failure it cancels only the session it started and requests a
-normal close for its Oxide window; it does not kill the process. ETL and manifest
+normal close for its Takt window; it does not kill the process. ETL and manifest
 files are stored under `benchmark-results/wpr`.
 
 ETL is a system trace. It includes process names and may include local paths. The
 directory is ignored; review every trace before sharing it. Stack, CPU Usage,
 Context Switches, and GPU-engine analysis requires Windows Performance Analyzer
 from the Windows Performance Toolkit. WPR alone can record data but cannot
-honestly identify hot functions. `measure-oxide.ps1` collects dedicated/shared
+honestly identify hot functions. `measure-takt.ps1` collects dedicated/shared
 GPU memory directly. The standard WPA Exporter may not expose the VidMm table
 even when it exists in a GPU trace, so a missing CSV is not zero VRAM usage.
 
 System profiles normally require an elevated PowerShell session or the Windows
 “Profile system performance” right. On `0xc5585011`, the script creates no trace,
-closes the Oxide instance it started, and leaves no WPR session running.
+closes the Takt instance it started, and leaves no WPR session running.
 
-Check paths and WPR profile availability without starting Oxide or recording:
+Check paths and WPR profile availability without starting Takt or recording:
 
 ```powershell
-.\scripts\capture-oxide-wpr.ps1 -Scenario idle -Profile CPU -ValidateOnly
+.\scripts\capture-takt-wpr.ps1 -Scenario idle -Profile CPU -ValidateOnly
 ```
 
-After a CPU trace, export Oxide module, function, sampled-thread, and exact
+After a CPU trace, export Takt module, function, sampled-thread, and exact
 context-switch slices without configuring WPA tables by hand:
 
 ```powershell
-.\scripts\export-oxide-wpa.ps1
+.\scripts\export-takt-wpa.ps1
 ```
 
 The exporter selects the newest manifest by default, reads the exact PID, and
 writes derived CSV files to the ignored `analysis` directory beside the trace.
-It also creates `oxide-cpu-summary.json` with module, function, thread, and wakeup
-aggregates for the busiest thread. `-Symbols` resolves Oxide names only through
+It also creates `takt-cpu-summary.json` with module, function, thread, and wakeup
+aggregates for the busiest thread. `-Symbols` resolves Takt names only through
 the PDB under `target/profiling`; the script never enables public symbol servers.
 Without it, only existing symbol caches are used. The source ETL is unchanged.
 
 ### GPU engines and paired decoder comparison
 
 GPU traces use a separate exporter. It reads the exact PID and modes from the
-manifest, creates Oxide-only and system-wide tables, and groups tasks by engine:
+manifest, creates Takt-only and system-wide tables, and groups tasks by engine:
 
 ```powershell
-.\scripts\export-oxide-gpu.ps1
+.\scripts\export-takt-gpu.ps1
 ```
 
 `one_engine_timeline_percent` is the sum of GPU time divided by trace duration
@@ -374,7 +374,7 @@ To validate hardware decode, record `software` and `hardware-auto-copy` using th
 same commit, binary, and media; export both and compare them:
 
 ```powershell
-.\scripts\compare-oxide-gpu.ps1 -SoftwareSummaryPath C:\path\software\oxide-gpu-summary.json -HardwareSummaryPath C:\path\hardware\oxide-gpu-summary.json
+.\scripts\compare-takt-gpu.ps1 -SoftwareSummaryPath C:\path\software\takt-gpu-summary.json -HardwareSummaryPath C:\path\hardware\takt-gpu-summary.json
 ```
 
 The tool rejects mismatched executable, mpv, or media hashes, commit, renderer,
@@ -384,11 +384,11 @@ frame-pacing, energy, and dedicated/shared-memory measurements.
 Compare lightweight CPU and memory results separately:
 
 ```powershell
-.\scripts\compare-oxide-decoder.ps1 -SoftwareResultPath .\benchmark-results\software.json -HardwareResultPath .\benchmark-results\hardware.json
+.\scripts\compare-takt-decoder.ps1 -SoftwareResultPath .\benchmark-results\software.json -HardwareResultPath .\benchmark-results\hardware.json
 ```
 
 The analyzer checks commit, hashes, media, duration, window, theme, hardware,
-and power. `oxide-decoder-comparison.json` contains absolute and relative deltas
+and power. `takt-decoder-comparison.json` contains absolute and relative deltas
 for CPU, Working Set, Private Bytes, dedicated/shared GPU memory, memory trends,
 handles, and threads. GPU fields are marked unavailable for old pairs that lack
 counters. If both inputs contain `playback_diagnostics`, the output also includes
@@ -410,10 +410,10 @@ and the duration of `mpv_render_context_render` at p50/p95/p99.
 `render_timing.scene_by_surface` separates `empty`, `video`, and `audio`: frame
 interval, Slint `BeforeRendering` to `AfterRendering`, and the remainder after
 subtracting nested `mpv_render`. The remainder includes Slint drawing and notifier
-work but is not pure layout time. This measures pacing inside Oxide/Slint, not DWM,
+work but is not pure layout time. This measures pacing inside Takt/Slint, not DWM,
 GPU, or display presentation latency; PresentMon or WPA is still required for
 end-to-end results. The temporary diagnostic file is deleted after merging and
-is never created by a normal Oxide launch. Counters cover the current file from
+is never created by a normal Takt launch. Counters cover the current file from
 load, including manual setup and warmup, so comparisons require identical steps.
 `vo-delayed-frame-count` is an mpv heuristic rather than proof of a dropped frame;
 it cannot produce frame-time percentiles by itself.
@@ -424,20 +424,20 @@ The quick recorder's Working Set shows a trend, not page composition. To capture
 resident memory at the end of a scenario, run an elevated PowerShell session:
 
 ```powershell
-.\scripts\capture-oxide-wpr.ps1 -Scenario audio -Profile ResidentSet -DurationSeconds 30 -WarmupSeconds 5
-.\scripts\export-oxide-memory.ps1
+.\scripts\capture-takt-wpr.ps1 -Scenario audio -Profile ResidentSet -DurationSeconds 30 -WarmupSeconds 5
+.\scripts\export-takt-memory.ps1
 ```
 
 The exporter reads the exact PID and creates four independent views: process
 total, memory lists, page categories, and file/image descriptions.
-`oxide-resident-memory-summary.json` never adds WPA hierarchy levels together.
+`takt-resident-memory-summary.json` never adds WPA hierarchy levels together.
 Resident Set is a snapshot of pages in physical memory when recording stops. It
 is not Private Bytes or commit and does not prove a leak. If warmed Private Bytes
 continue to grow, use `VirtualAllocation` as a separate experiment; collect a
 heap trace only for confirmed growth in a chosen process.
 
 For `VirtualAllocation`, `ReferenceSet`, and `Heap`, the collector starts WPR
-before Oxide so startup allocations are not lost. Their ETL therefore includes
+before Takt so startup allocations are not lost. Their ETL therefore includes
 manual setup and warmup; the manifest records both trace start and the start of
 the fixed measurement window. CPU/GPU and Resident Set still begin after setup:
 the former need a clean steady-state interval, and the latter is an end snapshot.
@@ -452,11 +452,11 @@ as extra scenario duration.
 Capture a separate trace to attribute startup private memory to stacks:
 
 ```powershell
-.\scripts\capture-oxide-wpr.ps1 -Scenario audio -Profile VirtualAllocation -DurationSeconds 30 -WarmupSeconds 5
-.\scripts\export-oxide-virtual-allocation.ps1 -Symbols
+.\scripts\capture-takt-wpr.ps1 -Scenario audio -Profile VirtualAllocation -DurationSeconds 30 -WarmupSeconds 5
+.\scripts\export-takt-virtual-allocation.ps1 -Symbols
 ```
 
-The exporter creates `oxide-virtual-allocation-summary.json`, four source CSV
+The exporter creates `takt-virtual-allocation-summary.json`, four source CSV
 files, and a derived WPA profile. `Outstanding Committed` is virtual memory for
 which Windows promises RAM or pagefile backing; it is not the physically resident
 Working Set. `Outstanding Reserved` only occupies virtual address ranges. Tens of
@@ -466,5 +466,5 @@ WPA stack rows are inclusive: a child allocation is already counted in its
 parent. The summary stores non-overlapping branches at depth three and separate
 upper-bound hints for functions and modules. Those hints must not be added; they
 locate a large allocation path for a focused A/B experiment. The full tree stays
-in CSV. `-Symbols` resolves Oxide through the local PDB; missing system-DLL PDBs
+in CSV. `-Symbols` resolves Takt through the local PDB; missing system-DLL PDBs
 do not affect byte totals.

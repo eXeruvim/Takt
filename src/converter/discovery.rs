@@ -21,7 +21,7 @@ pub(super) struct FfmpegInstallation {
 }
 
 pub(super) fn discover(shutdown: &AtomicBool) -> Option<FfmpegInstallation> {
-    let configured = std::env::var_os("OXIDE_FFMPEG");
+    let configured = std::env::var_os("TAKT_FFMPEG");
     let current_exe = std::env::current_exe().ok();
     for candidate in candidates(configured, current_exe) {
         if shutdown.load(Ordering::Acquire) {
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn candidates_prefer_configuration_then_application_and_path() {
         let configured = PathBuf::from("configured-ffmpeg");
-        let executable = PathBuf::from("application").join("oxide");
+        let executable = PathBuf::from("application").join("takt");
         let candidates = candidates(Some(configured.clone().into_os_string()), Some(executable));
 
         assert_eq!(candidates[0], configured);

@@ -2,7 +2,7 @@
 //!
 //! A second launch forwards its path to the existing process through a
 //! session-local named pipe, then exits. Diagnostic command-line probes bypass
-//! this module in `main` and therefore remain scriptable while Oxide is open.
+//! this module in `main` and therefore remain scriptable while Takt is open.
 
 #![deny(clippy::undocumented_unsafe_blocks)]
 
@@ -37,7 +37,7 @@ use windows_sys::Win32::{
     UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow},
 };
 
-const PROTOCOL_MAGIC: [u8; 4] = *b"OXI1";
+const PROTOCOL_MAGIC: [u8; 4] = *b"TAK1";
 const HEADER_BYTES: usize = 12;
 const MAX_PATH_UNITS: usize = 32_767;
 const MAX_MESSAGE_BYTES: usize = HEADER_BYTES + MAX_PATH_UNITS * 2;
@@ -93,8 +93,8 @@ impl Endpoint {
             return Err(io::Error::last_os_error());
         }
         Ok(Self {
-            mutex: wide_null(&format!("Local\\Oxide.MediaPlayer.v1.{session}")),
-            pipe: wide_null(&format!(r"\\.\pipe\Oxide.MediaPlayer.v1.{session}")),
+            mutex: wide_null(&format!("Local\\Takt.MediaPlayer.v1.{session}")),
+            pipe: wide_null(&format!(r"\\.\pipe\Takt.MediaPlayer.v1.{session}")),
         })
     }
 }
@@ -105,7 +105,7 @@ pub(crate) fn acquire(request: LaunchRequest) -> Result<Acquisition> {
     // `endpoint.mutex` is NUL-terminated and lives through the call.
     let mutex = unsafe { CreateMutexW(ptr::null(), 0, endpoint.mutex.as_ptr()) };
     if mutex.is_null() {
-        return Err(io::Error::last_os_error()).context("Не удалось создать блокировку Oxide");
+        return Err(io::Error::last_os_error()).context("Не удалось создать блокировку Takt");
     }
     // SAFETY: GetLastError has no pointer arguments and must be observed
     // immediately after CreateMutexW; ERROR_ALREADY_EXISTS identifies the
@@ -114,7 +114,7 @@ pub(crate) fn acquire(request: LaunchRequest) -> Result<Acquisition> {
     let mutex = OwnedHandle(mutex);
 
     if already_running {
-        // The user initiated this process, so let the receiving Oxide process
+        // The user initiated this process, so let the receiving Takt process
         // request foreground activation when it handles the message.
         // SAFETY: ASFW_ANY is the documented sentinel; failure is harmless and
         // Windows may still flash the taskbar button instead of stealing focus.
@@ -129,7 +129,7 @@ pub(crate) fn acquire(request: LaunchRequest) -> Result<Acquisition> {
     let (incoming_tx, incoming) = bounded(INCOMING_CAPACITY);
     let pipe_name = endpoint.pipe;
     thread::Builder::new()
-        .name("oxide-single-instance".into())
+        .name("takt-single-instance".into())
         .spawn(move || serve(pipe_name, incoming_tx))
         .context("Не удалось запустить single-instance канал")?;
 
@@ -240,7 +240,7 @@ fn forward(pipe_name: &[u16], request: &LaunchRequest) -> Result<()> {
         thread::sleep(Duration::from_millis(25));
     }
 
-    Err(last_error).context("Не удалось передать файл уже запущенному Oxide")
+    Err(last_error).context("Не удалось передать файл уже запущенному Takt")
 }
 
 fn encode(request: &LaunchRequest) -> Result<Vec<u8>> {
@@ -253,7 +253,7 @@ fn encode(request: &LaunchRequest) -> Result<Vec<u8>> {
         .map(|path| path.as_os_str().encode_wide().collect::<Vec<_>>())
         .unwrap_or_default();
     if wide.len() > MAX_PATH_UNITS {
-        bail!("Слишком длинный путь для передачи уже запущенному Oxide");
+        bail!("Слишком длинный путь для передачи уже запущенному Takt");
     }
 
     let mut output = Vec::with_capacity(HEADER_BYTES + wide.len() * 2);
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn protocol_rejects_unknown_or_truncated_messages() {
-        assert!(decode(b"OXI1").is_err());
+        assert!(decode(b"TAK1").is_err());
         let mut message = encode(&LaunchRequest::Activate).unwrap();
         message[4] = 9;
         assert!(decode(&message).is_err());

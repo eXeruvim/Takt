@@ -41,7 +41,7 @@ if ([string]::IsNullOrWhiteSpace($TracePath)) {
         Where-Object {
             $candidate = Get-Content -LiteralPath $_.FullName -Raw -ErrorAction Stop |
                 ConvertFrom-Json -ErrorAction Stop
-            $candidate.kind -eq 'oxide-wpr-trace' -and
+            $candidate.kind -eq 'takt-wpr-trace' -and
                 $candidate.profile -in @('ResidentSet', 'ReferenceSet')
         } |
         Select-Object -First 1
@@ -63,14 +63,14 @@ else {
 
 $metadata = Get-Content -LiteralPath $passport.FullName -Raw -ErrorAction Stop |
     ConvertFrom-Json -ErrorAction Stop
-if ($metadata.kind -ne 'oxide-wpr-trace' -or $metadata.schema -ne 1) {
+if ($metadata.kind -ne 'takt-wpr-trace' -or $metadata.schema -ne 1) {
     throw "Неизвестный формат паспорта: $($passport.FullName)"
 }
 if ($metadata.profile -notin @('ResidentSet', 'ReferenceSet')) {
     throw "Для memory-экспорта нужна ResidentSet/ReferenceSet-трасса, получена $($metadata.profile)."
 }
 if ([int]$metadata.process_id -le 0) {
-    throw 'В паспорте отсутствует корректный PID Oxide.'
+    throw 'В паспорте отсутствует корректный PID Takt.'
 }
 
 $trace = [System.IO.Path]::GetFullPath(
@@ -114,7 +114,7 @@ $analysisRoot = Join-Path $traceRoot 'analysis'
 $output = Join-Path $analysisRoot `
     "$traceBaseName-memory-$([DateTimeOffset]::Now.ToString('yyyyMMdd-HHmmss'))"
 New-Item -ItemType Directory -Path $output -ErrorAction Stop | Out-Null
-$derivedProfile = Join-Path $output 'oxide-resident-memory.wpaProfile'
+$derivedProfile = Join-Path $output 'takt-resident-memory.wpaProfile'
 
 [xml]$profile = Get-Content -LiteralPath $sourceProfile -Raw -ErrorAction Stop
 $templateGraph = $profile.SelectSingleNode(
@@ -143,7 +143,7 @@ $presetContainer.RemoveAll()
 [xml]$residentPresetDocument = @'
 <HdvViewModelPreset
     xmlns="clr-namespace:Microsoft.Performance.UI.DataEngine.ViewModelPresets;assembly=Microsoft.Performance.UI.DataEngine"
-    Name="Oxide Resident Memory by Category"
+    Name="Takt Resident Memory by Category"
     GraphChartType="StackedBars"
     GraphColumnCount="6"
     KeyColumnCount="4"
@@ -221,15 +221,15 @@ function New-ResidentGraph {
     return $OwnerDocument.ImportNode($clone, $true)
 }
 
-$processLabel = "oxide.exe ($([int]$metadata.process_id))"
+$processLabel = "takt.exe ($([int]$metadata.process_id))"
 $generatedGraphs = @(
-    New-ResidentGraph $graph 'Oxide Resident Total by Process' `
+    New-ResidentGraph $graph 'Takt Resident Total by Process' `
         'Process' $processLabel $profile
-    New-ResidentGraph $graph 'Oxide Resident by Memory List' `
+    New-ResidentGraph $graph 'Takt Resident by Memory List' `
         'MMList' $processLabel $profile
-    New-ResidentGraph $graph 'Oxide Resident by Page Category' `
+    New-ResidentGraph $graph 'Takt Resident by Page Category' `
         'Page Category' $processLabel $profile
-    New-ResidentGraph $graph 'Oxide Resident by Description' `
+    New-ResidentGraph $graph 'Takt Resident by Description' `
         'Description' $processLabel $profile
 )
 @($view.ChildNodes) | Where-Object {
@@ -295,10 +295,10 @@ function Get-ResidentRows {
     return $rows
 }
 
-$processRows = @(Get-ResidentRows $tables '*_Oxide_Resident_Total_by_Process.csv')
-$memoryListRows = @(Get-ResidentRows $tables '*_Oxide_Resident_by_Memory_List.csv')
-$pageCategoryRows = @(Get-ResidentRows $tables '*_Oxide_Resident_by_Page_Category.csv')
-$descriptionRows = @(Get-ResidentRows $tables '*_Oxide_Resident_by_Description.csv')
+$processRows = @(Get-ResidentRows $tables '*_Takt_Resident_Total_by_Process.csv')
+$memoryListRows = @(Get-ResidentRows $tables '*_Takt_Resident_by_Memory_List.csv')
+$pageCategoryRows = @(Get-ResidentRows $tables '*_Takt_Resident_by_Page_Category.csv')
+$descriptionRows = @(Get-ResidentRows $tables '*_Takt_Resident_by_Description.csv')
 
 function Convert-ResidentDimension {
     param(
@@ -333,10 +333,10 @@ function Convert-ResidentDimension {
 $processHeaders = @($processRows[0].PSObject.Properties.Name)
 $processSizeColumn = $processHeaders | Where-Object { $_ -like 'Size*' } |
     Select-Object -First 1
-$oxideRows = @($processRows | Where-Object { $_.Process -eq $processLabel })
-if ($oxideRows.Count -eq 0) {
+$taktRows = @($processRows | Where-Object { $_.Process -eq $processLabel })
+if ($taktRows.Count -eq 0) {
     $matchingProcesses = @($processRows.Process | Where-Object {
-        $_ -match '(?i)^oxide(?:\.exe)?\b'
+        $_ -match '(?i)^takt(?:\.exe)?\b'
     } | Sort-Object -Unique)
     throw (
         "Resident Set-срез не содержит точный процесс '$processLabel'. " +
@@ -347,10 +347,10 @@ if ([string]::IsNullOrWhiteSpace($processSizeColumn) -or
     'Page Count' -notin $processHeaders) {
     throw 'Некорректные столбцы итоговой Resident Set-таблицы.'
 }
-$residentBytes = ($oxideRows | ForEach-Object {
+$residentBytes = ($taktRows | ForEach-Object {
     Convert-WpaNumber ([string]$_.$processSizeColumn)
 } | Measure-Object -Sum).Sum
-$pageCount = ($oxideRows | ForEach-Object {
+$pageCount = ($taktRows | ForEach-Object {
     Convert-WpaNumber ([string]$_.'Page Count')
 } | Measure-Object -Sum).Sum
 $memoryLists = @(Convert-ResidentDimension $memoryListRows 'MMList')
@@ -359,7 +359,7 @@ $descriptions = @(Convert-ResidentDimension $descriptionRows 'Description')
 
 $summary = [ordered]@{
     schema = 1
-    kind = 'oxide-wpa-resident-memory-summary'
+    kind = 'takt-wpa-resident-memory-summary'
     trace_file = [System.IO.Path]::GetFileName($trace)
     git_commit = [string]$metadata.git_commit
     package_version = [string]$metadata.package_version
@@ -374,11 +374,11 @@ $summary = [ordered]@{
     page_categories = $pageCategories
     descriptions = $descriptions
 }
-$summaryPath = Join-Path $output 'oxide-resident-memory-summary.json'
+$summaryPath = Join-Path $output 'takt-resident-memory-summary.json'
 $summary | ConvertTo-Json -Depth 8 |
     Set-Content -LiteralPath $summaryPath -Encoding utf8 -ErrorAction Stop
 
-Write-Host "Resident Set-анализ Oxide: $output"
+Write-Host "Resident Set-анализ Takt: $output"
 Write-Host (
     'Resident Set: {0} МиБ; страниц: {1}.' -f
         $summary.resident_mib,

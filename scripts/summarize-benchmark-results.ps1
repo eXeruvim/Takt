@@ -121,7 +121,7 @@ function Get-RunSignature {
         physical_memory_mib = $Run.environment.physical_memory_mib
         active_power_plan = $Run.environment.active_power_plan
         power_line_status = $Run.environment.power_line_status
-        window = $Run.environment.oxide_window
+        window = $Run.environment.takt_window
     }
 }
 

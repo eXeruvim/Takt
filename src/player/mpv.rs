@@ -79,8 +79,8 @@ fn send_equalizer(settings: EqualizerSettings, tx: &Sender<Event>) {
 }
 
 fn remove_equalizer_filter(mpv: &Mpv) -> anyhow::Result<()> {
-    mpv_error(mpv.command("change-list", &["af", "remove", "@oxide-eq"]))
-        .context("Не удалось удалить аудиофильтр Oxide")
+    mpv_error(mpv.command("change-list", &["af", "remove", "@takt-eq"]))
+        .context("Не удалось удалить аудиофильтр Takt")
 }
 
 fn append_equalizer_filter(mpv: &Mpv, settings: EqualizerSettings) -> anyhow::Result<()> {
@@ -91,7 +91,7 @@ fn append_equalizer_filter(mpv: &Mpv, settings: EqualizerSettings) -> anyhow::Re
     // `append` accepts one unescaped object-list item, so commas inside the
     // lavfi graph stay part of this named filter instead of splitting `af`.
     mpv_error(mpv.command("change-list", &["af", "append", &filter]))
-        .context("Не удалось применить аудиофильтр Oxide")
+        .context("Не удалось применить аудиофильтр Takt")
 }
 
 fn replace_equalizer_filter(
@@ -245,7 +245,7 @@ fn load_file_in_mpv(mpv: &Mpv, path: &Path) -> anyhow::Result<()> {
 }
 
 fn current_playlist_entry_id(mpv: &Mpv) -> Option<i64> {
-    // Oxide replaces mpv's internal playlist with exactly one item per load.
+    // Takt replaces mpv's internal playlist with exactly one item per load.
     // The entry ID is assigned by the synchronous playlist manipulation even
     // though actual loading and its events happen asynchronously afterwards.
     mpv.get_property::<i64>("playlist/0/id").ok()
@@ -1043,7 +1043,7 @@ pub fn run(
                         playback_state.finish_loading_without_resume();
                         // pause is a persistent mpv property and can survive a
                         // stopped, paused, or completed item. A newly selected
-                        // file must autoplay unless Oxide is deliberately
+                        // file must autoplay unless Takt is deliberately
                         // holding it for the resume-position prompt above.
                         if let Err(error) = set_loaded_media_paused(&mpv, false) {
                             let _ = tx.send(Event::Error(format!(

@@ -112,7 +112,7 @@ impl DownloadService {
         let (commands, worker_commands) = bounded(COMMAND_CAPACITY);
         let (worker_events, events) = bounded(EVENT_CAPACITY);
         let worker = thread::Builder::new()
-            .name("oxide-update-download".to_owned())
+            .name("takt-update-download".to_owned())
             .spawn(move || run_worker(worker_commands, worker_events, transport))?;
         Ok(Self {
             commands: Some(commands),
@@ -381,7 +381,7 @@ fn download_paths(request: &DownloadRequest) -> Result<DownloadPaths, String> {
     let identity = format!("{}-{}-{kind}", request.update.version, &hash[..16]);
     Ok(DownloadPaths {
         partial: request.directory.join(format!(".{identity}.part")),
-        ready: request.directory.join(format!("oxide-{identity}")),
+        ready: request.directory.join(format!("takt-{identity}")),
     })
 }
 
@@ -575,7 +575,7 @@ mod tests {
             .expect("test working directory")
             .join("target/updater-download-tests")
             .join(format!(
-                "oxide-download-test-{}-{unique}-{serial}",
+                "takt-download-test-{}-{unique}-{serial}",
                 std::process::id()
             ));
         let hash = hex_lower(&Sha256::digest(data));
@@ -588,7 +588,7 @@ mod tests {
                     package: UpdatePackage {
                         kind: PackageKind::Installer,
                         architecture: "x86_64-windows".to_owned(),
-                        url: "https://github.com/example/oxide/setup.exe".to_owned(),
+                        url: "https://github.com/example/takt/setup.exe".to_owned(),
                         sha256: hash,
                         size: data.len() as u64,
                     },

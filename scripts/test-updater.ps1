@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Helper = "target/release/oxide-updater.exe",
+    [string]$Helper = "target/release/takt-updater.exe",
     [string]$OutputDirectory = "artifacts/updater-test",
     [switch]$Keep
 )
@@ -26,17 +26,12 @@ if (Test-Path -LiteralPath $output) {
 New-Item -ItemType Directory -Path $output | Out-Null
 
 function New-FixtureArchive {
-    param([string]$Name, [bool]$ValidExecutable)
+    param([string]$Name)
     $source = Join-Path $output "$Name-source"
-    $payload = Join-Path $source "Oxide-fixture"
+    $payload = Join-Path $source "Takt-fixture"
     New-Item -ItemType Directory -Path $payload -Force | Out-Null
-    if ($ValidExecutable) {
-        Copy-Item -LiteralPath $helperPath -Destination (Join-Path $payload 'oxide.exe')
-    }
-    else {
-        [System.IO.File]::WriteAllBytes((Join-Path $payload 'oxide.exe'), [byte[]](1, 2, 3, 4))
-    }
-    Copy-Item -LiteralPath $helperPath -Destination (Join-Path $payload 'oxide-updater.exe')
+    Copy-Item -LiteralPath $helperPath -Destination (Join-Path $payload 'takt.exe')
+    Copy-Item -LiteralPath $helperPath -Destination (Join-Path $payload 'takt-updater.exe')
     Set-Content -LiteralPath (Join-Path $payload 'generation.txt') -Value 'new' -NoNewline
     $archive = Join-Path $output "$Name.zip"
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -48,8 +43,8 @@ function New-OldTarget {
     param([string]$Name)
     $target = Join-Path $output $Name
     New-Item -ItemType Directory -Path $target | Out-Null
-    Copy-Item -LiteralPath $helperPath -Destination (Join-Path $target 'oxide.exe')
-    Copy-Item -LiteralPath $helperPath -Destination (Join-Path $target 'oxide-updater.exe')
+    Copy-Item -LiteralPath $helperPath -Destination (Join-Path $target 'takt.exe')
+    Copy-Item -LiteralPath $helperPath -Destination (Join-Path $target 'takt-updater.exe')
     Set-Content -LiteralPath (Join-Path $target 'generation.txt') -Value 'old' -NoNewline
     Set-Content -LiteralPath (Join-Path $target 'user-file.txt') -Value 'preserve' -NoNewline
     return $target
@@ -61,16 +56,17 @@ function Start-ShortProcess {
         -WindowStyle Hidden -PassThru
 }
 
-$previousProbe = $env:OXIDE_UPDATER_TEST_PROBE
-$previousTestRoot = $env:OXIDE_UPDATER_TEST_ROOT
-$env:OXIDE_UPDATER_TEST_PROBE = 'enabled'
-$env:OXIDE_UPDATER_TEST_ROOT = Join-Path $output 'state'
+$previousProbe = $env:TAKT_UPDATER_TEST_PROBE
+$previousTestRoot = $env:TAKT_UPDATER_TEST_ROOT
+$previousRejectFirstStart = $env:TAKT_UPDATER_TEST_REJECT_FIRST_START
+$env:TAKT_UPDATER_TEST_PROBE = 'enabled'
+$env:TAKT_UPDATER_TEST_ROOT = Join-Path $output 'state'
 try {
-    $probeRoot = Join-Path $env:OXIDE_UPDATER_TEST_ROOT 'update-probes'
+    $probeRoot = Join-Path $env:TAKT_UPDATER_TEST_ROOT 'update-probes'
     New-Item -ItemType Directory -Path $probeRoot -Force | Out-Null
 
     $successTarget = New-OldTarget 'success-target'
-    $successArchive = New-FixtureArchive 'success' $true
+    $successArchive = New-FixtureArchive 'success'
     $successWait = Start-ShortProcess
     $successMarker = Join-Path $probeRoot "updater-success-$([guid]::NewGuid().ToString('N')).ready"
     & $helperPath apply portable $successArchive $successTarget $successWait.Id $successMarker
@@ -81,10 +77,12 @@ try {
     }
 
     $rollbackTarget = New-OldTarget 'rollback-target'
-    $rollbackArchive = New-FixtureArchive 'rollback' $false
+    $rollbackArchive = New-FixtureArchive 'rollback'
     $rollbackWait = Start-ShortProcess
     $rollbackMarker = Join-Path $probeRoot "updater-rollback-$([guid]::NewGuid().ToString('N')).ready"
+    $env:TAKT_UPDATER_TEST_REJECT_FIRST_START = 'enabled'
     & $helperPath apply portable $rollbackArchive $rollbackTarget $rollbackWait.Id $rollbackMarker
+    $env:TAKT_UPDATER_TEST_REJECT_FIRST_START = $previousRejectFirstStart
     if ($LASTEXITCODE -eq 0) { throw 'Повреждённая новая версия неожиданно была принята.' }
     if ((Get-Content -LiteralPath (Join-Path $rollbackTarget 'generation.txt') -Raw) -ne 'old' -or
         (Get-Content -LiteralPath (Join-Path $rollbackTarget 'user-file.txt') -Raw) -ne 'preserve') {
@@ -93,8 +91,9 @@ try {
     Write-Host 'Updater E2E: применение, первый запуск, сохранение файлов и rollback — OK'
 }
 finally {
-    $env:OXIDE_UPDATER_TEST_PROBE = $previousProbe
-    $env:OXIDE_UPDATER_TEST_ROOT = $previousTestRoot
+    $env:TAKT_UPDATER_TEST_PROBE = $previousProbe
+    $env:TAKT_UPDATER_TEST_ROOT = $previousTestRoot
+    $env:TAKT_UPDATER_TEST_REJECT_FIRST_START = $previousRejectFirstStart
     if (-not $Keep -and (Test-Path -LiteralPath $output)) {
         Remove-Item -LiteralPath $output -Recurse -Force
     }

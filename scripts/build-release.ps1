@@ -43,10 +43,10 @@ try {
 
     $manifestText = Get-Content -LiteralPath (Join-Path $repository 'Cargo.toml') -Raw
     if ($manifestText -notmatch '(?m)^version\s*=\s*"([^"]+)"\s*$') {
-        throw 'Не удалось прочитать версию Oxide из Cargo.toml.'
+        throw 'Не удалось прочитать версию Takt из Cargo.toml.'
     }
     $version = $Matches[1]
-    $packageName = "Oxide-$version-windows-x86_64"
+    $packageName = "Takt-$version-windows-x86_64"
 
     if (-not (Test-Path -LiteralPath (Join-Path $runtime 'libmpv-2.dll') -PathType Leaf) -or
         -not (Test-Path -LiteralPath (Join-Path $runtime 'mpv.lib') -PathType Leaf)) {
@@ -71,7 +71,7 @@ try {
         $env:PATH = "$runtime;$previousPath"
         & cargo build --release --locked --features windows-gui
         if ($LASTEXITCODE -ne 0) {
-            throw 'Release-сборка Oxide завершилась ошибкой.'
+            throw 'Release-сборка Takt завершилась ошибкой.'
         }
     }
     finally {
@@ -80,14 +80,14 @@ try {
         $env:SOURCE_DATE_EPOCH = $previousEpoch
     }
 
-    $executable = Join-Path $repository 'target/release/oxide.exe'
-    $updaterExecutable = Join-Path $repository 'target/release/oxide-updater.exe'
+    $executable = Join-Path $repository 'target/release/takt.exe'
+    $updaterExecutable = Join-Path $repository 'target/release/takt-updater.exe'
     if ((Get-PeSubsystem $executable) -ne 2) {
-        throw 'Release oxide.exe должен использовать Windows GUI subsystem и не открывать консоль.'
+        throw 'Release takt.exe должен использовать Windows GUI subsystem и не открывать консоль.'
     }
     $fileDescription = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($executable).FileDescription
-    if ($fileDescription.Trim() -ne 'Oxide media player') {
-        throw "Release oxide.exe содержит неожиданное описание процесса: $fileDescription"
+    if ($fileDescription.Trim() -ne 'Takt media player') {
+        throw "Release takt.exe содержит неожиданное описание процесса: $fileDescription"
     }
     if (-not (Test-Path -LiteralPath $updaterExecutable -PathType Leaf)) {
         throw "Release updater helper не создан: $updaterExecutable"
@@ -95,7 +95,7 @@ try {
     $updaterBuildInfoText = (& $updaterExecutable --build-info 2>&1 | Out-String).Trim()
     $updaterBuildInfo = $updaterBuildInfoText | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0 -or
-        [string]$updaterBuildInfo.component -ne 'oxide-updater' -or
+        [string]$updaterBuildInfo.component -ne 'takt-updater' -or
         [string]$updaterBuildInfo.package_version -ne $version) {
         throw "Updater helper вернул некорректный build-info: $updaterBuildInfoText"
     }
@@ -119,8 +119,8 @@ try {
     New-Item -ItemType Directory -Path $package -Force | Out-Null
 
     $copies = @(
-        @($executable, 'oxide.exe'),
-        @($updaterExecutable, 'oxide-updater.exe'),
+        @($executable, 'takt.exe'),
+        @($updaterExecutable, 'takt-updater.exe'),
         @((Join-Path $runtime 'libmpv-2.dll'), 'libmpv-2.dll'),
         @((Join-Path $runtime 'LICENSE.LGPL'), 'LICENSE.libmpv.LGPL'),
         @((Join-Path $repository 'LICENSE'), 'LICENSE'),
@@ -128,7 +128,7 @@ try {
         @((Join-Path $repository 'SUPPORT.md'), 'SUPPORT.md'),
         @((Join-Path $repository 'THIRD_PARTY_NOTICES.md'), 'THIRD_PARTY_NOTICES.md'),
         @((Join-Path $repository 'CODEC_MATRIX.md'), 'CODEC_MATRIX.md'),
-        @((Join-Path $repository 'sbom/oxide.cdx.json'), 'sbom/oxide.cdx.json'),
+        @((Join-Path $repository 'sbom/takt.cdx.json'), 'sbom/takt.cdx.json'),
         @((Join-Path $repository 'sbom/native-runtime.cdx.json'), 'sbom/native-runtime.cdx.json'),
         @((Join-Path $repository 'release/native-runtime.json'), 'native-runtime.json')
     )
@@ -141,7 +141,7 @@ try {
         Copy-Item -LiteralPath $copy[0] -Destination $destination -Force
     }
 
-    $buildInfoProbe = Join-Path $runtime 'oxide-build-info.exe'
+    $buildInfoProbe = Join-Path $runtime 'takt-build-info.exe'
     Copy-Item -LiteralPath $executable -Destination $buildInfoProbe -Force
     try {
         $buildInfoText = (& $buildInfoProbe --build-info 2>&1 | Out-String).Trim()
@@ -215,8 +215,8 @@ try {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $smoke)
         $smokePackage = Join-Path $smoke $packageName
-        $smokeExecutable = Join-Path $smokePackage 'oxide.exe'
-        $smokeUpdater = Join-Path $smokePackage 'oxide-updater.exe'
+        $smokeExecutable = Join-Path $smokePackage 'takt.exe'
+        $smokeUpdater = Join-Path $smokePackage 'takt-updater.exe'
         $smokeBuildInfo = (& $smokeExecutable --build-info 2>&1 | Out-String).Trim() | ConvertFrom-Json
         if ($LASTEXITCODE -ne 0 -or [string]$smokeBuildInfo.package_version -ne $version) {
             throw 'Распакованный portable executable не прошёл build-info smoke-тест.'

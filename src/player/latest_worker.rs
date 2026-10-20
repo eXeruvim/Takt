@@ -206,7 +206,7 @@ mod tests {
     fn newer_request_cancels_and_replaces_active_work() {
         let (started_tx, started_rx) = mpsc::channel();
         let worker = LatestWorker::new(
-            "oxide-latest-test",
+            "takt-latest-test",
             "latest worker test did not start",
             "latest worker test panicked",
             Arc::new(|| {}),
@@ -244,7 +244,7 @@ mod tests {
         let finished = Arc::new(AtomicBool::new(false));
         let finished_in_loader = Arc::clone(&finished);
         let worker = LatestWorker::new(
-            "oxide-latest-drop-test",
+            "takt-latest-drop-test",
             "latest worker drop test did not start",
             "latest worker drop test panicked",
             Arc::new(|| {}),

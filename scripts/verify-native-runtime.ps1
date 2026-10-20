@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Executable = "target/debug/oxide.exe",
+    [string]$Executable = "target/debug/takt.exe",
     [string]$RuntimeDirectory = "artifacts/native-runtime",
     [string]$Manifest = "release/native-runtime.json"
 )
@@ -17,14 +17,14 @@ foreach ($path in @($executablePath, $runtime, $manifestPath)) {
     }
 }
 if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
-    throw "Не найден oxide.exe для native-проверки: $executablePath"
+    throw "Не найден takt.exe для native-проверки: $executablePath"
 }
 if (-not (Test-Path -LiteralPath (Join-Path $runtime 'libmpv-2.dll') -PathType Leaf)) {
     throw "Не найден подготовленный libmpv-2.dll: $runtime"
 }
 
 $native = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-$probe = Join-Path $runtime 'oxide-native-info.exe'
+$probe = Join-Path $runtime 'takt-native-info.exe'
 Copy-Item -LiteralPath $executablePath -Destination $probe -Force
 try {
     $output = (& $probe --native-info 2>&1 | Out-String).Trim()

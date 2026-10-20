@@ -49,7 +49,7 @@ function Get-TracePassport {
             try {
                 $candidate = Get-Content -LiteralPath $_.FullName -Raw -Encoding utf8 |
                     ConvertFrom-Json -ErrorAction Stop
-                $candidate.kind -eq 'oxide-wpr-trace' -and $candidate.profile -eq 'GPU'
+                $candidate.kind -eq 'takt-wpr-trace' -and $candidate.profile -eq 'GPU'
             }
             catch {
                 $false
@@ -57,7 +57,7 @@ function Get-TracePassport {
         } |
         Select-Object -First 1
     if ($null -eq $passport) {
-        throw 'Паспорт GPU-трассы не найден. Сначала выполните capture-oxide-wpr.ps1.'
+        throw 'Паспорт GPU-трассы не найден. Сначала выполните capture-takt-wpr.ps1.'
     }
     return $passport
 }
@@ -67,7 +67,7 @@ $traceRoot = [System.IO.Path]::GetFullPath((Join-Path $repository 'benchmark-res
 $passport = Get-TracePassport -Root $traceRoot -RequestedTrace $TracePath
 $metadata = Get-Content -LiteralPath $passport.FullName -Raw -Encoding utf8 |
     ConvertFrom-Json -ErrorAction Stop
-if ($metadata.kind -ne 'oxide-wpr-trace' -or $metadata.schema -ne 1 -or $metadata.profile -ne 'GPU') {
+if ($metadata.kind -ne 'takt-wpr-trace' -or $metadata.schema -ne 1 -or $metadata.profile -ne 'GPU') {
     throw "Паспорт не описывает поддерживаемую GPU-трассу: $($passport.FullName)"
 }
 if ([int]$metadata.process_id -le 0 -or [double]$metadata.actual_trace_duration_seconds -le 0) {
@@ -97,7 +97,7 @@ $traceBaseName = [System.IO.Path]::GetFileNameWithoutExtension($trace)
 $analysisRoot = Join-Path $traceRoot 'analysis'
 $output = Join-Path $analysisRoot "$traceBaseName-gpu-$([DateTimeOffset]::Now.ToString('yyyyMMdd-HHmmss'))"
 New-Item -ItemType Directory -Path $output -ErrorAction Stop | Out-Null
-$derivedProfile = Join-Path $output 'oxide-gpu.wpaProfile'
+$derivedProfile = Join-Path $output 'takt-gpu.wpaProfile'
 
 [xml]$profile = Get-Content -LiteralPath $template -Raw -Encoding utf8
 $graph = $profile.SelectSingleNode("//*[local-name()='Graph']")
@@ -108,11 +108,11 @@ $preset = $graph.SelectSingleNode("./*[local-name()='Preset']")
 if ($null -eq $preset) {
     throw 'Шаблон GPU-профиля повреждён.'
 }
-$oxideGraph = $graph.CloneNode($true)
-$oxidePreset = $oxideGraph.SelectSingleNode("./*[local-name()='Preset']")
-$oxidePreset.SetAttribute('Name', 'Oxide GPU by Type')
-$oxidePreset.SetAttribute('InitialFilterQuery', "[Process]:=`"oxide.exe ($([int]$metadata.process_id))`"")
-$oxidePreset.SetAttribute('InitialFilterShouldKeep', 'true')
+$taktGraph = $graph.CloneNode($true)
+$taktPreset = $taktGraph.SelectSingleNode("./*[local-name()='Preset']")
+$taktPreset.SetAttribute('Name', 'Takt GPU by Type')
+$taktPreset.SetAttribute('InitialFilterQuery', "[Process]:=`"takt.exe ($([int]$metadata.process_id))`"")
+$taktPreset.SetAttribute('InitialFilterShouldKeep', 'true')
 
 $systemGraph = $graph.CloneNode($true)
 $systemGraph.SetAttribute('GraphItemGuid', [guid]::NewGuid().ToString())
@@ -122,7 +122,7 @@ $systemPreset.RemoveAttribute('InitialFilterQuery')
 
 $graphs = $graph.ParentNode
 $graphs.RemoveAll()
-[void]$graphs.AppendChild($oxideGraph)
+[void]$graphs.AppendChild($taktGraph)
 [void]$graphs.AppendChild($systemGraph)
 $profile.Save($derivedProfile)
 
@@ -136,16 +136,16 @@ if ($LASTEXITCODE -ne 0) {
     throw "WPA Exporter завершился с кодом $LASTEXITCODE`: $($exportLog | Out-String)"
 }
 
-$oxideCsv = Get-ChildItem -LiteralPath $output -Filter '*Oxide_GPU_by_Type.csv' -File |
+$taktCsv = Get-ChildItem -LiteralPath $output -Filter '*Takt_GPU_by_Type.csv' -File |
     Select-Object -First 1
 $systemCsv = Get-ChildItem -LiteralPath $output -Filter '*System_GPU_by_Process_and_Type.csv' -File |
     Select-Object -First 1
-if ($null -eq $oxideCsv -or $null -eq $systemCsv) {
+if ($null -eq $taktCsv -or $null -eq $systemCsv) {
     throw 'WPA Exporter не создал ожидаемые GPU-таблицы.'
 }
 
 $durationSeconds = [double]$metadata.actual_trace_duration_seconds
-$oxideRows = @(Import-Csv -LiteralPath $oxideCsv.FullName -Delimiter ';')
+$taktRows = @(Import-Csv -LiteralPath $taktCsv.FullName -Delimiter ';')
 $systemRows = @(Import-Csv -LiteralPath $systemCsv.FullName -Delimiter ';')
 $summarize = {
     param([object]$Row)
@@ -166,7 +166,7 @@ $summarize = {
         )
     }
 }
-$oxideEngines = @($oxideRows | Where-Object {
+$taktEngines = @($taktRows | Where-Object {
     -not [string]::IsNullOrWhiteSpace([string]$_.Type)
 } | ForEach-Object { & $summarize $_ })
 $systemEngines = @($systemRows | Where-Object {
@@ -190,7 +190,7 @@ if ([string]$metadata.decoder_mode -in $hardwareDecoderModes -and -not $decodeOb
 
 $summary = [ordered]@{
     schema = 1
-    kind = 'oxide-gpu-summary'
+    kind = 'takt-gpu-summary'
     source_trace = Split-Path -Leaf $trace
     source_passport = $passport.Name
     git_commit = [string]$metadata.git_commit
@@ -207,12 +207,12 @@ $summary = [ordered]@{
     trace_duration_seconds = $durationSeconds
     video_decode_observed = $decodeObserved
     copy_or_transfer_observed = $copyObserved
-    oxide_engines = $oxideEngines
+    takt_engines = $taktEngines
     system_engines = $systemEngines
     warnings = @($warnings)
     metric_note = 'one_engine_timeline_percent is GPU time divided by trace time for one engine timeline; it is not whole-adapter utilization and overlapping engines must not be summed.'
 }
-$summaryPath = Join-Path $output 'oxide-gpu-summary.json'
+$summaryPath = Join-Path $output 'takt-gpu-summary.json'
 $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $summaryPath -Encoding utf8
 Write-Host "GPU-сводка: $summaryPath"
-Write-Host "Oxide GPU engines: $($oxideEngines.Count); Video Decode observed: $decodeObserved; Copy/Transfer observed: $copyObserved"
+Write-Host "Takt GPU engines: $($taktEngines.Count); Video Decode observed: $decodeObserved; Copy/Transfer observed: $copyObserved"

@@ -7,7 +7,7 @@
       </Session>
     </Sessions>
     <Views>
-      <View Guid="a6d4c605-db74-4dea-a80e-d1d35b17ff4a" IsVisible="true" Title="Oxide GPU analysis">
+      <View Guid="a6d4c605-db74-4dea-a80e-d1d35b17ff4a" IsVisible="true" Title="Takt GPU analysis">
         <Graphs>
           <Graph Guid="b859d131-dfb5-4605-be19-810b298b6975" LayoutStyle="All" GraphHeight="125" IsMinimized="false" IsShown="true" IsExpanded="true" GraphItemGuid="0ac5fb69-e284-4753-b2d2-4bb17d7bfa18">
             <Preset Name="GPU by Adapter, Process" GraphChartType="StackedLine" BarGraphIntervalCount="50" IsThreadActivityTable="false" GraphColumnCount="19" KeyColumnCount="6" LeftFrozenColumnCount="0" RightFrozenColumnCount="18" InitialFilterShouldKeep="true" InitialExpansionQuery="[Series Name]:=&quot;Adapter&quot; [Series Depth]:&lt;=6" GraphFilterColumnName="GPU Time" GraphFilterTopValue="0" GraphFilterThresholdValue="0">

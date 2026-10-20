@@ -304,7 +304,7 @@ export component ConverterOverlay inherits Rectangle {
             ? "Разумный баланс между временем ожидания и качеством результата."
         : encoding-speed-index == 3
             ? "Конвертация займёт больше времени, зато кодек лучше сохранит детали."
-            : "Oxide использует скорость, которая лучше всего подходит выбранному профилю.";
+            : "Takt использует скорость, которая лучше всего подходит выбранному профилю.";
     private property <string> track-help-description:
         keep-audio-tracks && keep-subtitle-tracks
             ? "В новый файл попадут все встроенные аудиодорожки и субтитры."
@@ -329,7 +329,7 @@ export component ConverterOverlay inherits Rectangle {
         : "Авто";
     private property <string> recommendation-help-description:
         bitrate-index == 0
-            ? "Хороший выбор: Oxide сам подберёт качество. Итоговый размер файла заранее не фиксирован."
+            ? "Хороший выбор: Takt сам подберёт качество. Итоговый размер файла заранее не фиксирован."
         : resolution-index == 0
             ? "Если вам не нужен заданный размер файла, выберите «Авто» — так проще сохранить качество."
         : bitrate-index < recommended-bitrate-index
@@ -907,7 +907,7 @@ export component ConverterOverlay inherits Rectangle {
 
                 if root.history-open : UiText {
                     horizontal-stretch: 1;
-                    text: "Журнал хранится до выхода из Oxide";
+                    text: "Журнал хранится до выхода из Takt";
                     variant: TextVariant.caption;
                     color: Theme.text-secondary;
                     font-size: Theme.text-small + 1px;

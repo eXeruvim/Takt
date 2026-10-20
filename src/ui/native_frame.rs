@@ -1,4 +1,4 @@
-//! Native non-client policy for Oxide's custom chrome, including transitions.
+//! Native non-client policy for Takt's custom chrome, including transitions.
 #![deny(clippy::undocumented_unsafe_blocks)]
 
 use anyhow::{Result, anyhow, ensure};
@@ -24,8 +24,8 @@ use windows_sys::Win32::{
     },
 };
 
-const SUBCLASS_ID: usize = 0x4f58_4652;
-const LIVE_RESIZE_TIMER_ID: usize = 0x4f58_5253;
+const SUBCLASS_ID: usize = 0x5441_4652;
+const LIVE_RESIZE_TIMER_ID: usize = 0x5441_5253;
 const LIVE_RESIZE_FRAME_INTERVAL_MS: u32 = 16;
 // Undocumented legacy frame-paint messages also filtered by Chromium's
 // HWNDMessageHandler::OnNCUAHDrawCaption/OnNCUAHDrawFrame. Keep them isolated here.
@@ -505,13 +505,13 @@ mod tests {
                 operational | WS_EX_WINDOWEDGE
             );
 
-            let title = windows_sys::core::w!("Oxide metadata test");
+            let title = windows_sys::core::w!("Takt metadata test");
             assert_ne!(SetWindowTextW(hwnd, title), 0);
             let mut text = [0u16; 64];
             let count = GetWindowTextW(hwnd, text.as_mut_ptr(), text.len() as i32);
             assert_eq!(
                 String::from_utf16_lossy(&text[..count as usize]),
-                "Oxide metadata test"
+                "Takt metadata test"
             );
             let icon = LoadIconW(std::ptr::null_mut(), IDI_APPLICATION);
             assert!(!icon.is_null());

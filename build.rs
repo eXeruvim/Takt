@@ -17,15 +17,15 @@ fn git_output(arguments: &[&str]) -> Option<String> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=release/update-public-key.txt");
-    println!("cargo:rerun-if-env-changed=OXIDE_UPDATE_MANIFEST_URL");
+    println!("cargo:rerun-if-env-changed=TAKT_UPDATE_MANIFEST_URL");
     let update_public_key = std::fs::read_to_string("release/update-public-key.txt")?;
     println!(
-        "cargo:rustc-env=OXIDE_UPDATE_PUBLIC_KEY={}",
+        "cargo:rustc-env=TAKT_UPDATE_PUBLIC_KEY={}",
         update_public_key.trim()
     );
     println!(
-        "cargo:rustc-env=OXIDE_UPDATE_MANIFEST_URL={}",
-        std::env::var("OXIDE_UPDATE_MANIFEST_URL").unwrap_or_default()
+        "cargo:rustc-env=TAKT_UPDATE_MANIFEST_URL={}",
+        std::env::var("TAKT_UPDATE_MANIFEST_URL").unwrap_or_default()
     );
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Keep the executable identity, icon, DPI policy and Common Controls v6
         // activation in one resource so every Windows surface sees the same app.
         winresource::WindowsResource::new()
-            .set_icon("assets/icons/oxide.ico")
+            .set_icon("assets/icons/takt.ico")
             .set_manifest_file("assets/windows/app.manifest")
             .compile()?;
     }
@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=ui");
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=Cargo.toml");
-    println!("cargo:rerun-if-changed=assets/icons/oxide.ico");
+    println!("cargo:rerun-if-changed=assets/icons/takt.ico");
     println!("cargo:rerun-if-changed=assets/windows/app.manifest");
     for git_path in [".git/HEAD", ".git/index", ".git/packed-refs"] {
         if std::path::Path::new(git_path).exists() {
@@ -67,8 +67,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         "false"
     };
-    println!("cargo:rustc-env=OXIDE_BUILD_GIT_COMMIT={commit}");
-    println!("cargo:rustc-env=OXIDE_BUILD_TRACKED_CLEAN={tracked_clean}");
+    println!("cargo:rustc-env=TAKT_BUILD_GIT_COMMIT={commit}");
+    println!("cargo:rustc-env=TAKT_BUILD_TRACKED_CLEAN={tracked_clean}");
 
     slint_build::compile("ui/app_window.slint")?;
     Ok(())

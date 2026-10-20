@@ -129,7 +129,7 @@ pub(super) fn register_callbacks(
                     // the Escape that dismissed them before or together with
                     // the focus-restored event. Start the guard on focus loss
                     // and extend it on return so that same key press cannot
-                    // also leave Oxide fullscreen.
+                    // also leave Takt fullscreen.
                     fullscreen_escape_blocked_until =
                         Some(Instant::now() + Duration::from_millis(750));
                 }
@@ -408,8 +408,8 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time must be after Unix epoch")
             .as_nanos();
-        let video_path = std::env::temp_dir().join(format!("oxide-drop-{unique}.mkv"));
-        let audio_path = std::env::temp_dir().join(format!("oxide-drop-{unique}.flac"));
+        let video_path = std::env::temp_dir().join(format!("takt-drop-{unique}.mkv"));
+        let audio_path = std::env::temp_dir().join(format!("takt-drop-{unique}.flac"));
         std::fs::write(&video_path, []).expect("temporary video must be created");
         std::fs::write(&audio_path, []).expect("temporary audio must be created");
 

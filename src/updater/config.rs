@@ -9,8 +9,8 @@ use super::{
     service::CheckRequest,
 };
 
-const MANIFEST_URL: &str = env!("OXIDE_UPDATE_MANIFEST_URL");
-const PUBLIC_KEY: &str = env!("OXIDE_UPDATE_PUBLIC_KEY");
+const MANIFEST_URL: &str = env!("TAKT_UPDATE_MANIFEST_URL");
+const PUBLIC_KEY: &str = env!("TAKT_UPDATE_PUBLIC_KEY");
 
 pub fn current_request() -> Result<Option<CheckRequest>, String> {
     if MANIFEST_URL.trim().is_empty() {

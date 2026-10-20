@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repository = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $output = [System.IO.Path]::GetFullPath((Join-Path $repository $OutputDirectory))
-$temporarySbom = Join-Path $repository '.oxide-cdx-tmp.json'
+$temporarySbom = Join-Path $repository '.takt-cdx-tmp.json'
 
 if (-not $output.StartsWith($repository + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Каталог compliance должен находиться внутри репозитория: $output"
@@ -49,7 +49,7 @@ try {
     }
 
     & cargo cyclonedx --all-features --target x86_64-pc-windows-msvc `
-        --format json --spec-version 1.5 --override-filename .oxide-cdx-tmp
+        --format json --spec-version 1.5 --override-filename .takt-cdx-tmp
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $temporarySbom -PathType Leaf)) {
         throw 'Не удалось создать CycloneDX SBOM.'
     }
@@ -66,7 +66,7 @@ try {
     $bom.metadata.PSObject.Properties.Remove('timestamp')
     $version = [string]$bom.metadata.component.version
     $rootRef = [string]$bom.metadata.component.'bom-ref'
-    $portableRootRef = "pkg:cargo/oxide@$version"
+    $portableRootRef = "pkg:cargo/takt@$version"
 
     function ConvertTo-PortableSbomValue {
         param([object]$Value)
@@ -89,7 +89,7 @@ try {
             if ($text -match '^path\+file:///.+/vendor/libmpv-sys#3\.1\.0$') {
                 return 'pkg:cargo/libmpv-sys@3.1.0?repository_url=https%3A%2F%2Fgithub.com%2FParadoxSpiral%2Flibmpv-rs'
             }
-            if ($text -match '^pkg:cargo/(oxide|libmpv|libmpv-sys)@([^?]+)\?download_url=file://[^#]*(#.*)?$') {
+            if ($text -match '^pkg:cargo/(takt|libmpv|libmpv-sys)@([^?]+)\?download_url=file://[^#]*(#.*)?$') {
                 $fragment = if ($null -eq $Matches[3]) { '' } else { $Matches[3] }
                 return "pkg:cargo/$($Matches[1])@$($Matches[2])$fragment"
             }
@@ -112,7 +112,7 @@ try {
 
     $bom = ConvertTo-PortableSbomValue $bom
     New-Item -ItemType Directory -Force -Path $output | Out-Null
-    $sbomPath = Join-Path $output 'oxide.cdx.json'
+    $sbomPath = Join-Path $output 'takt.cdx.json'
     $bom | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $sbomPath -Encoding utf8
 
     $serializedBom = Get-Content -LiteralPath $sbomPath -Raw

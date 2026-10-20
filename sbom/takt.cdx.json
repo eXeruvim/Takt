@@ -10,50 +10,50 @@
     },
     "component": {
       "type": "application",
-      "bom-ref": "pkg:cargo/oxide@1.0.0-rc.1",
-      "name": "oxide",
-      "version": "1.0.0-rc.1",
-      "description": "Windows-first local video and audio player built with Rust, Slint, and libmpv",
+      "bom-ref": "pkg:cargo/takt@1.0.0-rc.3",
+      "name": "takt",
+      "version": "1.0.0-rc.3",
+      "description": "Video and audio player built with Rust, Slint, and libmpv",
       "scope": "required",
       "licenses": {
         "expression": "GPL-3.0-or-later"
       },
-      "purl": "pkg:cargo/oxide@1.0.0-rc.1",
+      "purl": "pkg:cargo/takt@1.0.0-rc.3",
       "components": [
         {
           "type": "library",
-          "bom-ref": "pkg:cargo/oxide@1.0.0-rc.1#bin-target-0",
-          "name": "oxide",
-          "version": "1.0.0-rc.1",
-          "purl": "pkg:cargo/oxide@1.0.0-rc.1#src/lib.rs"
+          "bom-ref": "pkg:cargo/takt@1.0.0-rc.3#bin-target-0",
+          "name": "takt",
+          "version": "1.0.0-rc.3",
+          "purl": "pkg:cargo/takt@1.0.0-rc.3#src/lib.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@1.0.0-rc.1#bin-target-1",
-          "name": "oxide",
-          "version": "1.0.0-rc.1",
-          "purl": "pkg:cargo/oxide@1.0.0-rc.1#src/main.rs"
+          "bom-ref": "pkg:cargo/takt@1.0.0-rc.3#bin-target-1",
+          "name": "takt",
+          "version": "1.0.0-rc.3",
+          "purl": "pkg:cargo/takt@1.0.0-rc.3#src/main.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@1.0.0-rc.1#bin-target-2",
-          "name": "oxide-playlist-bench",
-          "version": "1.0.0-rc.1",
-          "purl": "pkg:cargo/oxide@1.0.0-rc.1#src/playlist_bench.rs"
+          "bom-ref": "pkg:cargo/takt@1.0.0-rc.3#bin-target-2",
+          "name": "takt-playlist-bench",
+          "version": "1.0.0-rc.3",
+          "purl": "pkg:cargo/takt@1.0.0-rc.3#src/playlist_bench.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@1.0.0-rc.1#bin-target-3",
-          "name": "oxide-update-manifest",
-          "version": "1.0.0-rc.1",
-          "purl": "pkg:cargo/oxide@1.0.0-rc.1#src/bin/oxide_update_manifest.rs"
+          "bom-ref": "pkg:cargo/takt@1.0.0-rc.3#bin-target-3",
+          "name": "takt-update-manifest",
+          "version": "1.0.0-rc.3",
+          "purl": "pkg:cargo/takt@1.0.0-rc.3#src/bin/takt_update_manifest.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/oxide@1.0.0-rc.1#bin-target-4",
-          "name": "oxide-updater",
-          "version": "1.0.0-rc.1",
-          "purl": "pkg:cargo/oxide@1.0.0-rc.1#src/bin/oxide_updater.rs"
+          "bom-ref": "pkg:cargo/takt@1.0.0-rc.3#bin-target-4",
+          "name": "takt-updater",
+          "version": "1.0.0-rc.3",
+          "purl": "pkg:cargo/takt@1.0.0-rc.3#src/bin/takt_updater.rs"
         }
       ]
     },
@@ -9706,7 +9706,7 @@
   ],
   "dependencies": [
     {
-      "ref": "pkg:cargo/oxide@1.0.0-rc.1",
+      "ref": "pkg:cargo/takt@1.0.0-rc.3",
       "dependsOn": [
         "registry+https://github.com/rust-lang/crates.io-index#anyhow@1.0.104",
         "registry+https://github.com/rust-lang/crates.io-index#base64@0.23.1",

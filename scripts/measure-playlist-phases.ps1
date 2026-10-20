@@ -9,7 +9,7 @@ param(
     [ValidateRange(1, 100)]
     [int]$WarmupIterations = 3,
 
-    [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\oxide-playlist-bench.exe'),
+    [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\takt-playlist-bench.exe'),
 
     [string]$ResultRoot = (Join-Path $PSScriptRoot '..\benchmark-results'),
 
@@ -32,7 +32,7 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw "Паспорт fixture не найден: $manifestPath"
 }
 if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
-    throw 'Инструмент не собран. Выполните: cargo build --profile profiling --features benchmark-tools --bin oxide-playlist-bench --locked --offline'
+    throw 'Инструмент не собран. Выполните: cargo build --profile profiling --features benchmark-tools --bin takt-playlist-bench --locked --offline'
 }
 
 try {
@@ -41,7 +41,7 @@ try {
 catch {
     throw "Не удалось прочитать паспорт fixture: $($_.Exception.Message)"
 }
-if ($manifestData.schema -ne 1 -or $manifestData.kind -ne 'oxide-large-playlist' -or $manifestData.file_count -lt 1) {
+if ($manifestData.schema -ne 1 -or $manifestData.kind -ne 'takt-large-playlist' -or $manifestData.file_count -lt 1) {
     throw 'Неподдерживаемая схема паспорта fixture'
 }
 $fixtureDirectory = Split-Path -Parent $manifestPath
@@ -99,7 +99,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $report = Get-Content -LiteralPath $outputPath -Raw -Encoding utf8 | ConvertFrom-Json
-if ($report.schema -ne 1 -or $report.kind -ne 'oxide-playlist-phases' -or $report.workload.sha256 -ne $workloadHash) {
+if ($report.schema -ne 1 -or $report.kind -ne 'takt-playlist-phases' -or $report.workload.sha256 -ne $workloadHash) {
     throw 'Фазовый benchmark записал некорректный отчёт'
 }
 Write-Host ("Фазы p50: scan {0:N3} мс · sort {1:N3} мс · labels {2:N3} мс · shared {3:N3} мс · model {4:N4} мс · total {5:N3} мс" -f `

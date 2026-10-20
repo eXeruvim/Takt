@@ -173,7 +173,7 @@ if ([string]::IsNullOrWhiteSpace($TracePath)) {
         Where-Object {
             $candidate = Get-Content -LiteralPath $_.FullName -Raw `
                 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-            $candidate.kind -eq 'oxide-wpr-trace' -and
+            $candidate.kind -eq 'takt-wpr-trace' -and
                 $candidate.profile -eq 'Heap'
         } |
         Select-Object -First 1
@@ -195,13 +195,13 @@ else {
 
 $metadata = Get-Content -LiteralPath $passport.FullName -Raw -ErrorAction Stop |
     ConvertFrom-Json -ErrorAction Stop
-if ($metadata.kind -ne 'oxide-wpr-trace' -or
+if ($metadata.kind -ne 'takt-wpr-trace' -or
     $metadata.schema -ne 1 -or
     $metadata.profile -ne 'Heap') {
     throw "Паспорт не описывает поддерживаемую Heap-трассу: $($passport.FullName)"
 }
 if ([int]$metadata.process_id -le 0) {
-    throw 'В паспорте отсутствует корректный PID Oxide.'
+    throw 'В паспорте отсутствует корректный PID Takt.'
 }
 
 $trace = [System.IO.Path]::GetFullPath(
@@ -246,7 +246,7 @@ $analysisRoot = Join-Path $traceRoot 'analysis'
 $output = Join-Path $analysisRoot `
     "$traceBaseName-heap-$([DateTimeOffset]::Now.ToString('yyyyMMdd-HHmmss'))"
 New-Item -ItemType Directory -Path $output -ErrorAction Stop | Out-Null
-$derivedProfile = Join-Path $output 'oxide-heap.wpaProfile'
+$derivedProfile = Join-Path $output 'takt-heap.wpaProfile'
 
 [xml]$profile = Get-Content -LiteralPath $sourceProfile -Raw -ErrorAction Stop
 $sourceGraph = $profile.SelectSingleNode(
@@ -271,7 +271,7 @@ $presetContainer.RemoveAll()
 [xml]$presetDocument = @'
 <HdvViewModelPreset
     xmlns="clr-namespace:Microsoft.Performance.UI.DataEngine.ViewModelPresets;assembly=Microsoft.Performance.UI.DataEngine"
-    Name="Oxide Heap Totals"
+    Name="Takt Heap Totals"
     GraphChartType="StackedBars"
     BarGraphIntervalCount="100"
     GraphColumnCount="5"
@@ -297,14 +297,14 @@ $presetContainer.RemoveAll()
 '@
 $preset = $profile.ImportNode($presetDocument.DocumentElement, $true)
 [void]$presetContainer.AppendChild($preset)
-$processLabel = "oxide.exe ($([int]$metadata.process_id))"
+$processLabel = "takt.exe ($([int]$metadata.process_id))"
 Set-AttributeValue $preset 'InitialFilterQuery' "[Process]:=`"$processLabel`""
 Set-AttributeValue $preset 'InitialFilterShouldKeep' 'true'
 $stackGraph = $graph.CloneNode($true)
 $stackPreset = $stackGraph.SelectSingleNode(
     './/*[local-name()="HdvViewModelPreset"]'
 )
-Set-AttributeValue $stackPreset 'Name' 'Oxide Heap by Stack'
+Set-AttributeValue $stackPreset 'Name' 'Takt Heap by Stack'
 Set-AttributeValue $stackPreset 'InitialSelectionQuery' `
     '([Series Name]:="Stack")'
 Set-AttributeValue $stackPreset 'InitialExpansionQuery' `
@@ -380,9 +380,9 @@ if ($null -ne $oversizedTable) {
         "$([math]::Round($oversizedTable.Length / 1MB, 1)) МиБ."
     )
 }
-$totalsTable = $tables | Where-Object Name -Like '*_Oxide_Heap_Totals.csv' |
+$totalsTable = $tables | Where-Object Name -Like '*_Takt_Heap_Totals.csv' |
     Select-Object -First 1
-$stackTable = $tables | Where-Object Name -Like '*_Oxide_Heap_by_Stack.csv' |
+$stackTable = $tables | Where-Object Name -Like '*_Takt_Heap_by_Stack.csv' |
     Select-Object -First 1
 if ($null -eq $totalsTable -or $null -eq $stackTable) {
     throw 'WPA Exporter не вернул ожидаемые Totals/Stack Heap-таблицы.'
@@ -418,7 +418,7 @@ $shallowRows = @($stackDataRows | Where-Object {
 
 $summary = [ordered]@{
     schema = 1
-    kind = 'oxide-wpa-heap-summary'
+    kind = 'takt-wpa-heap-summary'
     trace_file = [System.IO.Path]::GetFileName($trace)
     git_commit = [string]$metadata.git_commit
     package_version = [string]$metadata.package_version
@@ -438,7 +438,7 @@ $summary = [ordered]@{
     app_stack_landmarks = @(
         Measure-InclusiveStackLandmarks $stackDataRows $stackImpactingColumn `
             $stackSizeColumn `
-            'Frame' 'oxide.exe!oxide::*' | Select-Object -First 30
+            'Frame' 'takt.exe!takt::*' | Select-Object -First 30
     )
     module_stack_landmarks = @(
         Measure-InclusiveStackLandmarks $stackDataRows $stackImpactingColumn `
@@ -447,11 +447,11 @@ $summary = [ordered]@{
     )
     symbols_requested = [bool]$Symbols
 }
-$summaryPath = Join-Path $output 'oxide-heap-summary.json'
+$summaryPath = Join-Path $output 'takt-heap-summary.json'
 $summary | ConvertTo-Json -Depth 8 |
     Set-Content -LiteralPath $summaryPath -Encoding utf8 -ErrorAction Stop
 
-Write-Host "Heap-анализ Oxide: $output"
+Write-Host "Heap-анализ Takt: $output"
 Write-Host (
     'Outstanding: {0} МиБ; всего выделено: {1} МиБ; событий: {2}.' -f
         $summary.outstanding_mib,
@@ -465,10 +465,10 @@ $summary.shallow_stack_branches | Select-Object -First 15 `
     outstanding_mib,
     total_allocated_mib |
     Format-Table -AutoSize
-Write-Host 'Ориентиры в стеках Oxide (включающие, не складывать):'
+Write-Host 'Ориентиры в стеках Takt (включающие, не складывать):'
 $summary.app_stack_landmarks | Select-Object -First 15 `
     @{ Name = 'frame'; Expression = {
-        $frame = $_.name -replace '^oxide\.exe!', ''
+        $frame = $_.name -replace '^takt\.exe!', ''
         if ($frame.Length -gt 80) {
             return $frame.Substring(0, 77) + '...'
         }

@@ -409,8 +409,8 @@ component UpdateSettingsCard inherits Rectangle {
             UiText {
                 horizontal-stretch: 1;
                 text: root.update-version == ""
-                    ? "Oxide " + root.app-version
-                    : "Доступен Oxide " + root.update-version;
+                    ? "Takt " + root.app-version
+                    : "Доступен Takt " + root.update-version;
                 variant: TextVariant.label;
                 vertical-alignment: center;
             }
@@ -984,7 +984,7 @@ export component MediaInspector inherits Rectangle {
                         Rectangle { vertical-stretch: 1; background: transparent; }
 
                         UiText {
-                            text: "Oxide " + root.app-version
+                            text: "Takt " + root.app-version
                                 + "  ·  I — открыть или закрыть Inspector";
                             variant: TextVariant.caption;
                             color: Theme.text-muted;

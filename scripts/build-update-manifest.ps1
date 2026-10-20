@@ -19,7 +19,7 @@ if ($Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
 
 $manifestText = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Cargo.toml') -Raw
 if ($manifestText -notmatch '(?m)^version\s*=\s*"([^"]+)"\s*$') {
-    throw 'Не удалось прочитать версию Oxide из Cargo.toml.'
+    throw 'Не удалось прочитать версию Takt из Cargo.toml.'
 }
 $version = $Matches[1]
 $channel = if ($version -match '-alpha(?:\.|$)') {
@@ -49,8 +49,8 @@ foreach ($note in $notes) {
     }
 }
 
-$installerName = "Oxide-$version-setup-x86_64.exe"
-$portableName = "Oxide-$version-windows-x86_64.zip"
+$installerName = "Takt-$version-setup-x86_64.exe"
+$portableName = "Takt-$version-windows-x86_64.zip"
 $installerPath = Join-Path $releaseRoot $installerName
 $portablePath = Join-Path $releaseRoot $portableName
 foreach ($path in @($installerPath, $portablePath)) {
@@ -88,17 +88,17 @@ $unsigned = [ordered]@{
     notes = $notes
     packages = $packages
 }
-$unsignedPath = Join-Path $releaseRoot '.oxide-update-unsigned.json'
-$signedPath = Join-Path $releaseRoot "oxide-update-$channel.json"
+$unsignedPath = Join-Path $releaseRoot '.takt-update-unsigned.json'
+$signedPath = Join-Path $releaseRoot "takt-update-$channel.json"
 try {
     $unsigned | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $unsignedPath -Encoding utf8
     Push-Location $repositoryRoot
     try {
-        & cargo run --quiet --locked --bin oxide-update-manifest -- sign $unsignedPath $signedPath
+        & cargo run --quiet --locked --bin takt-update-manifest -- sign $unsignedPath $signedPath
         if ($LASTEXITCODE -ne 0) { throw 'Не удалось подписать update manifest.' }
         $publicKey = (Get-Content -LiteralPath (Join-Path $repositoryRoot 'release/update-public-key.txt') -Raw).Trim()
         foreach ($kind in @('installer', 'portable')) {
-            & cargo run --quiet --locked --bin oxide-update-manifest -- verify `
+            & cargo run --quiet --locked --bin takt-update-manifest -- verify `
                 $signedPath $publicKey '0.0.0' $channel $kind 'x86_64-windows' 'github.com'
             if ($LASTEXITCODE -ne 0) { throw "Проверка update manifest для $kind завершилась ошибкой." }
         }

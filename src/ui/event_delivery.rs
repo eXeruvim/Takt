@@ -46,7 +46,7 @@ pub(super) fn spawn<T: Send + 'static>(
 ) -> io::Result<Bridge> {
     let (stop, worker_stop) = bounded(1);
     let worker = thread::Builder::new()
-        .name("oxide-ui-events".into())
+        .name("takt-ui-events".into())
         .spawn(move || {
             loop {
                 // No timer/polling while idle. Shutdown wins over a saturated

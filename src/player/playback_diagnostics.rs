@@ -13,7 +13,7 @@ use libmpv::{
     events::{EventContext, PropertyData},
 };
 
-const BENCHMARK_DIAGNOSTICS_ENV: &str = "OXIDE_BENCHMARK_DIAGNOSTICS_PATH";
+const BENCHMARK_DIAGNOSTICS_ENV: &str = "TAKT_BENCHMARK_DIAGNOSTICS_PATH";
 
 #[derive(Default)]
 struct IntervalStats {
@@ -229,7 +229,7 @@ fn write_report(
     let (seeking_total, seeking_longest) = diagnostics.seeking.durations();
     let report = serde_json::json!({
         "schema": 1,
-        "kind": "oxide-mpv-playback-diagnostics",
+        "kind": "takt-mpv-playback-diagnostics",
         "scope": "mpv counters cover current media since load; render_timing declares its own scope",
         "media_available": media_available,
         "decoder": diagnostics.decoder,
@@ -299,10 +299,10 @@ mod tests {
         assert!(diagnostics_path_from(None).is_none());
         assert!(diagnostics_path_from(Some(OsString::from("report.json"))).is_none());
 
-        let wrong_extension = std::env::temp_dir().join("oxide-diagnostics.txt");
+        let wrong_extension = std::env::temp_dir().join("takt-diagnostics.txt");
         assert!(diagnostics_path_from(Some(wrong_extension.into_os_string())).is_none());
 
-        let expected = std::env::temp_dir().join("oxide-diagnostics.json");
+        let expected = std::env::temp_dir().join("takt-diagnostics.json");
         assert_eq!(
             diagnostics_path_from(Some(expected.clone().into_os_string())),
             Some(expected)

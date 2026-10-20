@@ -163,7 +163,7 @@ impl VideoOutputController {
                                     "renderer-init",
                                 ) {
                                     Err(anyhow::anyhow!(
-                                        "OXIDE_DIAGNOSTIC_FAULT:renderer-init"
+                                        "TAKT_DIAGNOSTIC_FAULT:renderer-init"
                                     ))
                                 } else {
                                     match graphics_api {
@@ -230,7 +230,7 @@ impl VideoOutputController {
                                                 .into(),
                                         );
                                         app.set_error_visible(true);
-                                        eprintln!("OXIDE_DIAGNOSTIC_STATE:renderer-error");
+                                        eprintln!("TAKT_DIAGNOSTIC_STATE:renderer-error");
                                     }
                                 }
                             }

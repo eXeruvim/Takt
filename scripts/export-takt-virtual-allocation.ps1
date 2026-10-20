@@ -153,7 +153,7 @@ if ([string]::IsNullOrWhiteSpace($TracePath)) {
         Where-Object {
             $candidate = Get-Content -LiteralPath $_.FullName -Raw -ErrorAction Stop |
                 ConvertFrom-Json -ErrorAction Stop
-            $candidate.kind -eq 'oxide-wpr-trace' -and
+            $candidate.kind -eq 'takt-wpr-trace' -and
                 $candidate.profile -eq 'VirtualAllocation'
         } |
         Select-Object -First 1
@@ -175,13 +175,13 @@ else {
 
 $metadata = Get-Content -LiteralPath $passport.FullName -Raw -ErrorAction Stop |
     ConvertFrom-Json -ErrorAction Stop
-if ($metadata.kind -ne 'oxide-wpr-trace' -or
+if ($metadata.kind -ne 'takt-wpr-trace' -or
     $metadata.schema -ne 1 -or
     $metadata.profile -ne 'VirtualAllocation') {
     throw "Паспорт не описывает поддерживаемую VirtualAllocation-трассу: $($passport.FullName)"
 }
 if ([int]$metadata.process_id -le 0) {
-    throw 'В паспорте отсутствует корректный PID Oxide.'
+    throw 'В паспорте отсутствует корректный PID Takt.'
 }
 
 $trace = [System.IO.Path]::GetFullPath(
@@ -225,7 +225,7 @@ $analysisRoot = Join-Path $traceRoot 'analysis'
 $output = Join-Path $analysisRoot `
     "$traceBaseName-commit-$([DateTimeOffset]::Now.ToString('yyyyMMdd-HHmmss'))"
 New-Item -ItemType Directory -Path $output -ErrorAction Stop | Out-Null
-$derivedProfile = Join-Path $output 'oxide-virtual-allocation.wpaProfile'
+$derivedProfile = Join-Path $output 'takt-virtual-allocation.wpaProfile'
 
 [xml]$profile = Get-Content -LiteralPath $sourceProfile -Raw -ErrorAction Stop
 $templateGraph = $profile.SelectSingleNode(
@@ -255,7 +255,7 @@ $presetContainer.RemoveAll()
 [xml]$virtualPresetDocument = @'
 <HdvViewModelPreset
     xmlns="clr-namespace:Microsoft.Performance.UI.DataEngine.ViewModelPresets;assembly=Microsoft.Performance.UI.DataEngine"
-    Name="Oxide Virtual Allocations"
+    Name="Takt Virtual Allocations"
     GraphChartType="StackedBars"
     GraphColumnCount="8"
     KeyColumnCount="4"
@@ -349,15 +349,15 @@ function New-CommitGraph {
     return $OwnerDocument.ImportNode($graph, $true)
 }
 
-$processLabel = "oxide.exe ($([int]$metadata.process_id))"
+$processLabel = "takt.exe ($([int]$metadata.process_id))"
 $graphs = @(
-    New-CommitGraph $baseGraph 'Oxide Commit Total by Process' `
+    New-CommitGraph $baseGraph 'Takt Commit Total by Process' `
         'Process' $processLabel $profile
-    New-CommitGraph $baseGraph 'Oxide Commit by Type' `
+    New-CommitGraph $baseGraph 'Takt Commit by Type' `
         'Commit Type' $processLabel $profile
-    New-CommitGraph $baseGraph 'Oxide Reserve by Type' `
+    New-CommitGraph $baseGraph 'Takt Reserve by Type' `
         'Reserve Type' $processLabel $profile
-    New-CommitGraph $baseGraph 'Oxide Commit by Stack' `
+    New-CommitGraph $baseGraph 'Takt Commit by Stack' `
         'Stack' $processLabel $profile
 )
 @($view.ChildNodes) | Where-Object {
@@ -439,27 +439,27 @@ function Import-CommitTable {
     return $rows
 }
 
-$processRows = @(Import-CommitTable $tables '*_Oxide_Commit_Total_by_Process.csv')
-$commitTypeRows = @(Import-CommitTable $tables '*_Oxide_Commit_by_Type.csv')
-$reserveTypeRows = @(Import-CommitTable $tables '*_Oxide_Reserve_by_Type.csv')
-$stackRows = @(Import-CommitTable $tables '*_Oxide_Commit_by_Stack.csv')
-$oxideRows = @($processRows | Where-Object { $_.Process -eq $processLabel })
-if ($oxideRows.Count -eq 0) {
+$processRows = @(Import-CommitTable $tables '*_Takt_Commit_Total_by_Process.csv')
+$commitTypeRows = @(Import-CommitTable $tables '*_Takt_Commit_by_Type.csv')
+$reserveTypeRows = @(Import-CommitTable $tables '*_Takt_Reserve_by_Type.csv')
+$stackRows = @(Import-CommitTable $tables '*_Takt_Commit_by_Stack.csv')
+$taktRows = @($processRows | Where-Object { $_.Process -eq $processLabel })
+if ($taktRows.Count -eq 0) {
     $matches = @($processRows.Process | Where-Object {
-        $_ -match '(?i)^oxide(?:\.exe)?\b'
+        $_ -match '(?i)^takt(?:\.exe)?\b'
     } | Sort-Object -Unique)
     throw "Commit-срез не содержит '$processLabel'. Похожие подписи: $($matches -join ', ')"
 }
 
-$committedColumn = Get-MetricColumn $oxideRows 'Outstanding Committed'
-$reservedColumn = Get-MetricColumn $oxideRows 'Outstanding Reserved'
-$outstandingCommittedBytes = ($oxideRows | ForEach-Object {
+$committedColumn = Get-MetricColumn $taktRows 'Outstanding Committed'
+$reservedColumn = Get-MetricColumn $taktRows 'Outstanding Reserved'
+$outstandingCommittedBytes = ($taktRows | ForEach-Object {
     Convert-WpaNumber ([string]$_.$committedColumn)
 } | Measure-Object -Sum).Sum
-$outstandingReservedBytes = ($oxideRows | ForEach-Object {
+$outstandingReservedBytes = ($taktRows | ForEach-Object {
     Convert-WpaNumber ([string]$_.$reservedColumn)
 } | Measure-Object -Sum).Sum
-$allocationCount = ($oxideRows | ForEach-Object {
+$allocationCount = ($taktRows | ForEach-Object {
     Convert-WpaNumber ([string]$_.Count)
 } | Measure-Object -Sum).Sum
 $shallowStackDepth = 3
@@ -472,7 +472,7 @@ if ($shallowStackRows.Count -eq 0) {
 
 $summary = [ordered]@{
     schema = 1
-    kind = 'oxide-wpa-virtual-allocation-summary'
+    kind = 'takt-wpa-virtual-allocation-summary'
     trace_file = [System.IO.Path]::GetFileName($trace)
     git_commit = [string]$metadata.git_commit
     package_version = [string]$metadata.package_version
@@ -490,7 +490,7 @@ $summary = [ordered]@{
     shallow_stack_depth = $shallowStackDepth
     shallow_stack_branches = @(Measure-Dimension $shallowStackRows 'Stack')
     app_stack_landmarks = @(
-        Measure-InclusiveStackLandmarks $stackRows 'Frame' 'oxide.exe!oxide::*' |
+        Measure-InclusiveStackLandmarks $stackRows 'Frame' 'takt.exe!takt::*' |
             Select-Object -First 30
     )
     module_stack_landmarks = @(
@@ -499,11 +499,11 @@ $summary = [ordered]@{
     )
     symbols_requested = [bool]$Symbols
 }
-$summaryPath = Join-Path $output 'oxide-virtual-allocation-summary.json'
+$summaryPath = Join-Path $output 'takt-virtual-allocation-summary.json'
 $summary | ConvertTo-Json -Depth 8 |
     Set-Content -LiteralPath $summaryPath -Encoding utf8 -ErrorAction Stop
 
-Write-Host "VirtualAllocation-анализ Oxide: $output"
+Write-Host "VirtualAllocation-анализ Takt: $output"
 Write-Host (
     'Outstanding committed: {0} МиБ; reserved: {1} МиБ; событий: {2}.' -f
         $summary.outstanding_committed_mib,
@@ -518,10 +518,10 @@ $summary.shallow_stack_branches | Select-Object -First 15 `
     outstanding_committed_mib,
     outstanding_reserved_mib |
     Format-Table -AutoSize
-Write-Host 'Ориентиры в стеках Oxide (включающие, не складывать):'
+Write-Host 'Ориентиры в стеках Takt (включающие, не складывать):'
 $summary.app_stack_landmarks | Select-Object -First 15 `
     @{ Name = 'frame'; Expression = {
-        $frame = $_.name -replace '^oxide\.exe!', ''
+        $frame = $_.name -replace '^takt\.exe!', ''
         if ($frame.Length -gt 80) {
             return $frame.Substring(0, 77) + '...'
         }

@@ -1,10 +1,10 @@
-# Архитектура Oxide
+# Архитектура Takt
 
 [English](ARCHITECTURE.en.md) · **Русский**
 
 ## Границы системы
 
-Oxide разделён на UI-поток и поток проигрывателя. Управляющие вызовы libmpv
+Takt разделён на UI-поток и поток проигрывателя. Управляющие вызовы libmpv
 изолированы в потоке проигрывателя; команды и события передаются через ограниченные
 каналы. Единственное намеренное исключение — render API: Slint вызывает его внутри
 rendering notifier, пока OpenGL-контекст окна активен.
@@ -174,10 +174,10 @@ framebuffer, viewport, scissor, blending, clear color и dithering, которы
   `Microsoft.Windows.Common-Controls` v6: `GetWindowSubclass` отсутствует среди
   именованных экспортов legacy `System32/comctl32.dll`. Без манифеста процесс
   завершается до main с `STATUS_ENTRYPOINT_NOT_FOUND`. Проверка загрузки готового
-  приложения без UI: `target/debug/oxide.exe --build-info` (одной линковки мало).
+  приложения без UI: `target/debug/takt.exe --build-info` (одной линковки мало).
   Фильтрация `WS_CAPTION` централизована в `native_frame`; placement остаётся у winit.
   `WS_THICKFRAME` остаётся для resize/snap, а позицию, размер, taskbar и z-order
-  эта защита не меняет: единственной видимой шапкой остаётся chrome Oxide.
+  эта защита не меняет: единственной видимой шапкой остаётся chrome Takt.
 
 Остаточные внешние допущения проверяются на релизном native-наборе: Slint должен
 сохранять исходный GL-контекст активным до `RenderingTeardown`, а конкретная сборка

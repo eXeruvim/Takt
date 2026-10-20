@@ -47,15 +47,15 @@ jobs:
         run: |
           ./scripts/build-compliance-bundle.ps1 -RequireReleaseRuntime
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $expected = (Get-FileHash sbom/oxide.cdx.json -Algorithm SHA256).Hash
-          $actual = (Get-FileHash artifacts/compliance/oxide.cdx.json -Algorithm SHA256).Hash
+          $expected = (Get-FileHash sbom/takt.cdx.json -Algorithm SHA256).Hash
+          $actual = (Get-FileHash artifacts/compliance/takt.cdx.json -Algorithm SHA256).Hash
           if ($expected -ne $actual) {
             throw "Tracked SBOM is stale: $expected != $actual"
           }
       - name: Upload compliance bundle
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
         with:
-          name: oxide-compliance
+          name: takt-compliance
           path: artifacts/compliance
           if-no-files-found: error
 
@@ -91,7 +91,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # Unit tests can discard imports used only by the GUI entry point.
           # Load the real application without starting its UI or player.
-          cargo run --locked --bin oxide -- --build-info
+          cargo run --locked --bin takt -- --build-info
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/verify-native-runtime.ps1
 
@@ -129,7 +129,7 @@ jobs:
           $manifest = Get-Content Cargo.toml -Raw
           $version = [regex]::Match($manifest, '(?m)^version\s*=\s*"([^"]+)"').Groups[1].Value
           if ($version -notmatch '-') {
-            $env:OXIDE_UPDATE_MANIFEST_URL = "https://github.com/${{ github.repository }}/releases/latest/download/oxide-update-stable.json"
+            $env:TAKT_UPDATE_MANIFEST_URL = "https://github.com/${{ github.repository }}/releases/latest/download/takt-update-stable.json"
           }
           ./scripts/build-installer.ps1 -Compiler $env:ISCC_PATH
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -140,17 +140,17 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
-          OXIDE_UPDATE_SIGNING_KEY: ${{ secrets.OXIDE_UPDATE_SIGNING_KEY }}
+          TAKT_UPDATE_SIGNING_KEY: ${{ secrets.TAKT_UPDATE_SIGNING_KEY }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:OXIDE_UPDATE_SIGNING_KEY)) {
-            throw 'Repository secret OXIDE_UPDATE_SIGNING_KEY is required for a tagged release.'
+          if ([string]::IsNullOrWhiteSpace($env:TAKT_UPDATE_SIGNING_KEY)) {
+            throw 'Repository secret TAKT_UPDATE_SIGNING_KEY is required for a tagged release.'
           }
           ./scripts/build-update-manifest.ps1 -Repository $env:GITHUB_REPOSITORY
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload release candidate
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
         with:
-          name: oxide-windows-release
+          name: takt-windows-release
           path: artifacts/release
           if-no-files-found: error
       - name: Validate tag and publish GitHub Release
@@ -177,17 +177,17 @@ jobs:
             throw "Unknown release channel in version $version."
           }
           $assets = @(
-            "artifacts/release/Oxide-$version-setup-x86_64.exe",
-            "artifacts/release/Oxide-$version-windows-x86_64.zip",
-            "artifacts/release/Oxide-$version-sbom.cdx.json",
-            "artifacts/release/Oxide-$version-native-runtime.cdx.json",
-            "artifacts/release/Oxide-$version-THIRD-PARTY-NOTICES.md",
-            "artifacts/release/Oxide-$version-CODEC-MATRIX.md",
-            "artifacts/release/oxide-update-$channel.json",
+            "artifacts/release/Takt-$version-setup-x86_64.exe",
+            "artifacts/release/Takt-$version-windows-x86_64.zip",
+            "artifacts/release/Takt-$version-sbom.cdx.json",
+            "artifacts/release/Takt-$version-native-runtime.cdx.json",
+            "artifacts/release/Takt-$version-THIRD-PARTY-NOTICES.md",
+            "artifacts/release/Takt-$version-CODEC-MATRIX.md",
+            "artifacts/release/takt-update-$channel.json",
             'artifacts/release/SHA256SUMS.txt'
           )
           $arguments = @('release', 'create', $env:GITHUB_REF_NAME) + $assets + @(
-            '--verify-tag', '--generate-notes', '--title', "Oxide $version"
+            '--verify-tag', '--generate-notes', '--title', "Takt $version"
           )
           if ($version.Contains('-')) { $arguments += '--prerelease' }
           & gh @arguments

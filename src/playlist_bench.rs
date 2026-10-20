@@ -54,9 +54,9 @@ fn build_info() -> serde_json::Value {
     json!({
         "schema": 1,
         "package_version": env!("CARGO_PKG_VERSION"),
-        "git_commit": env!("OXIDE_BUILD_GIT_COMMIT"),
-        "tracked_clean": env!("OXIDE_BUILD_TRACKED_CLEAN") == "true",
-        "tracked_state": env!("OXIDE_BUILD_TRACKED_CLEAN"),
+        "git_commit": env!("TAKT_BUILD_GIT_COMMIT"),
+        "tracked_clean": env!("TAKT_BUILD_TRACKED_CLEAN") == "true",
+        "tracked_state": env!("TAKT_BUILD_TRACKED_CLEAN"),
     })
 }
 
@@ -254,7 +254,7 @@ fn main() -> Result<()> {
         .as_millis();
     let report = json!({
         "schema": 1,
-        "kind": "oxide-playlist-phases",
+        "kind": "takt-playlist-phases",
         "created_unix_ms": created_unix_ms,
         "build": build_info(),
         "workload": {

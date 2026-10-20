@@ -1,4 +1,4 @@
-# Oxide: local libmpv resource-ownership patch
+# Takt: local libmpv resource-ownership patch
 
 Applied: 2026-09-12. Based on **libmpv 2.0.1**, upstream
 [ParadoxSpiral/libmpv-rs](https://github.com/ParadoxSpiral/libmpv-rs/tree/3e6c389b716f52a595cc5e8e3fa1f96cb76b3de7),
@@ -39,7 +39,7 @@ Other upstream APIs/features have not received a general safety review here.
 
 ## Verification
 
-Run from the Oxide repository root with the native import library and DLL available:
+Run from the Takt repository root with the native import library and DLL available:
 
 ```powershell
 cargo test --locked -p libmpv --lib ownership_tests
@@ -70,6 +70,6 @@ unconditional native provisioning is still a separate pending task.
 
 Keep the manifest revision and this provenance record together. Before replacing
 the local copy with upstream, compare all affected early exits and rerun these
-regression scenarios plus the Oxide checks. Preserve both correct cleanup on
+regression scenarios plus the Takt checks. Preserve both correct cleanup on
 failure and single ownership on success. Do not silently update the native DLL
 or the rest of the graphics dependency graph as part of this patch.

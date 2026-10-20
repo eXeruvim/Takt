@@ -6,13 +6,13 @@ use std::{
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signer as _, SigningKey};
-use oxide::updater::manifest::{
+use takt::updater::manifest::{
     MAX_MANIFEST_BYTES, ManifestEnvelope, PackageKind, ReleaseChannel, SignedManifest,
     UpdatePolicy, decode_public_key, signing_bytes, verify_and_select,
 };
 
-const PRIVATE_KEY_ENV: &str = "OXIDE_UPDATE_SIGNING_KEY";
-const PRIVATE_KEY_FILE_ENV: &str = "OXIDE_UPDATE_SIGNING_KEY_FILE";
+const PRIVATE_KEY_ENV: &str = "TAKT_UPDATE_SIGNING_KEY";
+const PRIVATE_KEY_FILE_ENV: &str = "TAKT_UPDATE_SIGNING_KEY_FILE";
 
 fn main() {
     if let Err(error) = run(env::args_os().skip(1).collect()) {
@@ -43,7 +43,7 @@ fn run(arguments: Vec<std::ffi::OsString>) -> Result<(), String> {
 
 fn usage() -> String {
     format!(
-        "Использование:\n  oxide-update-manifest generate-key <private.txt> <public.txt>\n  oxide-update-manifest public-key\n  oxide-update-manifest sign <unsigned.json> <signed.json>\n  oxide-update-manifest verify <signed.json> <public-key> <current-version> <channel> <kind> <architecture> <allowed-host>\n\nДля sign/public-key задайте {PRIVATE_KEY_ENV} или {PRIVATE_KEY_FILE_ENV}."
+        "Использование:\n  takt-update-manifest generate-key <private.txt> <public.txt>\n  takt-update-manifest public-key\n  takt-update-manifest sign <unsigned.json> <signed.json>\n  takt-update-manifest verify <signed.json> <public-key> <current-version> <channel> <kind> <architecture> <allowed-host>\n\nДля sign/public-key задайте {PRIVATE_KEY_ENV} или {PRIVATE_KEY_FILE_ENV}."
     )
 }
 

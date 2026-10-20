@@ -1,17 +1,17 @@
 <p align="center">
-  <img src="assets/icons/oxide-256.png" width="112" alt="Иконка Oxide">
+  <img src="assets/icons/takt-256.png" width="112" alt="Иконка Takt">
 </p>
 
-<h1 align="center">Oxide</h1>
+<h1 align="center">Takt</h1>
 
 <p align="center">Локальный видеоплеер и аудиоплеер на Rust, Slint и libmpv.</p>
 
 <p align="center"><a href="README.md">English</a> · <strong>Русский</strong></p>
 
-Сейчас Oxide поддерживает 64-битные Windows 10 и 11. Версия для Linux
+Сейчас Takt поддерживает 64-битные Windows 10 и 11. Версия для Linux
 запланирована после выпуска 1.0.
 
-Текущая версия: `1.0.0-rc.2`.
+Текущая версия: `1.0.0-rc.3`.
 
 ## Возможности
 
@@ -30,13 +30,13 @@
 
 Скачайте установщик или portable-архив на странице Releases в GitHub.
 
-Установщик ставит Oxide для текущего пользователя и может добавить поддерживаемые
+Установщик ставит Takt для текущего пользователя и может добавить поддерживаемые
 форматы в меню «Открыть с помощью». Portable-версию можно распаковать в любую
-доступную для записи папку; `oxide.exe` и `libmpv-2.dll` должны оставаться рядом.
+доступную для записи папку; `takt.exe` и `libmpv-2.dll` должны оставаться рядом.
 
 Для воспроизведения не требуется системная установка mpv или FFmpeg. Конвертер
 необязателен и использует пользовательский `ffmpeg.exe` из `PATH`, папки с
-`oxide.exe`, подпапки `tools` или пути в переменной `OXIDE_FFMPEG`.
+`takt.exe`, подпапки `tools` или пути в переменной `TAKT_FFMPEG`.
 
 ## Сборка из исходников
 
@@ -47,7 +47,7 @@
 - Visual Studio Build Tools с инструментами C++;
 - PowerShell 7.
 
-Подготовьте закреплённый native runtime и запустите Oxide:
+Подготовьте закреплённый native runtime и запустите Takt:
 
 ```powershell
 ./scripts/fetch-native-runtime.ps1
@@ -58,7 +58,7 @@ cargo run --locked --features windows-gui
 
 ```powershell
 cargo run --locked --features windows-gui -- "C:\Медиа\видео.mp4"
-target\debug\oxide.exe "C:\Музыка\Альбом"
+target\debug\takt.exe "C:\Музыка\Альбом"
 ```
 
 Сборка пакетов для распространения:
@@ -89,4 +89,4 @@ cargo test --locked -p libmpv --lib ownership_tests
 
 ## Лицензия
 
-Oxide распространяется по лицензии [GNU General Public License v3.0 или новее](LICENSE).
+Takt распространяется по лицензии [GNU General Public License v3.0 или новее](LICENSE).

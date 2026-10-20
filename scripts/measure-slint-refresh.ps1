@@ -10,7 +10,7 @@ param(
     [ValidateRange(0, 300)]
     [int]$WarmupSeconds = 5,
 
-    [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\oxide.exe'),
+    [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\takt.exe'),
 
     [switch]$AutomaticIdle,
 
@@ -62,7 +62,7 @@ function Get-FrameSamples {
     return $samples
 }
 
-function Close-OxideProcess {
+function Close-TaktProcess {
     param(
         [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process,
         [switch]$RestoreFirst
@@ -71,28 +71,28 @@ function Close-OxideProcess {
     $Process.Refresh()
     if ($Process.HasExited) { return 'already-exited' }
     if ($RestoreFirst -and $Process.MainWindowHandle -ne [IntPtr]::Zero) {
-        if (-not ('OxideRefreshWindow' -as [type])) {
+        if (-not ('TaktRefreshWindow' -as [type])) {
             Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 
-public static class OxideRefreshWindow {
+public static class TaktRefreshWindow {
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool ShowWindowAsync(IntPtr window, int command);
 }
 '@
         }
-        [void][OxideRefreshWindow]::ShowWindowAsync($Process.MainWindowHandle, 9)
+        [void][TaktRefreshWindow]::ShowWindowAsync($Process.MainWindowHandle, 9)
         Start-Sleep -Milliseconds 300
         $Process.Refresh()
     }
     if (-not $Process.CloseMainWindow()) {
-        Write-Warning "Oxide PID $($Process.Id) не принял обычный запрос закрытия. Процесс оставлен пользователю."
+        Write-Warning "Takt PID $($Process.Id) не принял обычный запрос закрытия. Процесс оставлен пользователю."
         return 'request-rejected'
     }
     if (-not $Process.WaitForExit(10000)) {
-        Write-Warning "Oxide PID $($Process.Id) не закрылся за 10 секунд. Процесс оставлен пользователю."
+        Write-Warning "Takt PID $($Process.Id) не закрылся за 10 секунд. Процесс оставлен пользователю."
         return 'timeout'
     }
     return 'closed'
@@ -147,7 +147,7 @@ if ($AutomaticIdle -and $Scenario -ne 'idle') {
 $repository = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $executablePath = [System.IO.Path]::GetFullPath($Executable)
 $expectedExecutable = [System.IO.Path]::GetFullPath(
-    (Join-Path $repository 'target\profiling\oxide.exe')
+    (Join-Path $repository 'target\profiling\takt.exe')
 )
 if ($executablePath -ne $expectedExecutable) {
     Write-Warning "Используется нестандартный executable: $executablePath"
@@ -206,7 +206,7 @@ $instructions = switch ($Scenario) {
     'video-1080p' { 'Откройте 1080p-видео и дождитесь стабильного воспроизведения.' }
     'video-4k' { 'Откройте 4K-видео и дождитесь стабильного воспроизведения.' }
     'paused' { 'Откройте медиафайл, поставьте его на паузу и не двигайте мышью.' }
-    'minimized' { 'Откройте медиафайл, запустите его и сверните Oxide на панель задач.' }
+    'minimized' { 'Откройте медиафайл, запустите его и сверните Takt на панель задач.' }
 }
 
 $oldPerformanceSetting = [Environment]::GetEnvironmentVariable(
@@ -235,7 +235,7 @@ finally {
     )
 }
 
-Write-Host "Oxide запущен с PID $($process.Id)."
+Write-Host "Takt запущен с PID $($process.Id)."
 Write-Host $instructions
 if (-not $AutomaticIdle) {
     Read-Host 'Настройте сценарий, дождитесь стабилизации и нажмите Enter'
@@ -246,12 +246,12 @@ if ($WarmupSeconds -gt 0) {
 }
 
 $startedAt = [DateTimeOffset]::UtcNow
-Write-Host "Запись перерисовок: $DurationSeconds с. Не взаимодействуйте с Oxide."
+Write-Host "Запись перерисовок: $DurationSeconds с. Не взаимодействуйте с Takt."
 for ($elapsed = 0; $elapsed -lt $DurationSeconds; $elapsed++) {
     Start-Sleep -Seconds 1
     $process.Refresh()
     if ($process.HasExited) {
-        Write-Warning 'Oxide завершился до конца замера; сохранены доступные образцы.'
+        Write-Warning 'Takt завершился до конца замера; сохранены доступные образцы.'
         break
     }
     Write-Progress `
@@ -265,7 +265,7 @@ $finishedAt = [DateTimeOffset]::UtcNow
 $lines = @(Get-SharedLogLines -Path $stdoutPath)
 $lines += @(Get-SharedLogLines -Path $stderrPath)
 $samples = @(Get-FrameSamples -Lines $lines -Limit $DurationSeconds)
-$closeResult = Close-OxideProcess `
+$closeResult = Close-TaktProcess `
     -Process $process `
     -RestoreFirst:($Scenario -eq 'minimized')
 if ($samples.Count -eq 0) {
@@ -274,7 +274,7 @@ if ($samples.Count -eq 0) {
 
 $summary = [ordered]@{
     schema = 1
-    kind = 'oxide-slint-refresh-lazy'
+    kind = 'takt-slint-refresh-lazy'
     scenario = $Scenario
     started_utc = $startedAt.ToString('O')
     finished_utc = $finishedAt.ToString('O')

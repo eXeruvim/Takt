@@ -21,11 +21,11 @@ use windows_sys::Win32::{
     System::Threading::{OpenEventW, SYNCHRONIZATION_SYNCHRONIZE, WaitForSingleObject},
 };
 
-const DIAGNOSTICS_ENV: &str = "OXIDE_BENCHMARK_DIAGNOSTICS_PATH";
-const MEASUREMENT_GATE_ENV: &str = "OXIDE_BENCHMARK_RENDER_GATE";
-const UI_LATENCY_ENV: &str = "OXIDE_UI_LATENCY_DIAGNOSTICS";
-const UI_CYCLE_COUNT_ENV: &str = "OXIDE_BENCHMARK_UI_CYCLES";
-const FAULT_ENV: &str = "OXIDE_BENCHMARK_FAULT";
+const DIAGNOSTICS_ENV: &str = "TAKT_BENCHMARK_DIAGNOSTICS_PATH";
+const MEASUREMENT_GATE_ENV: &str = "TAKT_BENCHMARK_RENDER_GATE";
+const UI_LATENCY_ENV: &str = "TAKT_UI_LATENCY_DIAGNOSTICS";
+const UI_CYCLE_COUNT_ENV: &str = "TAKT_BENCHMARK_UI_CYCLES";
+const FAULT_ENV: &str = "TAKT_BENCHMARK_FAULT";
 const MAX_TIMING_SAMPLES: usize = 300_000;
 const MAX_UI_CYCLES: u64 = 10_000;
 
@@ -619,7 +619,7 @@ pub fn render_timing_summary() -> Option<serde_json::Value> {
         "frame_interval_ms": stats_json(summarize(&state.frame_intervals_ms)),
         "mpv_render_duration_ms": stats_json(summarize(&state.render_durations_ms)),
         "scene_by_surface": scene_by_surface,
-        "metric_note": "mpv intervals cover integrated video renders. Scene intervals and durations are split by the surface visible at BeforeRendering. notifier_to_scene_complete_ms covers Slint BeforeRendering through AfterRendering; subtracting nested mpv_render produces an estimate of Slint scene rendering plus Oxide notifier overhead. None of these metrics include buffer presentation, DWM latency, or GPU completion.",
+        "metric_note": "mpv intervals cover integrated video renders. Scene intervals and durations are split by the surface visible at BeforeRendering. notifier_to_scene_complete_ms covers Slint BeforeRendering through AfterRendering; subtracting nested mpv_render produces an estimate of Slint scene rendering plus Takt notifier overhead. None of these metrics include buffer presentation, DWM latency, or GPU completion.",
     }))
 }
 

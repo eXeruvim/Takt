@@ -10,7 +10,7 @@ param(
     [ValidateRange(100, 5000)]
     [int]$SampleIntervalMs = 250,
 
-    [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\oxide.exe'),
+    [string]$Executable = (Join-Path $PSScriptRoot '..\target\profiling\takt.exe'),
 
     [ValidateSet('not-recorded', 'software', 'hardware-auto-copy', 'nvdec', 'nvdec-copy', 'd3d11va-copy')]
     [string]$DecoderMode = 'not-recorded',
@@ -263,7 +263,7 @@ function Measure-ProcessPhase {
         Start-Sleep -Milliseconds $SampleIntervalMs
         $Process.Refresh()
         if ($Process.HasExited) {
-            Write-Warning 'Oxide завершился во время замера; сохранены полученные образцы.'
+            Write-Warning 'Takt завершился во время замера; сохранены полученные образцы.'
             return $false
         }
 
@@ -295,7 +295,7 @@ function Measure-ProcessPhase {
         })
         $percentComplete = [Math]::Min(100.0, ($wall / $DurationSeconds) * 100.0)
         Write-Progress `
-            -Activity "Замер Oxide: $Scenario" `
+            -Activity "Замер Takt: $Scenario" `
             -Status ("{0}: {1:N1} из {2} секунд" -f $Phase, $wall, $DurationSeconds) `
             -PercentComplete $percentComplete
         $previousWall = $wall
@@ -389,7 +389,7 @@ function Invoke-TextCommand {
     }
 }
 
-function Get-OxideBuildDescriptor {
+function Get-TaktBuildDescriptor {
     param(
         [Parameter(Mandatory = $true)]
         [string]$FilePath,
@@ -436,7 +436,7 @@ function Get-OxideBuildDescriptor {
         return $descriptor
     }
     catch {
-        throw "Не удалось проверить происхождение Oxide: $($_.Exception.Message)"
+        throw "Не удалось проверить происхождение Takt: $($_.Exception.Message)"
     }
     finally {
         $probe.Dispose()
@@ -455,14 +455,14 @@ function Close-BenchmarkProcess {
     }
 
     if (-not $Process.CloseMainWindow()) {
-        throw "Не удалось запросить обычное закрытие Oxide PID $($Process.Id). Серия остановлена; закройте только это окно вручную."
+        throw "Не удалось запросить обычное закрытие Takt PID $($Process.Id). Серия остановлена; закройте только это окно вручную."
     }
 
     if (-not $Process.WaitForExit(10000)) {
-        throw "Oxide PID $($Process.Id) не завершился за 10 секунд. Серия остановлена, процесс принудительно не завершён."
+        throw "Takt PID $($Process.Id) не завершился за 10 секунд. Серия остановлена, процесс принудительно не завершён."
     }
 
-    Write-Host "Oxide PID $($Process.Id) корректно закрыт."
+    Write-Host "Takt PID $($Process.Id) корректно закрыт."
 }
 
 function Get-WindowSnapshot {
@@ -472,12 +472,12 @@ function Get-WindowSnapshot {
     )
 
     try {
-        if (-not ('OxideBenchmark.NativeWindow' -as [type])) {
+        if (-not ('TaktBenchmark.NativeWindow' -as [type])) {
             Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 
-namespace OxideBenchmark {
+namespace TaktBenchmark {
     public static class NativeWindow {
         [StructLayout(LayoutKind.Sequential)]
         public struct Rect {
@@ -512,11 +512,11 @@ namespace OxideBenchmark {
             return [ordered]@{ available = $false; reason = 'main window handle is unavailable' }
         }
 
-        $rect = [OxideBenchmark.NativeWindow+Rect]::new()
-        if (-not [OxideBenchmark.NativeWindow]::GetClientRect($handle, [ref]$rect)) {
+        $rect = [TaktBenchmark.NativeWindow+Rect]::new()
+        if (-not [TaktBenchmark.NativeWindow]::GetClientRect($handle, [ref]$rect)) {
             return [ordered]@{ available = $false; reason = 'GetClientRect failed' }
         }
-        $dpi = [OxideBenchmark.NativeWindow]::GetDpiForWindow($handle)
+        $dpi = [TaktBenchmark.NativeWindow]::GetDpiForWindow($handle)
         if ($dpi -eq 0) {
             $dpi = 96
         }
@@ -530,8 +530,8 @@ namespace OxideBenchmark {
             client_height_physical = $height
             client_width_logical = [Math]::Round(($width * 96.0) / $dpi, 1)
             client_height_logical = [Math]::Round(($height * 96.0) / $dpi, 1)
-            maximized = [OxideBenchmark.NativeWindow]::IsZoomed($handle)
-            minimized = [OxideBenchmark.NativeWindow]::IsIconic($handle)
+            maximized = [TaktBenchmark.NativeWindow]::IsZoomed($handle)
+            minimized = [TaktBenchmark.NativeWindow]::IsIconic($handle)
         }
     }
     catch {
@@ -576,7 +576,7 @@ function Get-WorkloadDescriptor {
     catch {
         throw "Не удалось прочитать паспорт тестовой нагрузки: $($_.Exception.Message)"
     }
-    if ($manifest.schema -ne 1 -or $manifest.kind -ne 'oxide-large-playlist' -or $manifest.file_count -lt 1) {
+    if ($manifest.schema -ne 1 -or $manifest.kind -ne 'takt-large-playlist' -or $manifest.file_count -lt 1) {
         throw 'Неподдерживаемый паспорт тестовой нагрузки'
     }
     $fixtureDirectory = Split-Path -Parent $resolved
@@ -594,7 +594,7 @@ function Get-WorkloadDescriptor {
 
 $repository = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $executablePath = [System.IO.Path]::GetFullPath($Executable)
-$expectedExecutable = [System.IO.Path]::GetFullPath((Join-Path $repository 'target\profiling\oxide.exe'))
+$expectedExecutable = [System.IO.Path]::GetFullPath((Join-Path $repository 'target\profiling\takt.exe'))
 if ($executablePath -ne $expectedExecutable) {
     Write-Warning "Используется нестандартный executable: $executablePath"
 }
@@ -674,7 +674,7 @@ if (-not (Test-Path -LiteralPath $runtimePath -PathType Leaf)) {
     Write-Host "Runtime подготовлен: $runtimePath"
 }
 $gitCommit = Invoke-TextCommand -FilePath 'git' -Arguments @('-C', $repository, 'rev-parse', 'HEAD')
-$buildDescriptor = Get-OxideBuildDescriptor -FilePath $executablePath -WorkingDirectory $repository
+$buildDescriptor = Get-TaktBuildDescriptor -FilePath $executablePath -WorkingDirectory $repository
 if (-not $ValidateOnly -and -not $AllowUnverifiedBuild) {
     if ([string]$buildDescriptor.git_commit -ne $gitCommit) {
         throw "Profiling-сборка относится к commit $($buildDescriptor.git_commit), а рабочее дерево — к $gitCommit. Пересоберите после commit."
@@ -757,11 +757,11 @@ $instructions = switch ($Scenario) {
     'video-4k' { 'Откройте 4K-видео, включите нужный режим декодирования и запустите воспроизведение.' }
     'hdd-video' { 'Откройте видео именно с HDD. После начала замера: пауза на 5 секунд, продолжение, через 10 секунд одна перемотка и затем обычное воспроизведение.' }
     'paused' { 'Откройте медиафайл, поставьте воспроизведение на паузу и не двигайте мышью.' }
-    'minimized' { 'Откройте медиафайл, запустите воспроизведение и сверните Oxide на панель задач.' }
+    'minimized' { 'Откройте медиафайл, запустите воспроизведение и сверните Takt на панель задач.' }
     'large-playlist' { 'Откройте подготовленную большую папку и оставьте очередь открытой на время замера.' }
     'large-artwork' { 'Откройте аудиофайл с крупной допустимой обложкой и дождитесь её отображения.' }
     'artwork-release' { 'Откройте указанный аудиофайл с обложкой и дождитесь её отображения.' }
-    'ui-panels' { 'Откройте указанный медиафайл и оставьте все боковые панели закрытыми. После Enter Oxide сам выполнит одинаковые циклы панелей.' }
+    'ui-panels' { 'Откройте указанный медиафайл и оставьте все боковые панели закрытыми. После Enter Takt сам выполнит одинаковые циклы панелей.' }
 }
 
 $mediaDiagnosticsScenario = $Scenario -ne 'idle'
@@ -771,13 +771,13 @@ $playbackDiagnosticsPath = if ($mediaDiagnosticsScenario -and $CloseAfterMeasure
 else {
     $null
 }
-$diagnosticsVariable = 'OXIDE_BENCHMARK_DIAGNOSTICS_PATH'
-$renderGateVariable = 'OXIDE_BENCHMARK_RENDER_GATE'
-$localCacheVariable = 'OXIDE_BENCHMARK_LOCAL_CACHE'
-$hardwareDecoderVariable = 'OXIDE_BENCHMARK_HWDEC'
-$uiCycleVariable = 'OXIDE_BENCHMARK_UI_CYCLES'
+$diagnosticsVariable = 'TAKT_BENCHMARK_DIAGNOSTICS_PATH'
+$renderGateVariable = 'TAKT_BENCHMARK_RENDER_GATE'
+$localCacheVariable = 'TAKT_BENCHMARK_LOCAL_CACHE'
+$hardwareDecoderVariable = 'TAKT_BENCHMARK_HWDEC'
+$uiCycleVariable = 'TAKT_BENCHMARK_UI_CYCLES'
 $renderGateName = if ($null -ne $playbackDiagnosticsPath) {
-    "Local\OxideBenchmarkRender-$([Guid]::NewGuid().ToString('N'))"
+    "Local\TaktBenchmarkRender-$([Guid]::NewGuid().ToString('N'))"
 }
 else {
     $null
@@ -867,7 +867,7 @@ finally {
         [EnvironmentVariableTarget]::Process
     )
 }
-Write-Host "Oxide запущен с PID $($process.Id)."
+Write-Host "Takt запущен с PID $($process.Id)."
 Write-Host $instructions
 if (-not $AutomaticIdle) {
     Read-Host 'Настройте сценарий, дождитесь стабилизации и нажмите Enter для начала замера'
@@ -878,7 +878,7 @@ if ($WarmupSeconds -gt 0) {
 }
 $process.Refresh()
 if ($process.HasExited) {
-    throw "Oxide завершился до начала замера с кодом $($process.ExitCode)"
+    throw "Takt завершился до начала замера с кодом $($process.ExitCode)"
 }
 $windowSnapshot = Get-WindowSnapshot -Process $process
 $gpuMemorySampler = New-GpuMemorySampler -ProcessId $process.Id
@@ -908,7 +908,7 @@ try {
             -Scenario $Scenario `
             -TotalStopwatch $totalStopwatch
         if ($firstPhaseCompleted) {
-            Write-Progress -Activity "Замер Oxide: $Scenario" -Completed
+            Write-Progress -Activity "Замер Takt: $Scenario" -Completed
             Write-Host ''
             Write-Host 'Первая фаза готова. Теперь откройте указанный файл БЕЗ обложки.'
             Read-Host 'Дождитесь появления заглушки обложки и нажмите Enter для второй фазы'
@@ -945,7 +945,7 @@ finally {
         $renderGate.Reset() | Out-Null
     }
     Close-GpuMemorySampler -Sampler $gpuMemorySampler
-    Write-Progress -Activity "Замер Oxide: $Scenario" -Completed
+    Write-Progress -Activity "Замер Takt: $Scenario" -Completed
 }
 
 $finishedAt = [DateTimeOffset]::UtcNow
@@ -1167,7 +1167,7 @@ $summary = [ordered]@{
         physical_memory_mib = [Math]::Round($computer.TotalPhysicalMemory / 1MB, 0)
         active_power_plan = $powerPlan
         power_line_status = $powerLineStatus
-        oxide_window = $windowSnapshot
+        takt_window = $windowSnapshot
         git_commit = $gitCommit
         build_provenance = $buildDescriptor
         working_tree_clean = [string]::IsNullOrWhiteSpace($workingTree)
@@ -1201,7 +1201,7 @@ if (-not $process.HasExited) {
         Close-BenchmarkProcess -Process $process
     }
     else {
-        Write-Host 'Oxide оставлен открытым — закройте его вручную после нужных проверок.'
+        Write-Host 'Takt оставлен открытым — закройте его вручную после нужных проверок.'
     }
 }
 $decoderValidationError = $null
@@ -1214,7 +1214,7 @@ if ($null -ne $playbackDiagnosticsPath) {
                 -Raw `
                 -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
             if ($playbackDiagnostics.schema -ne 1 `
-                -or $playbackDiagnostics.kind -ne 'oxide-mpv-playback-diagnostics') {
+                -or $playbackDiagnostics.kind -ne 'takt-mpv-playback-diagnostics') {
                 throw 'неподдерживаемая схема'
             }
             $summary.playback_diagnostics = $playbackDiagnostics
@@ -1263,7 +1263,7 @@ if ($null -ne $playbackDiagnosticsPath) {
         }
     }
     else {
-        Write-Warning 'Oxide не создал диагностический отчёт mpv; основная сводка сохранена без него.'
+        Write-Warning 'Takt не создал диагностический отчёт mpv; основная сводка сохранена без него.'
     }
 }
 if ($null -ne $renderGate) {
