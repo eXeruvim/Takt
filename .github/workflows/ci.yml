@@ -48,7 +48,6 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/build-compliance-bundle.ps1 -RequireReleaseRuntime
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $expected = (Get-FileHash sbom/takt.cdx.json -Algorithm SHA256).Hash
           $actual = (Get-FileHash artifacts/compliance/takt.cdx.json -Algorithm SHA256).Hash
           if ($expected -ne $actual) {
@@ -118,9 +117,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           ./scripts/fetch-native-runtime.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/fetch-installer-tool.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $tool = Get-Content release/installer-tool.json -Raw | ConvertFrom-Json
           $installer = "artifacts/tooling/innosetup-$($tool.version)-x64.exe"
           $toolDirectory = Join-Path $env:RUNNER_TEMP "InnoSetup-$($tool.version)"
@@ -142,9 +139,7 @@ jobs:
             $env:TAKT_UPDATE_MANIFEST_URL = "https://github.com/${{ github.repository }}/releases/latest/download/takt-update-stable.json"
           }
           ./scripts/build-installer.ps1 -Compiler $env:ISCC_PATH
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-updater.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-installer.ps1
       - name: Sign update manifest
         if: startsWith(github.ref, 'refs/tags/v')
@@ -156,7 +151,6 @@ jobs:
             throw 'Repository secret TAKT_UPDATE_SIGNING_KEY is required for a tagged release.'
           }
           ./scripts/build-update-manifest.ps1 -Repository $env:GITHUB_REPOSITORY
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload release candidate
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
