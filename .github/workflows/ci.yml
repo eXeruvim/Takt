@@ -125,10 +125,14 @@ jobs:
           $installer = "artifacts/tooling/innosetup-$($tool.version)-x64.exe"
           $toolDirectory = Join-Path $env:RUNNER_TEMP "InnoSetup-$($tool.version)"
           $process = Start-Process -FilePath $installer -ArgumentList @(
-            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$toolDirectory"
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/PORTABLE=1', "/DIR=$toolDirectory"
           ) -WindowStyle Hidden -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Inno Setup install failed: $($process.ExitCode)" }
-          "ISCC_PATH=$(Join-Path $toolDirectory 'ISCC.exe')" >> $env:GITHUB_ENV
+          $compiler = Join-Path $toolDirectory 'ISCC.exe'
+          if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+            throw "Inno Setup compiler was not created at $compiler."
+          }
+          "ISCC_PATH=$compiler" >> $env:GITHUB_ENV
       - name: Build and smoke-test release artifacts
         shell: pwsh
         run: |
