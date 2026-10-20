@@ -137,7 +137,7 @@ try {
                 throw "Native manifest: не заполнено upstream_asset.$field."
             }
         }
-        foreach ($field in @('url', 'sha256', 'size')) {
+        foreach ($field in @('url', 'github_repository', 'github_release_tag', 'name', 'sha256', 'size')) {
             if ($RequireReleaseRuntime -and [string]::IsNullOrWhiteSpace([string]$native.runtime_asset.$field)) {
                 throw "Native manifest: не заполнено runtime_asset.$field."
             }

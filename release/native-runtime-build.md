@@ -47,8 +47,10 @@ build is published. Takt therefore keeps an exact, checksum-pinned mirror of the
 three required files in its own GitHub release. The original upstream URL,
 asset ID, Actions run, and archive hash remain in the manifest as provenance.
 
-The script downloads only the stable mirror URL fixed in
-`release/native-runtime.json`, checks the archive before extraction, checks
+The script downloads only the stable mirror asset fixed in
+`release/native-runtime.json`. In private GitHub Actions runs it resolves the
+asset through GitHub's authenticated release API; public and local downloads
+use the pinned browser URL. It checks the archive before extraction, checks
 every copied member, and writes:
 
 - `libmpv-2.dll` — the runtime loaded by Takt;

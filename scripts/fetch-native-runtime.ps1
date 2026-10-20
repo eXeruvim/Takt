@@ -46,17 +46,32 @@ if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
         Remove-Item -LiteralPath $partial -Force
     }
     try {
+        $downloadUri = [string]$asset.url
         $request = @{
-            Uri = [string]$asset.url
+            Uri = $downloadUri
             OutFile = $partial
         }
         if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN) -and
             ([Uri]$asset.url).Host.EndsWith('github.com', [StringComparison]::OrdinalIgnoreCase)) {
-            $request.Headers = @{
+            foreach ($field in @('github_repository', 'github_release_tag', 'name')) {
+                if ([string]::IsNullOrWhiteSpace([string]$asset.$field)) {
+                    throw "Native manifest: не заполнено runtime_asset.$field."
+                }
+            }
+            $apiHeaders = @{
                 Authorization = "Bearer $env:GITHUB_TOKEN"
-                Accept = 'application/octet-stream'
+                Accept = 'application/vnd.github+json'
                 'X-GitHub-Api-Version' = '2022-11-28'
             }
+            $releaseUri = "https://api.github.com/repos/$($asset.github_repository)/releases/tags/$($asset.github_release_tag)"
+            $release = Invoke-RestMethod -Uri $releaseUri -Headers $apiHeaders
+            $releaseAsset = @($release.assets) | Where-Object { $_.name -eq [string]$asset.name } | Select-Object -First 1
+            if ($null -eq $releaseAsset -or [string]::IsNullOrWhiteSpace([string]$releaseAsset.url)) {
+                throw "В GitHub release не найден native runtime asset: $($asset.name)"
+            }
+            $request.Uri = [string]$releaseAsset.url
+            $apiHeaders.Accept = 'application/octet-stream'
+            $request.Headers = $apiHeaders
         }
         Invoke-WebRequest @request
         Move-Item -LiteralPath $partial -Destination $archive

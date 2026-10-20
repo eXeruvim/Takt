@@ -11,6 +11,9 @@
   },
   "runtime_asset": {
     "url": "https://github.com/eXeruvim/Takt/releases/download/v1.0.0-rc.3/Takt-native-runtime-v0.41.0-dev-gc3ac7f395-windows-x86_64-lgpl.zip",
+    "github_repository": "eXeruvim/Takt",
+    "github_release_tag": "v1.0.0-rc.3",
+    "name": "Takt-native-runtime-v0.41.0-dev-gc3ac7f395-windows-x86_64-lgpl.zip",
     "sha256": "BDC00D20A7BD43797172311A2FFADCDA543CFEB7B7F0D0A5A01842B0AF5CA7CF",
     "size": 56331431
   },
