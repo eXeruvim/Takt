@@ -4659,7 +4659,7 @@ dependencies = [
 
 [[package]]
 name = "takt"
-version = "1.0.0-rc.3"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",

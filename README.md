@@ -11,7 +11,7 @@
 Takt is currently available for 64-bit Windows 10 and 11. Linux support is
 planned after version 1.0.
 
-Current version: `1.0.0-rc.3`.
+Current version: `1.0.0`.
 
 ## Features
 

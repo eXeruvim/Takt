@@ -10,50 +10,50 @@
     },
     "component": {
       "type": "application",
-      "bom-ref": "pkg:cargo/takt@1.0.0-rc.3",
+      "bom-ref": "pkg:cargo/takt@1.0.0",
       "name": "takt",
-      "version": "1.0.0-rc.3",
+      "version": "1.0.0",
       "description": "Video and audio player built with Rust, Slint, and libmpv",
       "scope": "required",
       "licenses": {
         "expression": "GPL-3.0-or-later"
       },
-      "purl": "pkg:cargo/takt@1.0.0-rc.3",
+      "purl": "pkg:cargo/takt@1.0.0",
       "components": [
         {
           "type": "library",
-          "bom-ref": "pkg:cargo/takt@1.0.0-rc.3#bin-target-0",
+          "bom-ref": "pkg:cargo/takt@1.0.0#bin-target-0",
           "name": "takt",
-          "version": "1.0.0-rc.3",
-          "purl": "pkg:cargo/takt@1.0.0-rc.3#src/lib.rs"
+          "version": "1.0.0",
+          "purl": "pkg:cargo/takt@1.0.0#src/lib.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/takt@1.0.0-rc.3#bin-target-1",
+          "bom-ref": "pkg:cargo/takt@1.0.0#bin-target-1",
           "name": "takt",
-          "version": "1.0.0-rc.3",
-          "purl": "pkg:cargo/takt@1.0.0-rc.3#src/main.rs"
+          "version": "1.0.0",
+          "purl": "pkg:cargo/takt@1.0.0#src/main.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/takt@1.0.0-rc.3#bin-target-2",
+          "bom-ref": "pkg:cargo/takt@1.0.0#bin-target-2",
           "name": "takt-playlist-bench",
-          "version": "1.0.0-rc.3",
-          "purl": "pkg:cargo/takt@1.0.0-rc.3#src/playlist_bench.rs"
+          "version": "1.0.0",
+          "purl": "pkg:cargo/takt@1.0.0#src/playlist_bench.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/takt@1.0.0-rc.3#bin-target-3",
+          "bom-ref": "pkg:cargo/takt@1.0.0#bin-target-3",
           "name": "takt-update-manifest",
-          "version": "1.0.0-rc.3",
-          "purl": "pkg:cargo/takt@1.0.0-rc.3#src/bin/takt_update_manifest.rs"
+          "version": "1.0.0",
+          "purl": "pkg:cargo/takt@1.0.0#src/bin/takt_update_manifest.rs"
         },
         {
           "type": "application",
-          "bom-ref": "pkg:cargo/takt@1.0.0-rc.3#bin-target-4",
+          "bom-ref": "pkg:cargo/takt@1.0.0#bin-target-4",
           "name": "takt-updater",
-          "version": "1.0.0-rc.3",
-          "purl": "pkg:cargo/takt@1.0.0-rc.3#src/bin/takt_updater.rs"
+          "version": "1.0.0",
+          "purl": "pkg:cargo/takt@1.0.0#src/bin/takt_updater.rs"
         }
       ]
     },
@@ -9706,7 +9706,7 @@
   ],
   "dependencies": [
     {
-      "ref": "pkg:cargo/takt@1.0.0-rc.3",
+      "ref": "pkg:cargo/takt@1.0.0",
       "dependsOn": [
         "registry+https://github.com/rust-lang/crates.io-index#anyhow@1.0.104",
         "registry+https://github.com/rust-lang/crates.io-index#base64@0.23.1",
