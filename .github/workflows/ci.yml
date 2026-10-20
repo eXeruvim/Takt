@@ -55,7 +55,7 @@ jobs:
             throw "Tracked SBOM is stale: $expected != $actual"
           }
       - name: Upload compliance bundle
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: takt-compliance
           path: artifacts/compliance
@@ -154,7 +154,7 @@ jobs:
           ./scripts/build-update-manifest.ps1 -Repository $env:GITHUB_REPOSITORY
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload release candidate
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: takt-windows-release
           path: artifacts/release
